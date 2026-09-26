@@ -1,0 +1,3 @@
+{"type":"detection_frame","timestamp":2000.0,"frame_id":0,"camera_id":"front","image":{"width":640,"height":480},"detections":[]}
+{"type":"detection_frame","timestamp":2000.1,"frame_id":1,"camera_id":"front","image":{"width":640,"height":480},"detections":[]}
+{"type":"detection_frame","timestamp":2000.2,"frame_id":2,"camera_id":"front","image":{"width":640,"height":480},"detections":[]}

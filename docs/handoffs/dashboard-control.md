@@ -51,6 +51,46 @@ Never treat the displayed wheel values as a command to real hardware.
   - Add the bounded, latest-command-only motor-bridge IPC contract without
     changing browser controls or the frozen serial/mixing interfaces.
 
+### 2026-09-26 EDT - Model-agnostic detection recording and replay
+
+- Commit: branch feature/detection-replay, based on 8480650;
+  feat: add detection recording and replay.
+- Changed files and interfaces:
+  - Added app/rescuebot/detections.py: BoundingBox, Detection, and
+    DetectionFrame for the approved event shape (timestamp, frame_id,
+    camera_id, image width/height, detections with label, confidence, and
+    normalized top-left x/y/width/height). Includes pixel-to-normalized
+    conversion, the 0.5 default confidence filter, and DetectionTracker
+    (offline before any frame, online within 1 s, stale afterwards; stale
+    and offline status carry no detections).
+  - Added app/rescuebot/detection_replay.py: JSONL records of type
+    "detection_frame" (image dimensions stored as image.width/height),
+    a nonblocking bounded DetectionRecorder that counts dropped frames,
+    and replay_frames, which delivers frames at recorded intervals with
+    rebased timestamps and preserves original_timestamp as metadata.
+    Replay only produces detection frames and imports no motor code.
+  - Added fixtures/detections/ for appearance/disappearance, empty frames,
+    overlapping people, and a stale gap/end-of-stream case.
+  - Added tests/control/test_detections.py. No existing modules,
+    dashboard, serial protocol, or mixing code changed.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests -v: 41 passed
+    (22 existing, 19 new); 30 repeated runs passed.
+- Mock or physical coverage:
+  - Recorded fixtures and a fake clock only. No camera, IMX500 model, Pi,
+    or dashboard integration was exercised.
+- Known limitations:
+  - Not wired into the dashboard, camera service, or a camera_backend
+    setting; no live provider or annotated video.
+  - Recording file rotation/size limits and the dashboard display of
+    dropped-entry counts are not implemented.
+  - Offline means "no frame received yet"; a separate camera-health
+    signal is left to the camera service integration.
+- Next action:
+  - Review and merge into feature/dashboard-control, then add a
+    replay camera_backend that feeds DetectionTracker status to the
+    dashboard in a process isolated from motor control.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
