@@ -8,13 +8,20 @@ from types import SimpleNamespace
 import pytest
 from nav_msgs.msg import OccupancyGrid
 
-from rescuebot_navigation.search import Grid, next_viewpoint
+from rescuebot_navigation.search import Coverage, Grid, observe, next_viewpoint
 from test_mission_manager import manager, status, accepted_handle
 
 
 def grid(wall=False):
     data = tuple(100 if wall and 39 <= x <= 41 else 0 for y in range(80) for x in range(80))
     return Grid(80, 80, .05, -2, -2, data)
+
+
+def sensed(grid, positions):
+    coverage = Coverage()
+    for position in positions:
+        coverage = observe(grid, position, coverage)
+    return coverage
 
 
 def start(node, pose=None):
@@ -38,10 +45,11 @@ def test_unknown_and_occupied_cells_occlude_target():
 def test_viewpoints_are_reachable_unvisited_and_have_clearance():
     g = grid(True)
     home = (-1, 0)
-    p = next_viewpoint(g, (*home, 0), (home,), ())
+    coverage = sensed(g, (home,))
+    p = next_viewpoint(g, (*home, 0), (home,), (), coverage)
     assert p is not None and p[0] < -.4
     assert math.dist(p, home) >= .7
-    other = next_viewpoint(g, (*home, 0), (home,), (p,))
+    other = next_viewpoint(g, (*home, 0), (home,), (p,), coverage)
     assert math.dist(other, p) >= .6
 
 
@@ -62,7 +70,7 @@ def test_offset_passage_connects_rooms_only_when_observed_free(opening):
                         else 100 if abs(x) < .15 else 0)
     g = Grid(80, 80, .05, -2, -2, tuple(data))
     visited = tuple((-1.8+x*.2, -1.8+y*.2) for x in range(8) for y in range(19))
-    point = next_viewpoint(g, (-1., 0., 0.), visited, ())
+    point = next_viewpoint(g, (-1., 0., 0.), visited, (), sensed(g, visited))
     if opening:
         assert point is not None and point[0] > .15
         # Traverse the doorway, but finish beyond it with room for the stop
@@ -90,12 +98,14 @@ def test_north_start_does_not_crop_the_southern_detour():
     visited = tuple((-2.5+x*.2, -1+y*.2) for x in range(17) for y in range(18))
     pose = (*home, math.pi/2)
     destinations = []
+    coverage = sensed(g, visited)
     for _ in range(48):
-        p = next_viewpoint(g, pose, visited, ())
+        p = next_viewpoint(g, pose, visited, (), coverage)
         if p is None:
             break
         destinations.append(p)
         visited += (p,)
+        coverage = observe(g, p, coverage)
         pose = (*p, 0.)
     assert any(p[1] < -1.95 for p in destinations), destinations
     assert any(p[0] > 1.1 for p in destinations), destinations
