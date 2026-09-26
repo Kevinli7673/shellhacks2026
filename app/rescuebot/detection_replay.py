@@ -68,6 +68,7 @@ class DetectionRecorder:
         self._written = 0
         self._lock = threading.Lock()
         self._closed = False
+        self._stop = threading.Event()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle: TextIO = self.path.open("a", encoding="utf-8")
         self._thread = threading.Thread(target=self._run, name="detection-recorder", daemon=True)
@@ -84,22 +85,30 @@ class DetectionRecorder:
             return self._written
 
     def submit(self, frame: DetectionFrame) -> bool:
-        if self._closed:
-            return False
-        try:
-            self._queue.put_nowait(frame)
-        except queue.Full:
-            with self._lock:
+        # Serialize the closed check with enqueueing so that no frame can be
+        # accepted after close has started.
+        with self._lock:
+            if self._closed:
+                return False
+            try:
+                self._queue.put_nowait(frame)
+            except queue.Full:
                 self._dropped += 1
-            return False
-        return True
+                return False
+            return True
 
     def close(self, timeout_s: float = 2.0) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        # The sentinel must not be dropped, so this is the one blocking put.
-        self._queue.put(None)
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._stop.set()
+            # A full queue is normal under a slow disk. The worker observes
+            # _stop after draining it, so close must never wait for room.
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
         self._thread.join(timeout_s)
 
     def __enter__(self) -> "DetectionRecorder":
@@ -111,7 +120,12 @@ class DetectionRecorder:
     def _run(self) -> None:
         try:
             while True:
-                frame = self._queue.get()
+                try:
+                    frame = self._queue.get(timeout=0.050)
+                except queue.Empty:
+                    if self._stop.is_set():
+                        return
+                    continue
                 if frame is None:
                     return
                 self._handle.write(encode_frame(frame) + "\n")

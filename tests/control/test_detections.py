@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 
 from rescuebot.detection_replay import (
@@ -158,6 +159,31 @@ class RecordingTests(unittest.TestCase):
             gate.set()
             recorder.close()
             self.assertEqual(recorder.written_count, accepted.count(True))
+
+    def test_close_never_waits_for_a_full_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = DetectionRecorder(Path(tmp) / "d.jsonl", max_pending=1)
+            gate = threading.Event()
+            writing = threading.Event()
+            original_write = recorder._handle.write
+
+            def blocked_write(text: str) -> int:
+                writing.set()
+                gate.wait(2.0)
+                return original_write(text)
+
+            recorder._handle.write = blocked_write  # type: ignore[method-assign]
+            self.assertTrue(recorder.submit(frame(1.0, 1)))
+            self.assertTrue(writing.wait(0.5))
+            self.assertTrue(recorder.submit(frame(1.1, 2)))
+
+            started = time.monotonic()
+            recorder.close(timeout_s=0.01)
+            self.assertLess(time.monotonic() - started, 0.1)
+            self.assertFalse(recorder.submit(frame(1.2, 3)))
+            gate.set()
+            recorder._thread.join(1.0)
+            self.assertFalse(recorder._thread.is_alive())
 
     def test_parser_skips_other_record_types_and_reports_bad_lines(self) -> None:
         lines = [
