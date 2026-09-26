@@ -14,9 +14,10 @@ AGENTS.md "Cross-workstream requests".
 
 | ID | To | Request | Status |
 |---|---|---|---|
-| DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | open |
-| DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | open |
-| DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | open |
+| DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | done (1988d5a) |
+| DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | done (f6213f3) |
+| DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | done (dc4ed43) |
+| DC-4 | esp32-controller | Invert the front-left motor: in `firmware/include/chassis_config.h` set `WheelWiring front_left{1, true};`. Bench test on 2026-09-26 (Arduino IDE sketch, all four shield ports driven FORWARD) showed only the front-left wheel pushing backward, so its leads are reversed. Please also confirm with a one-port-at-a-time test that front-left really is port M1 (the mapping is still the placeholder); if not, fix the port numbers too. Already applied and verified on test/integration as e952e9a: native 52/52, clean esp32-s2 build, and a check that W drives M1 BACKWARD and M2-M4 FORWARD. A native test asserting this inversion would guard it. | open |
 
 ## Responses
 
