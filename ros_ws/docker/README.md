@@ -10,7 +10,7 @@ dashboard keys, speed adjustment, release, Space, and input expiry have been
 validated against the actual model pose. A newly inserted Gazebo obstacle
 also triggers Collision Monitor and leaves measured clearance. SLAM publishes
 a map, Nav2 completes a selected goal, and Stop/manual override/source loss cancel or disarm safely.
-Forward-facing travel and a seven-goal route around the divider have also
+Blended translation/rotation and a seven-goal route around the divider have
 passed ground-truth pose checks. The controller uses a 0.60 m local path
 horizon so goals across a wall follow the planned detour instead of stalling.
 NavFn uses Dijkstra expansion: A* repeatedly failed to extract the northern
@@ -119,8 +119,9 @@ checking manual driving, use the **Simulation autonomy** panel on the dashboard:
    by Collision Monitor. If navigation stops at an obstacle, cancel the goal
    and use manual control to move back into clear space before restarting.
 3. Click **Send goal**. The panel reports sending, navigating, and goal reached.
-   Nav2 turns toward the route, drives primarily forward, and strafes for
-   corrections. It finishes facing the bearing from the starting position to
+   Nav2 translates and turns together through ordinary bends, using mecanum
+   diagonal travel and strafe. Sharp reversals may first turn in place, and
+   final heading correction may also be stationary. It finishes facing the bearing from the starting position to
    the destination. You can send another destination after the previous goal
    finishes.
 4. **Stop** or **Space** cancels the mission and disarms. W/A/S/D takes manual
@@ -143,14 +144,18 @@ driving/speed behavior.
 To measure heading and travel against Gazebo's actual model pose, close the
 control tab and run the following from a fresh container start. The first
 command checks three clear-aisle goals with right-angle turns. The optional
-second command adds a reversal and a longer route around the divider; restart the simulation
-before each run so it begins at the spawn. The validator requires a fresh
-spawn, reads a continuous stream of actual model poses, and checks forward
-travel, final heading, destination error, and wall/divider clearance. Initial
-alignment is checked against the goal bearing only for the clear route legs;
-a detour must face its path rather than the direct line through the wall.
+second command adds a reversal and a longer route around the divider. Use the
+original `indoor_maze.sdf` world and restart before each run so it begins at
+spawn. The validator reads continuous actual model poses and checks final
+heading, destination error, bounded reverse travel, and wall/divider clearance.
+The first two clear turns must translate at least 10 cm while measurably
+rotating and move before full alignment. `--baseline` records these metrics
+without requiring blending, for comparison with the older controller.
+The rotation shim is reserved for heading errors above 1.75 rad (100°) and
+hands back to DWB below 0.65 rad (37°). X/Y/yaw limits remain unchanged.
 
 ```bash
+RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
 # From another fresh start: Nav2 chooses its own path around the divider.
@@ -200,9 +205,11 @@ restart sim`) and wait for navigation readiness:
 ```bash
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --shape cylinder --heading -135
+# From a fresh start: insert during simultaneous translation and rotation.
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --heading -90 --during-turn
 ```
 
-The robot turns toward its goal and drives forward. A red panel or cylinder
+The robot travels toward its goal. A red panel or cylinder
 appears inside the safety zone ahead of it. The check requires a `FootprintStop`
 event, zero filtered velocity, stationary model pose, and more than 5 cm of
 geometric clearance. It sends Stop and removes its own uniquely named obstacle

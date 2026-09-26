@@ -36,7 +36,7 @@ async def gz_service(name, request_type, request):
     assert process.returncode == 0 and b"data: true" in stdout, (stdout, stderr)
 
 
-async def main(shape="panel", heading=180):
+async def main(shape="panel", heading=180, during_turn=False):
     initial = await asyncio.to_thread(fetch_state)
     assert initial["motor"]["backend"] == "gazebo", "Gazebo only"
     assert initial["control"]["owner_session"] is None, "close the control dashboard tabs first"
@@ -119,9 +119,13 @@ async def main(shape="panel", heading=180):
                 goal.pose.orientation.z = math.sin(bearing / 2)
                 goal.pose.orientation.w = math.cos(bearing / 2)
                 goals.publish(goal)
-                await wait_for(lambda: safe and safe[-1][1].linear.x > .025
-                               and abs(safe[-1][1].angular.z) < .1, 30)
-                await asyncio.sleep(0.6)
+                if during_turn:
+                    await wait_for(lambda: safe and math.hypot(safe[-1][1].linear.x, safe[-1][1].linear.y) > .025
+                                   and abs(safe[-1][1].angular.z) > .1, 30)
+                else:
+                    await wait_for(lambda: safe and safe[-1][1].linear.x > .025
+                                   and abs(safe[-1][1].angular.z) < .1, 30)
+                    await asyncio.sleep(0.6)
                 assert state()["autonomy"]["active"]
                 before = await pose()
                 # Both shapes enter the unchanged stop polygon at a near
@@ -140,7 +144,7 @@ async def main(shape="panel", heading=180):
                 inserted = time.monotonic()
                 await gz_service("create", "gz.msgs.EntityFactory", "sdf: " + json.dumps(sdf))
                 created = True
-                print(f"INSERTED {shape} during forward travel on a {heading}-degree Nav2 goal", flush=True)
+                print(f"INSERTED {shape} during {'combined translation/turn' if during_turn else 'forward travel'} on a {heading}-degree Nav2 goal", flush=True)
                 await wait_for(lambda: any(t >= inserted and m.action_type == m.STOP and m.polygon_name == "FootprintStop" for t, m in collision), 3)
                 event_time = next(t for t, m in collision if t >= inserted and m.action_type == m.STOP)
                 await wait_for(lambda: safe[-1][0] >= event_time and safe[-1][1].linear.x == safe[-1][1].linear.y == safe[-1][1].angular.z == 0)
@@ -189,5 +193,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--shape", choices=("panel", "cylinder"), default="panel")
     parser.add_argument("--heading", type=float, choices=(180, -90, -135), default=180)
+    parser.add_argument("--during-turn", action="store_true", help="Insert while safe output combines translation and yaw")
     args = parser.parse_args()
-    asyncio.run(main(args.shape, args.heading))
+    asyncio.run(main(args.shape, args.heading, args.during_turn))

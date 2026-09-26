@@ -36,8 +36,11 @@ controller_server:
     FollowPath:
       plugin: nav2_rotation_shim_controller::RotationShimController
       primary_controller: dwb_core::DWBLocalPlanner
-      angular_dist_threshold: 0.35
-      angular_disengage_threshold: 0.12
+      # Let DWB combine x/y translation with yaw through ordinary turns.
+      # Reserve the rotation shim for sharp reversals, handing back while
+      # still 37 degrees off-heading so alignment can finish in motion.
+      angular_dist_threshold: 1.75
+      angular_disengage_threshold: 0.65
       forward_sampling_distance: 0.30
       rotate_to_heading_angular_vel: 0.24
       max_angular_accel: 0.60

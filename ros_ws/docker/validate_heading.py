@@ -1,4 +1,4 @@
-"""Check forward-facing dashboard goals against Gazebo ground truth.
+"""Check blended translation/turning against Gazebo ground truth.
 
 Run in a fresh simulation with control tabs closed. Optional --long-routes
 continues through the lower opening around the world's divider. No real
@@ -20,7 +20,7 @@ def angle(value):
     return math.atan2(math.sin(value), math.cos(value))
 
 
-async def run(pose, long_routes=False, detour=False):
+async def run(pose, long_routes=False, detour=False, baseline=False):
     current = await asyncio.to_thread(fetch_state)
     assert current["motor"]["backend"] == "gazebo"
     assert current["control"]["owner_session"] is None, "close simulation control tabs"
@@ -102,6 +102,7 @@ async def run(pose, long_routes=False, detour=False):
                     previous = before
                     total = forward_distance = lateral_distance = backward_distance = 0.
                     pre_alignment_distance = 0.
+                    blended_distance = blended_yaw = total_yaw = 0.
                     aligned = abs(angle(before[2] - bearing)) < .35
                     onset_error = None
                     samples = 0
@@ -120,6 +121,13 @@ async def run(pose, long_routes=False, detour=False):
                         forward_distance += max(0., local[0])
                         backward_distance += max(0., -local[0])
                         lateral_distance += abs(local[1])
+                        total_yaw += abs(local[2])
+                        # Above the stationary/noise floor at either 1x or 3x.
+                        # Measure simultaneous actual displacement and yaw,
+                        # not merely the controller's requested velocities.
+                        if step >= .002 and abs(local[2]) >= .008:
+                            blended_distance += step
+                            blended_yaw += abs(local[2])
                         if not aligned:
                             pre_alignment_distance += step
                             aligned = abs(angle(actual[2] - bearing)) < .35
@@ -138,6 +146,8 @@ async def run(pose, long_routes=False, detour=False):
                                   actual_pose=previous, goal_error_m=error, path_m=total,
                                   forward_share=forward_distance/max(total, .001),
                                   lateral_m=lateral_distance, backward_m=backward_distance,
+                                  blended_distance_m=blended_distance,
+                                  blended_yaw_rad=blended_yaw, total_yaw_rad=total_yaw,
                                   pre_alignment_m=None if detour else pre_alignment_distance,
                                   min_clearance_m=min_clearance,
                                   final_heading_error_rad=abs(angle(previous[2]-bearing)),
@@ -147,13 +157,15 @@ async def run(pose, long_routes=False, detour=False):
                     assert error < .23, result
                     assert min_clearance > .05, result
                     assert abs(angle(previous[2]-bearing)) < .3, result
-                    if not detour:
-                        assert pre_alignment_distance < .08, result
-                        assert onset_error is not None and onset_error < .4, result
-                    assert forward_distance / total > .80, result
+                    if not detour and index <= 2 and not baseline:
+                        assert blended_distance >= .10 and blended_yaw >= .25, result
+                        assert pre_alignment_distance >= .08, result
+                    # Facing the route is a preference; mecanum strafe during
+                    # a turn is now intentional. Reverse travel stays bounded.
                     assert backward_distance < .04, result
                     await asyncio.sleep(.3)
-                print("PASS goals complete with forward travel and obstacle clearance", flush=True)
+                print("PASS goals complete with obstacle clearance" +
+                      (" (baseline measurement)" if baseline else " and blended travel"), flush=True)
             finally:
                 await send("stop")
                 ticker.cancel()
@@ -164,14 +176,15 @@ async def run(pose, long_routes=False, detour=False):
         await asyncio.gather(poller, return_exceptions=True)
 
 
-async def main(long_routes=False, detour=False):
+async def main(long_routes=False, detour=False, baseline=False):
     async with pose_stream() as pose:
-        await run(pose, long_routes, detour)
+        await run(pose, long_routes, detour, baseline)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--long-routes", action="store_true")
     parser.add_argument("--detour", action="store_true", help="One goal across the divider; Nav2 must find its own detour")
+    parser.add_argument("--baseline", action="store_true", help="Record overlap without requiring blended turns")
     args = parser.parse_args()
-    asyncio.run(main(args.long_routes, args.detour))
+    asyncio.run(main(args.long_routes, args.detour, args.baseline))
