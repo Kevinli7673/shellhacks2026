@@ -59,7 +59,7 @@ function updateDashboard(data) {
   connection.textContent = connected ? "Connected" : "Disconnected";
 
   setText("ownership-status", canControl ? "Control available" : "Read-only");
-  setText("driving-status", control.armed ? "Enabled" : "Disabled");
+  setText("driving-status", control.arming ? "Arming…" : control.armed ? "Enabled" : "Disabled");
   setText("speed-value", control.speed_percent + "%");
   setText("speed-limit", motor.wheels ? control.speed_limit + " / 255 PWM" : "0 / 255 PWM");
   setText("fault-message", control.fault || (canControl ? "Click Enable Driving to arm controls." : "Another browser owns driving."));
@@ -68,6 +68,13 @@ function updateDashboard(data) {
   setText("wheel-fr", motor.wheels.fr);
   setText("wheel-rl", motor.wheels.rl);
   setText("wheel-rr", motor.wheels.rr);
+  setText(
+    "wheel-caption",
+    motor.backend === "bridge"
+      ? "Motor bridge " + (motor.healthy ? "connected" : "unavailable") +
+          "; values are firmware-acknowledged PWM before wheel mapping."
+      : "Mock backend; values are signed PWM requests before wheel mapping."
+  );
 
   element("enable-button").disabled = !connected || !canControl || heldKeys.size > 0;
 }
