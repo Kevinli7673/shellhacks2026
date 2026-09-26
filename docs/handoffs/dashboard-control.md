@@ -1,8 +1,8 @@
 # Dashboard and control handoff
 
 Workstream: dashboard and control  
-Branch: feature/dashboard-control  
-Status: ready for integration after review
+Branch: feature/dashboard-control (serial transport checkpoint: feature/real-serial-transport)
+Status: serial transport checkpoint ready for integration
 
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
@@ -14,9 +14,9 @@ AGENTS.md "Cross-workstream requests".
 
 | ID | To | Request | Status |
 |---|---|---|---|
-| DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | open |
-| DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | open |
-| DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | open |
+| DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | done: 1988d5a |
+| DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | done: f6213f3 |
+| DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | done: 1988d5a |
 
 ## Responses
 
@@ -38,8 +38,9 @@ Responses from dashboard/control to ESP32-controller requests (FW-#).
 - The motor-bridge process is merged. The dashboard drives it with
   `--motor-backend bridge` (Enable waits for the firmware arm_ack); the
   bridge currently talks only to the simulated firmware.
-- The real serial transport (pyserial, deferred by decision), live camera,
-  and video are not implemented.
+- Real serial transport is implemented in checkpoint f7d2ae4 on
+  feature/real-serial-transport. It awaits sequential integration into
+  feature/dashboard-control; live camera and video are not implemented.
 
 ## Local run
 
@@ -65,6 +66,16 @@ Both default to sockets under /tmp/rescuebot-<uid>/ (override with
 RESCUEBOT_RUN_DIR). Start either one first; Enable Driving is refused until
 the dashboard receives bridge status. Enable shows "Arming…" until the
 firmware confirms, and stops with arm_timeout after 1 s without it.
+
+After installing this checkpoint with `.venv/bin/pip install -e .`, use the
+real transport only with the ESP32-S2's confirmed stable device path:
+
+    .venv/bin/python -m rescuebot.motor_bridge \
+      --transport serial \
+      --serial-device /dev/serial/by-id/<confirmed-esp32-s2-device>
+
+The bridge rejects bare ttyUSB/ttyACM names. It does not arm on connection or
+reconnection; the dashboard still requires an explicit Enable Driving action.
 
 ## Raspberry Pi environment
 
@@ -104,6 +115,50 @@ Private details (username, network, device serial numbers) are omitted.
   Re-run the read-only camera and serial checks once each is connected.
 
 ## Handoff log
+
+### 2026-09-26 EDT - Safe ESP32-S2 serial transport
+
+- Commit: f7d2ae4, `feat: add safe ESP32 serial transport`, on
+  feature/real-serial-transport (base: 2276d32). This checkpoint is not yet
+  integrated into feature/dashboard-control.
+- Changed files and interfaces:
+  - Added `serial_transport.py`, a lazily imported pyserial transport that
+    accepts only a direct `/dev/serial/by-id/...` path, fixes the baud rate at
+    115200, disables timeouts and flow control, and reads at most 512 bytes
+    per bridge loop.
+  - A short write, read error, or closed port closes the transport immediately.
+    No partial or old movement packet is retried. The bridge drops its current
+    command, creates a fresh MotorLink session after reconnect, sends disarm,
+    and remains disarmed until the user explicitly enables driving again.
+  - `motor_bridge --transport sim|serial --serial-device ...` selects the
+    backend; `sim` remains the default. Missing/failed serial open reports the
+    bounded `transport_unavailable` safety fault.
+  - Added `pyserial>=3.5,<4` to project dependencies. The serial protocol,
+    mixing behavior, browser controls, and firmware interfaces did not change.
+- Tests and results:
+  - `PYTHONPATH=app .venv/bin/python -m unittest discover -s tests -v`:
+    111 passed on macOS. The Unix-socket process tests ran with local socket
+    permission; no hardware was accessed.
+  - `PYTHONPATH=app .venv/bin/python -m py_compile
+    app/rescuebot/serial_transport.py app/rescuebot/motor_bridge.py`: passed.
+  - Tests use a fake serial port for 115200/nonblocking setup, bounded reads,
+    open failure, short write, read failure, unavailable-device status, and
+    reconnect-disarmed behavior. They do not require pyserial installed in
+    the development virtual environment.
+- Mock or physical coverage:
+  - Fake serial and simulated firmware only. The ESP32-S2 is not connected,
+    no stable ESP32 device identity is known, and no motor hardware was run.
+- Known limitations:
+  - The existing local `.venv` predates the dependency change; reinstall with
+    `pip install -e .` before running the serial backend.
+  - Hardware configuration remains unresolved: ESP32 board/USB identity,
+    shield address, I2C pins, motor mapping/inversions, output ceiling, and
+    power configuration. Do not start real driving until these are validated.
+- Next action:
+  - Integrate f7d2ae4 sequentially into feature/dashboard-control. Once the
+    ESP32 is connected, identify its `/dev/serial/by-id` entry, reinstall the
+    package on the Pi, and perform the approved raised-chassis low-power
+    acceptance sequence. Never substitute the likely LiDAR `/dev/ttyUSB0`.
 
 ### 2026-09-26 EDT - Dashboard/control mock checkpoint
 
