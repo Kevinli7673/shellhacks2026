@@ -30,7 +30,7 @@ Never treat the displayed wheel values as a command to real hardware.
 
 ### 2026-09-26 EDT - Dashboard/control mock checkpoint
 
-- Commit: pending.
+- Commit: 5138eaf, feat: add mock manual control dashboard.
 - Changed files and interfaces:
   - Added app/rescuebot/ with pure mecanum mixing, manual control safety,
     mock backend, FastAPI transport, and browser dashboard assets.
