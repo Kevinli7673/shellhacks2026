@@ -104,4 +104,7 @@ manual speed; autonomous speed remains the configured host limit.
 
 Before attempting frontier exploration, verify that SLAM Toolbox supplies the
 `map → odom` transform, the simulation bridge supplies `odom → base_link`, and
-Collision Monitor stops motion when a simulated obstacle enters the footprint.
+Collision Monitor stops motion when a simulated obstacle enters its safety
+zone. The validated stop-zone half-extents are 0.30 m forward/back and 0.26 m
+left/right, including clearance beyond the estimated chassis. These simulation
+values need measured geometry and braking validation before physical use.

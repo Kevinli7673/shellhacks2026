@@ -6,6 +6,7 @@ collision_monitor:
     odom_frame_id: odom
     cmd_vel_in_topic: /cmd_vel_smoothed
     cmd_vel_out_topic: /cmd_vel_safe
+    state_topic: /rescuebot/collision_state
     transform_tolerance: 0.2
     source_timeout: 0.5
     base_shift_correction: true
@@ -18,7 +19,9 @@ collision_monitor:
       action_type: stop
       min_points: 4
       visualize: true
-      points: "[[0.19, 0.16], [0.19, -0.16], [-0.19, -0.16], [-0.19, 0.16]]"
+      # Include sensor/IPC stopping distance outside the estimated chassis.
+      # The previous 0.19 x 0.16 half-extents allowed contact in runtime tests.
+      points: "[[0.30, 0.26], [0.30, -0.26], [-0.30, -0.26], [-0.30, 0.26]]"
     observation_sources: [scan]
     scan:
       type: scan

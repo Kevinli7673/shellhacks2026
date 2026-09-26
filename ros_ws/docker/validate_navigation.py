@@ -11,18 +11,33 @@ import time
 
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
-from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.srv import GetState
+from nav2_msgs.srv import ManageLifecycleNodes
 import rclpy
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 import websockets
 
-from validate_manual import state, pose, displacement
+from validate_manual import state as fetch_state, pose, displacement
 
 
 async def main():
-    assert state()["motor"]["backend"] == "gazebo"
+    latest_state = fetch_state()
+    state_received = time.monotonic()
+    assert latest_state["motor"]["backend"] == "gazebo"
+
+    def state():
+        assert time.monotonic() - state_received < .5, "dashboard state polling stalled"
+        return latest_state
+
+    async def poll_state():
+        nonlocal latest_state, state_received
+        while True:
+            # HTTP reads must not starve the 50 ms WebSocket heartbeat.
+            latest_state = await asyncio.to_thread(fetch_state)
+            state_received = time.monotonic()
+            await asyncio.sleep(.05)
     rclpy.init()
     node = rclpy.create_node("navigation_acceptance")
     maps, statuses = [], []
@@ -36,10 +51,10 @@ async def main():
 
     async def spin():
         while True:
-            rclpy.spin_once(node, timeout_sec=0)
-            await asyncio.sleep(0.005)
+            await asyncio.to_thread(rclpy.spin_once, node, timeout_sec=.01)
 
     spinner = asyncio.create_task(spin())
+    poller = asyncio.create_task(poll_state())
 
     async def wait_for(predicate, timeout=15):
         end = time.monotonic() + timeout
@@ -134,28 +149,43 @@ async def main():
                 await start()
                 await goal(0.4)
                 await asyncio.sleep(0.5)
-                lifecycle = node.create_client(ChangeState, "/collision_monitor/change_state")
+                lifecycle = node.create_client(
+                    ManageLifecycleNodes, "/lifecycle_manager_navigation/manage_nodes")
                 await wait_for(lifecycle.service_is_ready)
 
-                async def transition(identifier):
-                    request = ChangeState.Request()
-                    request.transition.id = identifier
-                    future = lifecycle.call_async(request)
-                    await wait_for(future.done)
-                    assert future.result().success
+                def transition(command):
+                    request = ManageLifecycleNodes.Request()
+                    request.command = command
+                    return lifecycle.call_async(request)
 
+                # Use the lifecycle manager so its bond bookkeeping stays in
+                # sync. Directly toggling one managed node leaves a delayed
+                # bond failure that can deactivate the rest of the stack.
+                started = time.monotonic()
+                paused = transition(ManageLifecycleNodes.Request.PAUSE)
                 try:
-                    await transition(4)  # Deactivate the sole safe-velocity source.
-                    started = time.monotonic()
-                    await wait_for(lambda: not state()["control"]["armed"], 2)
+                    await wait_for(lambda: not state()["control"]["armed"], 3)
                     elapsed = time.monotonic() - started
                     assert state()["autonomy"]["reason"] == "autonomy_timeout"
-                    print(f"PASS lost safe velocity disarms in {elapsed:.3f}s", flush=True)
+                    await wait_for(paused.done)
+                    assert paused.result().success
+                    print(f"PASS managed Nav2 pause disarms in {elapsed:.3f}s", flush=True)
                 finally:
-                    await transition(3)
-                await asyncio.sleep(0.5)
+                    await wait_for(paused.done)
+                    resumed = transition(ManageLifecycleNodes.Request.RESUME)
+                    await wait_for(resumed.done)
+                    assert resumed.result().success
+                await asyncio.sleep(5)
                 assert not state()["control"]["armed"]
                 assert not state()["autonomy"]["active"]
+                for name in ("controller_server", "planner_server", "behavior_server",
+                             "bt_navigator", "velocity_smoother", "collision_monitor"):
+                    client = node.create_client(GetState, f"/{name}/get_state")
+                    await wait_for(client.service_is_ready)
+                    result = client.call_async(GetState.Request())
+                    await wait_for(result.done)
+                    assert result.result().current_state.id == 3, f"{name} did not remain active"
+                print("PASS all six Nav2 nodes remain active after managed resume", flush=True)
                 print("PASS restored source never automatically rearms", flush=True)
             finally:
                 await send("stop")
@@ -164,7 +194,8 @@ async def main():
                 await asyncio.gather(ticker, reader, return_exceptions=True)
     finally:
         spinner.cancel()
-        await asyncio.gather(spinner, return_exceptions=True)
+        poller.cancel()
+        await asyncio.gather(spinner, poller, return_exceptions=True)
         node.destroy_node()
         rclpy.shutdown()
 

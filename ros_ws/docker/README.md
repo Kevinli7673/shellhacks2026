@@ -7,8 +7,9 @@ desktop, so no macOS X server is needed.
 
 Status: all four ROS packages build on ARM64. Gazebo sensors, bridges, manual
 dashboard keys, speed adjustment, release, Space, and input expiry have been
-validated against the actual model pose. SLAM publishes a map, Nav2 completes
-a selected goal, and Stop/manual override/source loss cancel or disarm safely.
+validated against the actual model pose. A newly inserted Gazebo obstacle
+also triggers Collision Monitor and leaves measured clearance. SLAM publishes
+a map, Nav2 completes a selected goal, and Stop/manual override/source loss cancel or disarm safely.
 The Ubuntu suite reports 154 tests (152 pass, 2 environment-gated skips), and
 all five ROS tests pass. This is simulation coverage only.
 
@@ -28,8 +29,15 @@ docker compose -f ros_ws/docker/compose.yaml logs -f sim
 
 Open the dashboard at <http://localhost:18000> and the Gazebo desktop at
 <http://localhost:16080/vnc.html?autoconnect=true&resize=scale>.
-Focus the dashboard when using W/S, A/D, arrows, and Space. Enable driving
-explicitly. Verify the Gazebo robot moves and stops before starting navigation.
+The dashboard camera uses a short detection replay fixture. **Camera stale is
+expected:** that panel is not a live simulator camera. Watch the orange robot
+in the Gazebo desktop instead. Use separate windows side by side; keep focus
+on the dashboard for W/S, A/D, arrows, and Space. Losing dashboard focus stops
+driving. Enable driving explicitly after returning.
+
+To get a closer view, right-click `rescuebot` in Gazebo's Entity Tree, select
+**Move To**, then scroll up over the robot. Verify visible movement and stops
+before starting navigation.
 
 The image contains a snapshot of this worktree. Rebuild after source edits and
 run `up -d` again. No host repository, serial devices, Docker socket, or runtime
@@ -69,7 +77,8 @@ docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypo
 
 Verify map, scan, odometry, and TF before selecting goals. The dashboard must
 have driving enabled and Start autonomy selected. The existing mission manager
-accepts RViz `/goal_pose` goals. Stop the current goal before choosing another. Manual movement or Space
+accepts RViz `/goal_pose` goals. Stop the current goal before choosing another.
+Manual movement or Space
 cancels the mission. The fixed autonomy speed limit is 20%, independent of the
 manual speed selector. See [the workspace guide](../README.md) for velocity
 limits and the idle mission timeout.
@@ -82,8 +91,22 @@ docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entr
 ```
 
 This publishes `/goal_pose` through the mission manager, checks Nav2 success
-and actual Gazebo model travel, and temporarily deactivates/reactivates
-Collision Monitor to test source expiry. The script always sends Stop.
+and actual Gazebo model travel, and temporarily pauses/resumes Nav2 through
+its lifecycle manager to test source expiry and restoration without automatic
+rearming. The script always sends Stop.
+
+To demonstrate obstacle stopping, keep the Gazebo desktop open and close
+control dashboard tabs so the test can own the simulated robot:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py
+```
+
+The robot starts a backward Nav2 goal. A red panel appears inside the safety
+zone. The check requires a `FootprintStop` event, zero filtered velocity,
+stationary model pose, and more than 5 cm of geometric clearance. It sends
+Stop and removes its own uniquely named panel on exit. This is one simulated
+rear-obstacle scenario; it does not establish all-direction physical safety.
 
 Run the ROS regression tests in a separate container:
 
@@ -98,7 +121,8 @@ docker compose -f ros_ws/docker/compose.yaml down
 ```
 
 The healthcheck tests dashboard HTTP availability only. It does not establish
-working Gazebo sensors, ROS bridges, SLAM, or navigation. Software rendering works on this Mac; long missions, obstacle-entry stopping,
+working Gazebo sensors, ROS bridges, SLAM, or navigation. Software rendering
+works on this Mac; long missions, varied obstacle approaches,
 and map accuracy against measured geometry remain unvalidated. The short
 replay fixture expires quickly, so a stale camera banner is expected and does
 not indicate a motor or ROS failure.
