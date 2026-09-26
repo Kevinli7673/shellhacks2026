@@ -12,22 +12,30 @@ Correct historical mistakes with a new entry rather than silently erasing them.
 
 - Milestone: manual driving + person detection + dashboard.
 - Design: approved for implementation.
-- Implementation: documentation baseline complete; application code not started.
-- Stages A-K: not started.
+- Implementation: parallel workstreams in progress. Nothing has been
+  integrated into main except the documentation, the cross-workstream request
+  channel (b37213e), and ai_camera_detect.py (994802e).
+- Stages A-D and camera stages: see docs/handoffs/dashboard-control.md on
+  feature/dashboard-control.
+- Stage E (firmware side) and F: firmware implemented on
+  feature/esp32-controller. Native tests pass 52/52 and `pio run -e esp32-s2`
+  builds. Not flashed; no hardware test.
 - Stage L: deferred until physical milestone acceptance.
 - Physical acceptance: not performed.
-- Known application checkpoint: Stage 0 documentation baseline (tag: stage-0-docs).
+- Known application checkpoint: Stage 0 documentation baseline (tag:
+  stage-0-docs, not yet pushed to origin). ESP32 firmware native checkpoint:
+  f6213f3 (not integrated).
 - Initial repository baseline: 34fb0b2, "Initial commit".
-- Initial tracked content: README.md.
-- Next action: start the dashboard/control and ESP32-controller workstreams.
+- Next action: integrator reviews and merges the workstream branches per
+  WORKSTREAMS.md merge gates; resolve open hardware facts before Stage G.
 
 ## Active work
 
 | Workstream | Branch/worktree | Affected areas/interfaces | Status | Updated |
 |---|---|---|---|---|
 | Documentation baseline | main | Plan, repository rules, handoff log, original reference, README | Complete | 2026-09-26 EDT |
-| Dashboard and control | feature/dashboard-control | app/, static assets, control tests, mock backend | Planned | 2026-09-26 EDT |
-| ESP32 controller | feature/esp32-controller | firmware/, firmware tests, shield and IMU adapters | Planned | 2026-09-26 EDT |
+| Dashboard and control | feature/dashboard-control | app/, static assets, control tests, mock backend | Active; its handoff (585d499) reports "ready for integration after review" | 2026-09-26 EDT |
+| ESP32 controller | feature/esp32-controller | firmware/, firmware/test/, shield and IMU adapters | Active; native tests 52/52; esp32-s2 build succeeds; not integrated | 2026-09-26 EDT |
 
 See WORKSTREAMS.md for the assigned development split and merge gates.
 This table alone does not lock files or synchronize separate branches.
@@ -37,7 +45,9 @@ This table alone does not lock files or synchronize separate branches.
 | Reference | Coverage | Validation evidence | Limitations |
 |---|---|---|---|
 | 34fb0b2 | Initial repository | Repository inspection only | No application or hardware validation |
-| stage-0-docs | Documentation baseline | Original plan copied byte-for-byte; repository documentation inspected | No application or hardware validation |
+| stage-0-docs | Documentation baseline | Original plan copied byte-for-byte; repository documentation inspected | No application or hardware validation. The tag has not been pushed to origin (checked 2026-09-26). |
+| f6213f3 (feature/esp32-controller) | ESP32 firmware pure logic: mixing, session/watchdog, protocol codec, Controller, shared serial vectors | `pio test -e native` from firmware/: 52/52 pass (Windows 11, PlatformIO 6.2.0, GCC 15.2.0, ArduinoJson 6.21.6) | Native host only. Not integrated into main. No flashing or hardware test. |
+| 1988d5a (feature/esp32-controller) | Same firmware; all Arduino-side sources | `pio run -e esp32-s2` from firmware/: SUCCESS, 0 warnings, RAM 4.8%, flash 20.6% (placeholder board esp32-s2-saola-1) | Build only. Board unconfirmed; not flashed; no hardware test. |
 
 ## Open hardware facts
 
@@ -103,6 +113,53 @@ Validation:
 
 - Documentation boundaries reviewed against the approved milestone.
 - No application, firmware, or physical tests performed.
+
+### 2026-09-26 EDT - ESP32 controller: Stage E/F firmware, native tests, board build
+
+- Workstream: ESP32 controller.
+- Stage: E (firmware side) and F.
+- Branch/worktree: feature/esp32-controller.
+- Status: in progress; not integrated.
+- Base commit: 70bc2cc.
+- Resulting commits: 48ae9dd (skeleton), 3cbea5f (review feedback),
+  0332bd9 (native build and parser fixes), f6213f3 (30-case shared vectors),
+  1988d5a (merge of main for the request channel). Full detail is in
+  docs/handoffs/esp32-controller.md.
+- Changes and affected files/interfaces: firmware/ PlatformIO project with
+  pure mecanum mixing, wheel wiring config, SessionGuard (arm/session/seq/
+  500 ms watchdog), bounded LineReader, ArduinoJson protocol codec,
+  Controller, and Motor Shield V2 / BNO055 adapters. The drive packet and
+  drive ACK shapes are unchanged. Arm/disarm/arm_ack/disarm_ack/fault/imu
+  shapes were defined by this workstream, and the Pi side adopted them.
+- Reason and accepted design decisions:
+  - A stale arm (same session, seq not higher than the last seen) is
+    ignored; an arm in a new session is always accepted.
+  - An accepted arm zeroes motor outputs.
+  - Boot sends `{"type":"fault","reason":"boot","armed":false}`.
+  - Unknown extra JSON fields are ignored. Duplicate keys are not rejected;
+    ArduinoJson 6.21.6 keeps the last occurrence (measured).
+  - `hardware_pwm_ceiling` stays 0 until physically validated.
+- Tests (from firmware/, PlatformIO 6.2.0 in an isolated venv, Windows 11):
+  - `pio test -e native` with GCC 15.2.0: 52/52 pass, including the 30
+    shared serial vectors and boot_emit. This matches dashboard/control's
+    independent 52/52 on macOS arm64.
+  - `pio run -e esp32-s2`: SUCCESS, 0 warnings, RAM 4.8%, flash 20.6%.
+  - A real defect was found and fixed along the way: a 256-byte
+    StaticJsonDocument returned NoMemory for every valid drive packet (the
+    firmware as of 3cbea5f could never have driven). Fixed in 0332bd9.
+- Physical evidence: not performed. Nothing was flashed.
+- Known failures or limitations: the board is a placeholder
+  (esp32-s2-saola-1); wheel mapping, inversions, and ceiling are
+  unvalidated; the Adafruit adapters have compiled but never run on
+  hardware.
+- Uncommitted work: none after this entry is committed.
+- Coordination or merge notes: `AGENTS.md` and this file were edited on
+  this feature branch at the user's explicit direction, overriding
+  WORKSTREAMS.md's "do not modify from a feature branch" rule. Expect merge
+  conflicts here with other branches. WORKSTREAMS.md still names
+  `firmware/tests/`; the directory is `firmware/test/`.
+- Next action: confirm the ESP32-S2 board and hardware facts, then Stage G
+  from integrated main with the chassis raised.
 
 ## Entry template
 

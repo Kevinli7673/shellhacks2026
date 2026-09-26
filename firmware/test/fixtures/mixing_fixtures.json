@@ -1,0 +1,201 @@
+{
+  "_comment": "Shared mecanum mixing behavioral fixtures. Values computed from the exact equations in IMPLEMENTATION_PLAN.md section 4 via test/fixtures/generate_mixing_fixtures.py and cross-checked by hand. firmware/test/test_mixing/test_mixing.cpp asserts these same values against mix(). The dashboard/control workstream should reproduce identical values from its Python mock mixing implementation to keep parity (IMPLEMENTATION_PLAN.md section 4: 'Use shared fixtures to verify Python/C++ output parity').",
+  "fixtures": [
+    {
+      "name": "zero_limit",
+      "forward": 1.0,
+      "sideways": 1.0,
+      "turn": 1.0,
+      "speed_limit": 0,
+      "expected": {
+        "front_left": 0,
+        "front_right": 0,
+        "rear_left": 0,
+        "rear_right": 0
+      },
+      "note": "Explicit zero-limit handling: four zero outputs."
+    },
+    {
+      "name": "forward_positive",
+      "forward": 1.0,
+      "sideways": 0.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": 100,
+        "rear_left": 100,
+        "rear_right": 100
+      },
+      "note": "Logical-direction test: positive forward -> all four outputs positive."
+    },
+    {
+      "name": "forward_negative",
+      "forward": -1.0,
+      "sideways": 0.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": -100,
+        "front_right": -100,
+        "rear_left": -100,
+        "rear_right": -100
+      },
+      "note": "Negative forward reverses all four outputs."
+    },
+    {
+      "name": "sideways_positive",
+      "forward": 0.0,
+      "sideways": 1.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": -100,
+        "rear_left": -100,
+        "rear_right": 100
+      },
+      "note": "Logical-direction test: positive sideways -> FL/RR positive, FR/RL negative."
+    },
+    {
+      "name": "sideways_negative",
+      "forward": 0.0,
+      "sideways": -1.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": -100,
+        "front_right": 100,
+        "rear_left": 100,
+        "rear_right": -100
+      },
+      "note": "Negative sideways reverses the corresponding outputs."
+    },
+    {
+      "name": "turn_positive",
+      "forward": 0.0,
+      "sideways": 0.0,
+      "turn": 1.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": -100,
+        "rear_left": 100,
+        "rear_right": -100
+      },
+      "note": "Logical-direction test: positive turn -> FL/RL positive, FR/RR negative."
+    },
+    {
+      "name": "turn_negative",
+      "forward": 0.0,
+      "sideways": 0.0,
+      "turn": -1.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": -100,
+        "front_right": 100,
+        "rear_left": -100,
+        "rear_right": 100
+      },
+      "note": "Negative turn reverses the corresponding outputs."
+    },
+    {
+      "name": "diagonal_forward_right",
+      "forward": 1.0,
+      "sideways": 1.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": 0,
+        "rear_left": 0,
+        "rear_right": 100
+      },
+      "note": "Forward/sideways magnitude exceeds 1; normalized before scaling, then saturation-scaled together."
+    },
+    {
+      "name": "diagonal_forward_left",
+      "forward": 1.0,
+      "sideways": -1.0,
+      "turn": 0.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 0,
+        "front_right": 100,
+        "rear_left": 100,
+        "rear_right": 0
+      },
+      "note": "Mirror of diagonal_forward_right."
+    },
+    {
+      "name": "forward_plus_turn_saturates",
+      "forward": 1.0,
+      "sideways": 0.0,
+      "turn": 1.0,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": 0,
+        "rear_left": 100,
+        "rear_right": 0
+      },
+      "note": "Raw outputs (200, 0, 200, 0) exceed the limit; all four scaled together by 0.5."
+    },
+    {
+      "name": "all_axes_combined",
+      "forward": 0.6,
+      "sideways": 0.6,
+      "turn": 0.6,
+      "speed_limit": 100,
+      "expected": {
+        "front_left": 100,
+        "front_right": -33,
+        "rear_left": 33,
+        "rear_right": 33
+      },
+      "note": "Combined translation and rotation; raw max magnitude (180) triggers proportional scaling before rounding."
+    },
+    {
+      "name": "small_speed_limit",
+      "forward": 1.0,
+      "sideways": 0.0,
+      "turn": 0.0,
+      "speed_limit": 1,
+      "expected": {
+        "front_left": 1,
+        "front_right": 1,
+        "rear_left": 1,
+        "rear_right": 1
+      },
+      "note": "Common wheel-output normalization boundary at the smallest nonzero limit."
+    },
+    {
+      "name": "full_pwm_ceiling",
+      "forward": 1.0,
+      "sideways": 0.0,
+      "turn": 0.0,
+      "speed_limit": 255,
+      "expected": {
+        "front_left": 255,
+        "front_right": 255,
+        "rear_left": 255,
+        "rear_right": 255
+      },
+      "note": "Full protocol PWM ceiling boundary."
+    },
+    {
+      "name": "negative_turn_only_half",
+      "forward": 0.0,
+      "sideways": 0.0,
+      "turn": -0.5,
+      "speed_limit": 200,
+      "expected": {
+        "front_left": -100,
+        "front_right": 100,
+        "rear_left": -100,
+        "rear_right": 100
+      },
+      "note": "Fractional turn input, no normalization or saturation triggered."
+    }
+  ]
+}
