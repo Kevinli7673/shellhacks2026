@@ -6,8 +6,8 @@ arbiter command or an advancing ACK, handles stop immediately, and never
 arms on its own: arming needs an explicit "arm" command and the firmware's
 arm_ack. A change of arbiter (control-service restart) disarms.
 
-Transports are pluggable. This module ships the simulated firmware
-transport; a real serial transport is added separately.
+Transports are pluggable. The simulator is the default; passing an explicit
+stable serial-by-id path selects the real ESP32-S2 transport.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from .bridge_ipc import (
 from .serial_link import MotorLink
 from .serial_protocol import ImuTelemetry
 from .serial_sim import SimulatedFirmware
+from .serial_transport import PySerialTransport
 
 
 ARBITER_TIMEOUT_S = 0.250
@@ -139,6 +140,11 @@ class MotorBridge:
         if opened:
             # A fresh session, disarmed; reconnecting never re-arms.
             self._write(self.link.connect())
+        else:
+            # A port that cannot open is a visible, disarmed safety state.
+            # Keep the transport's detailed OS error local; bridge status uses
+            # a bounded, stable fault code that the dashboard can display.
+            self.link.fault = "transport_unavailable"
 
     def _write(self, data: bytes | None) -> None:
         if data is None or not self.transport.connected:
@@ -276,6 +282,22 @@ def default_run_dir() -> Path:
     return Path(os.environ.get("RESCUEBOT_RUN_DIR", f"/tmp/rescuebot-{os.getuid()}"))
 
 
+def build_transport(
+    transport_name: str,
+    *,
+    sim_ceiling: int = 255,
+    serial_device: Path | None = None,
+) -> Transport:
+    """Build the selected link without making a hardware connection yet."""
+    if transport_name == "sim":
+        return SimulatedTransport(SimulatedFirmware(hardware_ceiling=sim_ceiling))
+    if transport_name == "serial":
+        if serial_device is None:
+            raise ValueError("--serial-device is required with --transport serial")
+        return PySerialTransport(serial_device)
+    raise ValueError(f"unknown transport {transport_name!r}")
+
+
 def run(
     bridge: MotorBridge,
     command_socket: Path,
@@ -304,9 +326,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--status-socket", type=Path, default=run_dir / "bridge-status.sock")
     parser.add_argument(
         "--transport",
-        choices=("sim",),
+        choices=("sim", "serial"),
         default="sim",
-        help="sim: in-process simulated firmware (no hardware).",
+        help="sim: in-process simulated firmware; serial: explicit ESP32-S2 USB link.",
+    )
+    parser.add_argument(
+        "--serial-device",
+        type=Path,
+        help="ESP32-S2 path under /dev/serial/by-id/ (required for --transport serial).",
     )
     parser.add_argument(
         "--sim-ceiling",
@@ -318,7 +345,14 @@ def main(argv: list[str] | None = None) -> None:
     for path in (args.command_socket, args.status_socket):
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-    transport = SimulatedTransport(SimulatedFirmware(hardware_ceiling=args.sim_ceiling))
+    try:
+        transport = build_transport(
+            args.transport,
+            sim_ceiling=args.sim_ceiling,
+            serial_device=args.serial_device,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     stopping = False
 
     def request_stop(_signum: int, _frame: object) -> None:
