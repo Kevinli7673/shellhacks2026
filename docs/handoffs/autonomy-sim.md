@@ -5,6 +5,14 @@ Branch: feature/autonomy-sim
 Base: test/integration at 4af9098
 Status: Milestones A and B are configured; awaiting Ubuntu Jazzy/Harmonic validation.
 
+## Checkpoints
+
+| Commit | Coverage | Validation |
+|---|---|---|
+| `506f93e` | Gazebo backend, host arbitration, ROS IPC/conversion, model/world/bridges | 148 Python tests and JavaScript syntax check passed locally. |
+| `225fec2` | SLAM Toolbox, Nav2, Collision Monitor, goal manager, frontier evaluation gate | Static ROS asset/safety tests and Python syntax checks passed locally. |
+| Latest branch merge | Current `test/integration`, including firmware wheel-direction configuration fix | Mecanum, autonomy, and ROS asset tests passed after merge. |
+
 ## Current checkpoint
 
 - The browser can select `--motor-backend gazebo`.
@@ -45,7 +53,8 @@ PYTHONPATH=app .venv/bin/python -m unittest discover -s tests -v
 node --check app/rescuebot/static/dashboard.js
 ```
 
-Result: 148 Python tests passed and JavaScript syntax passed. ROS 2, Gazebo,
+Result: 150 Python tests passed (including two environment-gated integration
+tests that were skipped) and JavaScript syntax passed. ROS 2, Gazebo,
 and colcon are not installed on this machine, so the launch path is not yet
 runtime-validated. Run the commands in `ros_ws/README.md` on Ubuntu 24.04 with
 ROS 2 Jazzy and Gazebo Harmonic.
