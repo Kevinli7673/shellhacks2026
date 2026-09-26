@@ -71,12 +71,13 @@
               <label>Forward (m)<input id="goal-forward" type="number" min="-2" max="2" step="0.1" value="0" required></label>
               <label>Right (m)<input id="goal-right" type="number" min="-2" max="2" step="0.1" value="0.5" required></label>
             </div>
-            <p>Relative to the robot when sent. Negative values go backward or left. Total distance: 0.1–2 m. Choose open space with clearance from walls.</p>
+            <p>Relative to the robot when sent. Negative values go backward or left. Choose open space with clearance from walls.</p>
+            <p id="goal-distance" role="status">Combined distance: 0.50 m (allowed: 0.1–2 m).</p>
             <button id="send-goal-button" class="enable" type="submit" disabled>Send goal</button>
           </form>
           <p id="navigation-feedback" role="status"></p>
           <p id="navigation-pose">Map position unavailable</p>
-          <p>W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy speed is fixed at 20%.</p>
+          <p>After Stop: Enable driving → Start autonomy → Send goal. W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy speed is fixed at 20%.</p>
         </section>
 
         <div class="keypanel" aria-label="Keyboard controls">

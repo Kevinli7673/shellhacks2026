@@ -229,6 +229,18 @@ function updateDashboard(data) {
   updateNavigation(autonomy, drive);
 }
 
+function navigationGoalInput() {
+  const inputs = [element("goal-forward"), element("goal-right")];
+  const [forward, right] = inputs.map((input) => input.valueAsNumber);
+  const distance = Math.hypot(forward, right);
+  let error = "";
+  if (!Number.isFinite(distance)) error = "Enter both Forward and Right distances.";
+  else if (distance > 2) error = `Combined distance is ${distance.toFixed(2)} m — maximum is 2 m. Reduce Forward or Right.`;
+  else if (distance < 0.1) error = `Combined distance is ${distance.toFixed(2)} m — minimum is 0.1 m.`;
+  else if (inputs.some((input) => input.validity.stepMismatch)) error = "Enter distances in steps of 0.1 m.";
+  return { forward, right, distance, error };
+}
+
 function updateNavigation(autonomy, drive) {
   element("simulation-navigation").hidden = !autonomy.available;
   if (!autonomy.available) return;
@@ -243,11 +255,16 @@ function updateNavigation(autonomy, drive) {
   };
   const status = !connected ? "Dashboard disconnected" : !nav.ready ? nav.reason
     : currentMission ? (nav.pending ? labels.pending : labels[nav.goal_state])
-    : autonomy.active ? "Starting mission…" : "Ready — enable driving, then start autonomy";
+    : autonomy.active ? "Starting mission…"
+    : drive === "armed" ? "Driving enabled — click Start autonomy, then Send goal"
+    : "Ready — enable driving, then Start autonomy again";
   setText("navigation-status", status);
+  const goal = navigationGoalInput();
+  setText("goal-distance", goal.error || `Combined distance: ${goal.distance.toFixed(2)} m (allowed: 0.1–2 m).`);
+  element("goal-distance").dataset.invalid = String(Boolean(goal.error));
   element("autonomy-button").disabled ||= !nav.ready;
   element("send-goal-button").disabled = !connected || !canControl || drive !== "armed"
-    || heldKeys.size > 0 || !nav.ready || !currentMission || busy;
+    || heldKeys.size > 0 || !nav.ready || !currentMission || busy || Boolean(goal.error);
   for (const id of ["goal-forward", "goal-right"]) element(id).disabled = busy || !canControl;
   const pose = nav.pose;
   setText("navigation-pose", pose
@@ -306,10 +323,11 @@ function connect() {
 }
 
 window.addEventListener("keydown", (event) => {
-  // Only simulation goal inputs use arrow keys for editing numbers/cursors.
+  // Simulation fields keep number editing and Select All browser shortcuts.
   // W/A/S/D still take over immediately, and Space always reaches Stop.
   if (currentState?.autonomy.available && event.target.closest?.("#navigation-form input")
-      && event.code.startsWith("Arrow")) return;
+      && (event.code.startsWith("Arrow")
+        || (event.code === "KeyA" && (event.metaKey || event.ctrlKey)))) return;
   if (displayKeys.has(event.code)) {
     litKeys.add(event.code);
     renderKeys();
@@ -354,14 +372,17 @@ document.addEventListener("visibilitychange", () => {
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("stop-button").addEventListener("click", clearAndStop);
+element("navigation-form").addEventListener("input", () => {
+  if (!currentState?.autonomy.available) return;
+  setText("navigation-feedback", "");
+  updateNavigation(currentState.autonomy, driveState(currentState.control));
+});
 element("navigation-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (element("send-goal-button").disabled) return;
-  const forward = Number(element("goal-forward").value);
-  const right = Number(element("goal-right").value);
-  const distance = Math.hypot(forward, right);
-  if (!Number.isFinite(distance) || distance < 0.1 || distance > 2) {
-    setText("navigation-feedback", "Choose a total distance between 0.1 and 2 metres.");
+  const { forward, right, error } = navigationGoalInput();
+  if (error) {
+    setText("navigation-feedback", error);
     return;
   }
   setText("navigation-feedback", "Sending goal…");

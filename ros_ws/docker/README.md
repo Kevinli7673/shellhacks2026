@@ -86,6 +86,13 @@ checking manual driving, use the **Simulation autonomy** panel on the dashboard:
 4. **Stop** or **Space** cancels the mission and disarms. W/A/S/D takes manual
    control immediately; releasing the key does not restart autonomy.
 
+After Stop, repeat **Enable driving → Start autonomy → Send goal**. Enabling
+driving alone does not restart the canceled mission. The form shows the
+combined straight-line distance as you edit: Forward `1.5`, Right `1.5` is
+`2.12 m`, which exceeds the `2 m` limit. Send stays disabled until the values
+are valid. Cmd+A / Ctrl+A selects a number inside these simulation fields;
+unmodified A still takes manual control.
+
 This is operator-selected goal navigation, not automatic exploration. The
 panel shows SLAM position; the separate Gazebo desktop remains the live view.
 Keep the dashboard focused while watching in another window. Arrow keys edit

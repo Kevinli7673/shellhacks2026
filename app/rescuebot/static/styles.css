@@ -583,6 +583,7 @@ body[data-drive="armed"] .keycluster-arrows .keycap.lit[data-key^="ArrowR"] {
 .simulation-navigation h2 { margin: 0 0 0.3rem; font-size: var(--t-lg); }
 .simulation-navigation p { color: var(--ink-2); font-size: var(--t-sm); }
 .simulation-navigation #navigation-status { color: var(--tally-amber); font-weight: 700; }
+.simulation-navigation #goal-distance[data-invalid="true"] { color: var(--tally-amber); font-weight: 700; }
 .simulation-navigation form { display: grid; gap: 0.75rem; }
 .navigation-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .navigation-fields label { display: grid; gap: 0.3rem; font-size: var(--t-sm); }
