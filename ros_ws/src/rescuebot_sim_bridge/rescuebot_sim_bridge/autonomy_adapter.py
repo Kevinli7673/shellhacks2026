@@ -67,7 +67,11 @@ class SimulationAutonomyAdapter(Node):
     def _forward(self) -> None:
         for raw in self._status_receiver.drain():
             try:
-                self._status = decode_autonomy_status(raw)
+                status = decode_autonomy_status(raw)
+                if status.mission != self._status.mission:
+                    self._latest_twist = None
+                    self._received_at = None
+                self._status = status
                 self._publish_status()
             except ValueError as exc:
                 self.get_logger().warning(f"discarded autonomy status: {exc}")
@@ -91,7 +95,8 @@ class SimulationAutonomyAdapter(Node):
         intent = AutonomyIntent(
             mission=self._status.mission,
             seq=self._seq,
-            expires_at=fresh_expiry(now),
+            # Repetition must not extend the lifetime of the last ROS sample.
+            expires_at=fresh_expiry(self._received_at),
             forward=motion.forward,
             sideways=motion.sideways,
             turn=motion.turn,

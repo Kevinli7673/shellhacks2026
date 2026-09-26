@@ -1,0 +1,87 @@
+"""Exercise asynchronous goal cancellation and idle-source expiry."""
+
+from concurrent.futures import Future
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+from geometry_msgs.msg import PoseStamped
+import pytest
+import rclpy
+from std_msgs.msg import String
+
+from rescuebot_navigation.mission_manager import MissionManager
+
+
+@pytest.fixture
+def manager():
+    rclpy.init()
+    with patch("rescuebot_navigation.mission_manager.ActionClient"):
+        node = MissionManager()
+    node._idle_velocity = Mock()
+    node._goal_status = Mock()
+    node._action.server_is_ready.return_value = True
+    try:
+        yield node
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def status(node, active=True, mission="test"):
+    node._status(String(data=json.dumps({"active": active, "mission": mission})))
+
+
+def accepted_handle():
+    handle = Mock(accepted=True)
+    handle.get_result_async.return_value = Future()
+    return handle
+
+
+def test_stop_cancels_late_acceptance(manager):
+    status(manager)
+    response = Future()
+    manager._action.send_goal_async.return_value = response
+    manager._goal(PoseStamped())
+    status(manager, False, None)
+    handle = accepted_handle()
+    response.set_result(handle)
+    handle.cancel_goal_async.assert_called_once()
+    assert manager._goal_handle is None
+
+
+def test_old_result_cannot_clear_a_new_goal(manager):
+    status(manager)
+    first = Future()
+    manager._action.send_goal_async.return_value = first
+    manager._goal(PoseStamped())
+    old = accepted_handle()
+    first.set_result(old)
+    status(manager, False, None)
+    status(manager, True, "next")
+    second = Future()
+    manager._action.send_goal_async.return_value = second
+    manager._goal(PoseStamped())
+    new = accepted_handle()
+    second.set_result(new)
+    old.get_result_async.return_value.set_result(SimpleNamespace(status=5))
+    assert manager._goal_handle is new
+    new.get_result_async.return_value.set_result(SimpleNamespace(status=4))
+    assert manager._goal_state == "succeeded"
+
+
+def test_idle_zeros_do_not_mask_controller_loss(manager):
+    status(manager)
+    manager._tick()
+    manager._idle_velocity.publish.assert_called_once()
+    message = manager._idle_velocity.publish.call_args.args[0]
+    assert message.linear.x == message.linear.y == message.angular.z == 0.0
+    manager._idle_velocity.reset_mock()
+    manager._action.send_goal_async.return_value = Future()
+    manager._goal(PoseStamped())
+    manager._tick()
+    manager._idle_velocity.publish.assert_not_called()
+    manager._last_status -= 0.30
+    manager._tick()
+    assert not manager._active
+    manager._idle_velocity.publish.assert_not_called()

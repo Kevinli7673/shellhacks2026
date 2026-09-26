@@ -39,6 +39,11 @@ def generate_launch_description():
             output="screen",
         ),
         Node(package="rescuebot_sim_bridge", executable="rescuebot_sim_command_bridge", output="screen"),
-        Node(package="rescuebot_sim_bridge", executable="rescuebot_sim_autonomy_adapter", output="screen"),
+        Node(
+            package="rescuebot_sim_bridge", executable="rescuebot_sim_autonomy_adapter",
+            # Match Nav2's 20% host autonomy limit without applying it twice.
+            arguments=["--max-vx", "0.08", "--max-vy", "0.08", "--max-wz", "0.24"],
+            output="screen",
+        ),
         Node(package="rescuebot_sim_bridge", executable="rescuebot_sim_odom_tf", output="screen"),
     ])

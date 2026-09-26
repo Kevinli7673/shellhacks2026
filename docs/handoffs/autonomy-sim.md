@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Milestones A and B are configured; local regression checks pass after the integration merge. Docker on the Mac is now the selected Jazzy/Harmonic validation environment; setup and runtime validation are in progress.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Milestone A manual driving and live bridges pass. Milestone B SLAM map, Nav2 goal success, Stop/manual override, and safe-source expiry pass; obstacle-entry and long-mission validation remain.
 
 ## User-authorized scope exception
 
@@ -47,8 +47,8 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
   base_link` TF bridge.
 - `rescuebot_navigation` starts SLAM Toolbox, Nav2 with a holonomic DWB
   controller, Collision Monitor, and a mission manager that owns RViz
-  `/goal_pose` actions. Nav2 output is remapped to `/cmd_vel_nav`; only
-  Collision Monitor publishes `/cmd_vel_safe` for the autonomy adapter.
+  `/goal_pose` actions. Nav2 output flows through `/cmd_vel_nav`, the velocity smoother, and
+  `/cmd_vel_smoothed`; only Collision Monitor publishes `/cmd_vel_safe`.
 
 ## Interfaces
 
@@ -60,9 +60,11 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
   logical axes.
 - ROS adapter input: `/cmd_vel_safe` (`geometry_msgs/Twist`). Conversion is
   `forward=vx/max_vx`, `sideways=-vy/max_vy`, `turn=-wz/max_wz`; the ROS
-  adapter never mixes wheels.
+  adapter never mixes wheels. Runtime limits are 0.08 m/s and 0.24 rad/s,
+  matching the host fixed 20% autonomy scale; manual full scale stays 0.40 m/s
+  and 1.20 rad/s.
 
-## Validation
+## Original static validation (superseded by Docker runtime results below)
 
 Passed locally on macOS arm64 using the repository virtual environment:
 
@@ -80,10 +82,10 @@ ROS 2 Jazzy and Gazebo Harmonic.
 ## Remaining work
 
 1. Replace estimated chassis dimensions in the Xacro/SDF with measured values.
-2. Run Milestone A launch validation: browser manual motion, `/scan`,
-   `/imu/data`, `/odom`, and TF.
-3. Run Milestone B validation: mapping, goal navigation, Collision Monitor,
-   host expiry, and manual override while a goal is active.
+2. Validate Collision Monitor with a newly introduced simulated obstacle;
+   short goal, Stop, override, and source-expiry checks now pass.
+3. Extend mapping/navigation to long routes, loop closure, and varied goals.
+   Verify RViz goal selection interactively; runtime goal tests use `/goal_pose`.
 4. Evaluate the Jazzy-compatible frontier package in the simulator before
    writing a local frontier explorer. Do not let that block Milestone B.
 5. Keep physical autonomy work separate until the integration candidate passes
@@ -239,3 +241,74 @@ docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'pyt
 Passed: 153 discovered, 151 passed, 2 skipped; JavaScript syntax; one ROS
 adapter test, zero errors/failures/skips. This completes manual-driving runtime
 validation for the simulation model, not physical robot acceptance.
+
+
+## 2026-09-26 - SLAM and Nav2 runtime acceptance
+
+Checkpoint after manual-driving commit `95073de`:
+
+- SLAM now uses the upstream lifecycle launch with autostart. It publishes
+  `/map` and `map -> odom`; the global costmap consumes that map.
+- Explicitly launch six Nav2 lifecycle nodes so upstream docking/route servers
+  and duplicate Collision Monitor nodes do not change this workstream's scope.
+  Costmap dimensions use Jazzy integer parameters; Collision Monitor uses
+  `points` and receives the smoother output. Every velocity interface explicitly
+  uses Twist, keeping the existing host adapter contract.
+- Remap Nav2's direct `/goal_pose` subscriber away from the operator topic.
+  Only the mission manager receives RViz goals and owns the action. This fixed
+  a duplicate goal/preemption observed during runtime validation.
+- Holonomic DWB sampling includes zero angular velocity (21 samples); heading
+  alignment critics no longer force a turn during strafe. Controller limits
+  and adapter normalization match the existing fixed host 20% autonomy scale.
+- Idle missions send only zeros through the smoother/Collision Monitor, so an
+  operator can take time selecting a goal. No idle zeros are produced during
+  a pending/executing goal, preserving source-loss stops. Stationary output
+  is bounded to 3600 seconds of simulation time; restart navigation after that
+  limit. The 250 ms input expiry itself is unchanged.
+- Mission generations cancel late Nav2 acceptance after Stop and prevent an
+  old action result from clearing a newer goal. Host status loss also cancels.
+- Repeated forwarding of a ROS sample now preserves its original expiry rather
+  than extending it. Mission changes discard the previous velocity sample.
+- A second app change is limited to `create_app`'s Gazebo branch: autonomy IPC
+  now shares the same runtime directory as the Gazebo bridge/ROS adapter.
+  The bridge and mock selection paths retain their previous code and behavior.
+
+Exact runtime commands (repository root):
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh ros2 launch rescuebot_navigation navigation.launch.py
+# Keep the navigation terminal running; in another terminal:
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+```
+
+Results:
+
+- All six Nav2 lifecycle nodes became active. Initial map: 104 x 117 cells,
+  0.05 m resolution, 4286 known cells; map expanded as the robot moved.
+- Goal (map x=0, y=-0.60) succeeded. Actual Gazebo world-pose displacement:
+  x=-0.016 m, y=-0.513 m, yaw=+0.063 rad; within the configured 0.10 m goal
+  tolerance. Both Nav2 and the mission manager reported success.
+- Stop during a second goal canceled the action and held actual model position.
+- Manual input during a third goal canceled with `manual_override`; releasing
+  the key did not restart autonomy.
+- Deactivating Collision Monitor during a fourth goal removed safe velocity;
+  the host disarmed with `autonomy_timeout` after 0.157 seconds measured from
+  lifecycle response. Reactivation did not rearm or restart the mission.
+- Ubuntu Python 3.12: 154 discovered, 152 passed, two environment-gated skips.
+  JavaScript syntax passed. `colcon test` completed all four packages with
+  five tests, zero errors/failures/skips: actual ROS adapter launch/expiry,
+  stale-sample expiry, late acceptance cancellation, old-result isolation,
+  and idle-versus-executing source behavior.
+- Earlier failed attempts are resolved: wrong socket directories, missing TF
+  discovery wait in the validator, double goal submission, and slow DWB final
+  heading convergence. No physical transport was involved.
+
+Next action: test a new obstacle entering the Collision Monitor footprint,
+then longer map/goal routes and RViz selection. Frontier selection, measured
+chassis parameters, physical robot acceptance, and real autonomy remain
+outside this completed short simulation acceptance. The integrator should
+record the authorized scope exception and merged results in shared changes.md
+and reconcile the shared implementation plan; neither was edited here.

@@ -68,3 +68,34 @@ def test_command_entrypoint_accepts_ros_remapping_and_stops_on_expiry(tmp_path):
         executor.shutdown()
         node.destroy_node()
         context.shutdown()
+
+
+def test_autonomy_repetition_does_not_renew_stale_ros_input(tmp_path):
+    from rescuebot.autonomy import AutonomyStatus
+    from rescuebot.autonomy_ipc import decode_autonomy_intent
+    from rescuebot.bridge_ipc import DatagramReceiver
+    from rescuebot_sim_bridge.autonomy_adapter import SimulationAutonomyAdapter
+
+    rclpy.init()
+    receiver = DatagramReceiver(tmp_path / "intent.sock")
+    node = SimulationAutonomyAdapter(str(tmp_path / "intent.sock"),
+                                     str(tmp_path / "status.sock"), .08, .08, .24)
+    try:
+        node._status = AutonomyStatus(True, "test", None)
+        message = Twist()
+        message.linear.x = .04
+        node._receive_twist(message)
+        received_at = node._received_at
+        node._forward()
+        first = decode_autonomy_intent(receiver.drain()[0])
+        node._forward()
+        second = decode_autonomy_intent(receiver.drain()[0])
+        assert first.forward == .5
+        assert first.expires_at == second.expires_at == received_at + .25
+        node._received_at -= .3
+        node._forward()
+        assert not receiver.drain()
+    finally:
+        node.destroy_node()
+        receiver.close()
+        rclpy.shutdown()

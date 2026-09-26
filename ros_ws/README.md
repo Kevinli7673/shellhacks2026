@@ -15,6 +15,7 @@ cd /path/to/shellhacks2026
 python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -e .
 source /opt/ros/jazzy/setup.bash
+export PYTHONPATH="$PWD/app${PYTHONPATH:+:$PYTHONPATH}"
 cd ros_ws
 colcon build --symlink-install
 source install/setup.bash
@@ -79,7 +80,8 @@ ros2 launch rescuebot_navigation navigation.launch.py
 The full simulation flow is:
 
 ```text
-Nav2 → /cmd_vel_nav → Collision Monitor → /cmd_vel_safe
+Nav2 → /cmd_vel_nav → velocity smoother → /cmd_vel_smoothed
+     → Collision Monitor → /cmd_vel_safe
      → rescuebot_sim_autonomy_adapter → RobotControlService
      → GazeboMotorBackend → /cmd_vel → Gazebo MecanumDrive
 ```
@@ -87,7 +89,18 @@ Nav2 → /cmd_vel_nav → Collision Monitor → /cmd_vel_safe
 The operator must click **Enable driving**, then **Start autonomy**, before a
 goal can run. In RViz, use **2D Goal Pose** to publish `/goal_pose`; the
 mission manager owns the corresponding Nav2 action. Any manual movement
-cancels the mission, and releasing the key does not resume it.
+cancels the mission, and releasing the key does not resume it. Stop the current
+goal before selecting another. With no goal, the mission manager sends only
+zero velocity through the same safety filter. It stops doing so during a goal;
+missing controller output therefore still expires. A stationary mission has a
+one-hour simulated-time limit before Collision Monitor stops its zero output
+and host expiry disarms it.
+
+Nav2 is configured for the host's fixed 20% autonomy limit: 0.08 m/s planar
+speed and 0.24 rad/s rotation. The adapter normalization matches those limits;
+the manual command bridge retains its 0.40 m/s and 1.20 rad/s full-scale values.
+Do not independently change these three limits. Dashboard Up/Down affects
+manual speed; autonomous speed remains the configured host limit.
 
 Before attempting frontier exploration, verify that SLAM Toolbox supplies the
 `map → odom` transform, the simulation bridge supplies `odom → base_link`, and

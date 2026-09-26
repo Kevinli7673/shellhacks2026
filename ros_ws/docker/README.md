@@ -7,7 +7,10 @@ desktop, so no macOS X server is needed.
 
 Status: all four ROS packages build on ARM64. Gazebo sensors, bridges, manual
 dashboard keys, speed adjustment, release, Space, and input expiry have been
-validated against the actual model pose. SLAM/Nav2 validation is in progress.
+validated against the actual model pose. SLAM publishes a map, Nav2 completes
+a selected goal, and Stop/manual override/source loss cancel or disarm safely.
+The Ubuntu suite reports 154 tests (152 pass, 2 environment-gated skips), and
+all five ROS tests pass. This is simulation coverage only.
 
 ## Build and start
 
@@ -66,8 +69,27 @@ docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypo
 
 Verify map, scan, odometry, and TF before selecting goals. The dashboard must
 have driving enabled and Start autonomy selected. The existing mission manager
-accepts RViz `/goal_pose` goals. Check manual override, Space, and obstacle
-stopping as described in the workstream handoff.
+accepts RViz `/goal_pose` goals. Stop the current goal before choosing another. Manual movement or Space
+cancels the mission. The fixed autonomy speed limit is 20%, independent of the
+manual speed selector. See [the workspace guide](../README.md) for velocity
+limits and the idle mission timeout.
+
+For repeatable goal, Stop, override, and safe-source-loss validation, close
+other dashboard tabs, use a fresh simulation, start navigation, then run:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py
+```
+
+This publishes `/goal_pose` through the mission manager, checks Nav2 success
+and actual Gazebo model travel, and temporarily deactivates/reactivates
+Collision Monitor to test source expiry. The script always sends Stop.
+
+Run the ROS regression tests in a separate container:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+```
 
 Stop all container processes with:
 
@@ -76,5 +98,7 @@ docker compose -f ros_ws/docker/compose.yaml down
 ```
 
 The healthcheck tests dashboard HTTP availability only. It does not establish
-working Gazebo sensors, ROS bridges, SLAM, or navigation. Software rendering
-performance on this Mac is also unvalidated.
+working Gazebo sensors, ROS bridges, SLAM, or navigation. Software rendering works on this Mac; long missions, obstacle-entry stopping,
+and map accuracy against measured geometry remain unvalidated. The short
+replay fixture expires quickly, so a stale camera banner is expected and does
+not indicate a motor or ROS failure.

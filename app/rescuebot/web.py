@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .bridge_backend import BridgeMotorBackend
 from .autonomy_ipc import AutonomyHostEndpoint
-from .gazebo_backend import GazeboMotorBackend
+from .gazebo_backend import GazeboMotorBackend, default_sim_command_socket
 from .live_camera import (
     DEFAULT_DETECTOR,
     DEFAULT_VIDEO_PORT,
@@ -86,7 +86,7 @@ def create_app(
             )
         )
     elif motor_backend == "gazebo":
-        run_dir = default_run_dir()
+        run_dir = default_sim_command_socket().parent
         run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         control_service = RobotControlService(
             backend=GazeboMotorBackend(sim_command_socket),

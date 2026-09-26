@@ -51,11 +51,11 @@ class RosAssetTests(unittest.TestCase):
         navigation = ROS / "rescuebot_navigation"
         collision = (navigation / "config" / "collision_monitor.yaml").read_text()
         nav2 = (navigation / "config" / "nav2.yaml").read_text()
-        self.assertIn("cmd_vel_in_topic: /cmd_vel_nav", collision)
+        self.assertIn("cmd_vel_in_topic: /cmd_vel_smoothed", collision)
         self.assertIn("cmd_vel_out_topic: /cmd_vel_safe", collision)
         self.assertIn("cmd_vel_topic: /cmd_vel_nav", nav2)
-        self.assertIn("min_vel_y: -0.30", nav2)
-        self.assertIn("max_vel_y: 0.40", nav2)
+        self.assertIn("min_vel_y: -0.06", nav2)
+        self.assertIn("max_vel_y: 0.08", nav2)
 
 
 if __name__ == "__main__":

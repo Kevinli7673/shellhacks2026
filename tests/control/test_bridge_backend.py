@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from rescuebot.bridge_backend import BridgeMotorBackend
 from rescuebot.bridge_ipc import DatagramReceiver, DatagramSender
@@ -192,6 +193,20 @@ class WebMotorBackendTests(unittest.TestCase):
         service = app.state.control_service
         self.addCleanup(service.close)
         self.assertEqual(service.state()["motor"]["backend"], "gazebo")
+
+
+    def test_gazebo_autonomy_uses_the_same_runtime_directory_as_ros(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rb", dir="/tmp") as directory:
+            with patch.dict("os.environ", {"XDG_RUNTIME_DIR": directory}):
+                status = DatagramReceiver(Path(directory) / "autonomy-status.sock")
+                service = create_app(motor_backend="gazebo").state.control_service
+                try:
+                    self.assertTrue((Path(directory) / "autonomy-command.sock").exists())
+                    service.tick()
+                    self.assertTrue(status.drain())
+                finally:
+                    service.close()
+                    status.close()
 
 
 if __name__ == "__main__":

@@ -15,5 +15,6 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
+    tests_require=["pytest"],
     entry_points={"console_scripts": ["rescuebot_mission_manager = rescuebot_navigation.mission_manager:main"]},
 )
