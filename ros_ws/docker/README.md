@@ -69,8 +69,12 @@ checking manual driving, use the **Simulation autonomy** panel on the dashboard:
 1. Wait for **Ready**, then click **Enable driving** and **Start autonomy**.
 2. Enter a nearby destination in metres: positive **Forward** moves forward,
    positive **Right** moves right; negative values move backward or left.
-   The combined distance must be 0.1–2 m. Try Forward `0.5`, Right `0` first
-   from the initial spawn. The offset uses the robot's heading when sent.
+   The combined distance must be 0.1–2 m. Try Forward `0`, Right `0.5` first
+   from the initial spawn, into the open aisle. The offset uses the robot's
+   heading when sent. Choose a destination with clearance from walls; the
+   divider is directly ahead of the spawn, so a forward goal can be blocked
+   by Collision Monitor. If navigation stops at an obstacle, cancel the goal
+   and use manual control to move back into clear space before restarting.
 3. Click **Send goal**. The panel reports sending, navigating, and goal reached.
    Nav2 chooses the path and keeps the starting heading. You can send another
    destination after the previous goal finishes.

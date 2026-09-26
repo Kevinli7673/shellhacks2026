@@ -68,10 +68,10 @@
           <button id="autonomy-button" class="enable" type="button" hidden>Start autonomy</button>
           <form id="navigation-form">
             <div class="navigation-fields">
-              <label>Forward (m)<input id="goal-forward" type="number" min="-2" max="2" step="0.1" value="0.5" required></label>
-              <label>Right (m)<input id="goal-right" type="number" min="-2" max="2" step="0.1" value="0" required></label>
+              <label>Forward (m)<input id="goal-forward" type="number" min="-2" max="2" step="0.1" value="0" required></label>
+              <label>Right (m)<input id="goal-right" type="number" min="-2" max="2" step="0.1" value="0.5" required></label>
             </div>
-            <p>Relative to the robot when sent. Negative values go backward or left. Total distance: 0.1–2 m.</p>
+            <p>Relative to the robot when sent. Negative values go backward or left. Total distance: 0.1–2 m. Choose open space with clearance from walls.</p>
             <button id="send-goal-button" class="enable" type="submit" disabled>Send goal</button>
           </form>
           <p id="navigation-feedback" role="status"></p>
