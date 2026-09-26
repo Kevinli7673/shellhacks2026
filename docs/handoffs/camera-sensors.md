@@ -52,12 +52,25 @@ dashboard served by uvicorn in live mode with a fake detector reported
 live/online with 1 detection, /stream.mjpg on the video port returned
 multipart JPEG frames, and stopping the dashboard stopped the camera process.
 
+2026-09-26, Raspberry Pi 5 with the AI Camera (IMX500, YOLO11n), after
+merging origin/feature/dashboard-control (2276d32) into this branch:
+
+- `python -m unittest discover -s tests`: 117 passed (2 consecutive runs).
+- `rescuebot-dashboard --camera-backend live` (motor backend mock): the
+  camera went from "Starting the AI Camera" to online; /api/state reported
+  frames_received 735, frame age 14 ms, 0 dropped frames, process alive.
+- /stream.mjpg on port 8081 returned 31 JPEG frames in 4 s (about 8 fps,
+  under the 10 fps cap). `vcgencmd get_throttled` stayed 0x0.
+
 ## Coverage
 
-- Mock/fake only in CI. The detection script itself (without the new output
-  format and streaming) was run on the Pi with the AI Camera and YOLO11n;
-  the live dashboard backend and the MJPEG stream have not yet run on the Pi.
-- Browser rendering of the video element was not tested in a browser.
+- Physical: the live backend and MJPEG stream ran on the Pi with the AI
+  Camera (checked through /api/state and a captured stream frame).
+- Not yet physical: a person detection through the live dashboard, video and
+  box alignment in a real browser, and Stop/driving with the camera running.
+  The motor backend was mock, not the bridge.
+- The captured frame looked rotated; check the camera mounting orientation
+  before relying on detections.
 
 ## Known limitations
 
@@ -70,6 +83,6 @@ multipart JPEG frames, and stopping the dashboard stopped the camera process.
 
 ## Next action
 
-On the Pi: run `rescuebot-dashboard --camera-backend live`, open
-http://<pi>:8000, and confirm video, boxes, detection count, and that Stop and
-driving controls are unaffected while the camera loads and runs.
+Open http://<pi>:8000 in a browser while the live dashboard runs, and confirm
+the video, boxes, and detection count with a person in view, and that Stop and
+driving controls respond while the camera loads and runs.
