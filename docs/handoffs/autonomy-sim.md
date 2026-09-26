@@ -3,7 +3,7 @@
 Workstream: simulation autonomy
 Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
-Current integration base: test/integration at d6a5d5f, merged in 38c686d
+Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
 Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. The optional obstacle-house search mission chooses map viewpoints, finds a synthetic target, notifies the dashboard, returns to the saved start, and disarms. A 14.98 m / 306 s mission passed with 8.8 cm return error and 13.3 cm minimum clearance. Existing short/long goal and obstacle checkpoints remain available. A false SLAM match on the initial search run prompted tighter local loop matching and a localization-jump stop guard. Varied targets, missing targets, blocked returns, and physical autonomy need further runtime acceptance.
 
@@ -46,6 +46,9 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `08ca7e7` | Rotate toward the route, favor forward travel, retain strafe | Three clear-aisle goals, actual heading/travel checks, Stop/takeover/source expiry; 156 Python passes, two skips, seven ROS passes. |
 | `942ae00` | Nearby local path horizon, longer routes, continuous-pose acceptance, panel/cylinder stops | Final seven-goal route 8.23 m, independent 2.99 m divider detour, two inserted-obstacle stops, final safety regression; 156 Python passes/two skips on each OS and seven ROS passes. |
 | `784f08b` | Simulation form distance feedback, restart guidance, Select All shortcut | Native Chrome invalid/valid goals and two completed missions with Stop/re-enable between them; Cmd+A preserves autonomy, A takeover and Space Stop pass; 156 Python passes/two skips on each OS and JavaScript syntax passes. |
+| `9b20e91` | Optional obstacle house and world selection | New world loaded with working sensors/SLAM/Nav2; original default retained. |
+| `0fdf41c` | Map coverage search, synthetic notification, return/disarm, local SLAM loop tuning | Full 14.98 m mission, Stop/restart/repeat-start and selected-goal safety regression; 159 Python passes/two skips on each OS, 21 ROS passes. |
+| `1d6f9fa` | Merge latest origin/test/integration through 7071d1e | Imported three upstream firmware initialization fixes unchanged; post-merge Python suite: 159 passes, two optional skips. No direct firmware edits or physical tests. |
 
 Previous publication: code through `784f08b` and its handoff were committed
 and pushed only to origin/feature/autonomy-sim, not integrated. The goal-form
@@ -138,12 +141,12 @@ docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'pyt
   occupied/unknown visibility, reachable viewpoints, unavailable maps,
   cancellation before late goal acceptance, late planning results, saved home,
   repeat start, search limit, return failure, and localization-jump stopping.
-- The Mac was locked, so native browser visual acceptance was unavailable.
+- The Mac was initially locked, so native browser visual acceptance had to wait.
   The stale browser connection still owned control. For automated tests only,
   the existing container used `/private/tmp/rescuebot-search-test-ports.yaml`
   with `services.sim.ports: !override ["127.0.0.1:16080:6080"]`. This removed
   dashboard host exposure while keeping noVNC; no second simulator or owner
-  bypass was used. Normal dashboard exposure is restored after acceptance.
+  bypass was used. Normal dashboard exposure was restored after acceptance.
 
 ```bash
 RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml -f /private/tmp/rescuebot-search-test-ports.yaml up -d
@@ -172,6 +175,44 @@ override without resuming, disarmed within 0.308 s of managed Nav2 pause,
 resumed all six lifecycle nodes, and did not rearm when the source returned.
 Log: `/private/tmp/rescuebot-search-goal-regression.log`.
 
+### Browser acceptance and publication
+
+After the Mac became accessible, native Chrome at localhost:18000 was hard
+refreshed. Enable driving → Start autonomy → Search for person & return
+activated the search, disabled competing goals, and displayed its searching
+status. Stop canceled it and disarmed. A new explicit session used the existing
+goal form (-1.6 m forward, 0 m right from the stopped heading) to reach map pose
+(1.375, 0.023, 0.589 rad), near the hidden marker. Starting Search there displayed
+the pink **SIMULATION: person marker found at x 1.80 m, y 0.60 m** notification,
+then **Target found; returned to start** and **Returned to start and disarmed**.
+This short browser case also confirms that home is captured at Search time,
+not fixed to the world's spawn. The longer autonomous mission is the separate
+ground-truth acceptance above. Native screenshots and accessibility state were
+inspected; no browser automation bypass or synthetic UI event injection was used.
+
+The simulator was reset to spawn after browser acceptance. Both localhost
+ports are restored; the obstacle house is ready and disarmed. Refresh the
+dashboard and noVNC view if they still show an earlier connection. Use Enable
+driving → Start autonomy → Search for person & return. Keep the dashboard
+focused to maintain its safety heartbeat.
+
+Committed simulation checkpoints are `9b20e91` (world) and `0fdf41c` (mission).
+Merge `1d6f9fa` imports `origin/test/integration` through `7071d1e`, including
+`eaa824a`, `1ce1f37`, and `7071d1e`; only upstream firmware/src/main.cpp content
+changed in that merge. Post-merge macOS Python regression passed 159 tests with
+two optional skips in 2.082 s (log
+`/private/tmp/rescuebot-search-postmerge-tests.log`). The final Docker image
+was rebuilt from these sources; all four packages built again. Git identity
+matched the expected team identity before commits/merge; no config, history,
+or checkpoint tags were rewritten. Publication is only to feature/autonomy-sim;
+this work has not been merged into test/integration or main.
+
+Final publication: source, tests, and this handoff are committed and pushed
+only to origin/feature/autonomy-sim. The worktree is clean. The final readiness
+check confirmed Gazebo backend, navigation/search ready, zero spawn pose,
+autonomy inactive, and motors disarmed. Native Chrome was refreshed to the
+default form values. The two host ports are again bound only to 127.0.0.1.
+
 Logs: `/private/tmp/rescuebot-search-build.log`,
 `/private/tmp/rescuebot-search-mac-tests.log`,
 `/private/tmp/rescuebot-search-regression.log`, and
@@ -180,12 +221,12 @@ The failed broad-loop run is retained in
 `/private/tmp/rescuebot-search-acceptance.log`; generated logs/builds are not
 committed.
 
-Remaining acceptance: native browser rendering/button interaction, multiple
-target placements, missing-target completion, blocked return, arbitrary/narrow
+Remaining acceptance: multiple target placements, missing-target completion,
+blocked return, arbitrary/narrow
 layouts, and dynamic-obstacle recovery. Unit checks cover several failure
 transitions, but they do not establish those full runtime scenarios. Physical
 motors, SLAM/localization, person recognition, image capture, and buzzer behavior
-were not validated. Next: review the new dashboard, then add independent target
+were not validated. Next: add independent target
 placements and no-target/blocked-return scenarios before physical autonomy.
 
 ## Current checkpoint
@@ -239,15 +280,12 @@ ROS 2 Jazzy and Gazebo Harmonic.
 
 ## Remaining work
 
-1. Replace estimated chassis dimensions in the Xacro/SDF with measured values.
-2. Extend the passing rear-obstacle check to front/side approaches and
-   different speeds. Short goal, Stop, override, and source-expiry checks pass.
-3. Extend mapping/navigation to long routes, loop closure, and varied goals.
-   Dashboard destination acceptance passes. Interactive RViz selection is
-   still unvalidated; browser focus-loss Stop makes the dashboard form the
-   intended single-operator flow.
-4. Evaluate the Jazzy-compatible frontier package in the simulator before
-   writing a local frontier explorer. Do not let that block Milestone B.
+1. Run independent target placements and no-target missions in the new house.
+2. Exercise blocked returns, dynamic-obstacle recovery, narrower passages, and
+   more varied layouts. Keep the validated Stop/source-expiry gates.
+3. Evaluate broader frontier exploration separately from this bounded coverage
+   demo; complete arbitrary-building search and map accuracy are not established.
+4. Replace estimated chassis dimensions in Xacro/SDF with measured values.
 5. Keep physical autonomy work separate until the integration candidate passes
    combined manual physical acceptance and is tagged.
 
