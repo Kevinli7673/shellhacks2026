@@ -12,8 +12,13 @@ Do not edit shared project documents while parallel work is active.
 - Base checkpoint: stage-0-docs.
 - FastAPI dashboard, mock motor backend, and browser control loop are implemented.
 - Stages A-C and the browser/control-service portion of Stage D have passing tests.
-- Serial transport, the separate motor-bridge process, recording/replay, and
-  camera integration are intentionally not implemented in this checkpoint.
+- Detection recording/replay and a replay camera backend (mock/replay
+  camera_backend) are merged and tested with fixtures only.
+- The Pi-side serial protocol codec, MotorLink session/ACK logic, and a
+  simulated firmware are merged; they follow the ESP32 firmware's message
+  format but are not yet wired to the dashboard.
+- The motor-bridge process, real serial transport, live camera, and video
+  are not implemented.
 
 ## Local run
 
@@ -25,6 +30,43 @@ Create a local environment and start the dashboard:
 
 Open http://localhost:8000. The active backend is mock only.
 Never treat the displayed wheel values as a command to real hardware.
+
+## Raspberry Pi environment
+
+Read-only inspection on 2026-09-26 EDT. Nothing was installed or changed.
+Private details (username, network, device serial numbers) are omitted.
+
+- Hardware/OS: Raspberry Pi 5 Model B Rev 1.1, 8 GB RAM; Debian 13
+  (trixie), kernel 6.18 aarch64; not throttled; ~200 GB free.
+- Python: system /usr/bin/python3 3.13.5 (project requires >= 3.11).
+  Installed system-wide: picamera2 (python3-picamera2 0.3.37), OpenCV
+  4.10.0, NumPy 2.2.4, pyserial 3.5. FastAPI is not installed; use a venv.
+- Camera stack: imx500-all 1.13.0, imx500-firmware, imx500-models,
+  imx500-tools, libcamera 0.7.2, rpicam-apps 1.13.0 with
+  imx500-postprocess.
+- IMX500 detection models present in /usr/share/imx500-models/ include
+  yolo11n_pp, ssd_mobilenetv2_fpnlite_320x320_pp,
+  efficientdet_lite0_pp, and nanodet_plus_416x416_pp. No model has been
+  selected yet.
+- Camera: rpicam-hello --list-cameras reported "No cameras available!"
+  with no camera process running. Cause not yet diagnosed (cable, port,
+  or config.txt). Blocks camera work, not driving.
+- Serial: /dev/ttyUSB0 is a Silicon Labs CP2102N USB-UART bridge. The
+  original plan lists the RPLIDAR C1 with a CP210x adapter, so this is
+  likely the LiDAR, not the ESP32-S2. No /dev/ttyACM* device was present.
+  The user is in the dialout group. The motor bridge must open the ESP32
+  by its /dev/serial/by-id/ path, never a bare ttyUSB/ttyACM name.
+- Running software: no Python or camera processes; Docker is installed
+  and running but unused by this project.
+- Existing scripts in the home directory (not in this repository):
+  ai_camera_detect.py, detect.py, detect_fast.py, cam_test.py, app.py,
+  a yolo11n NCNN model folder, and LiDAR test scripts (out of scope).
+- Status confirmed by the team: the ESP32-S2 was not connected (still
+  being breadboarded/soldered), and the camera hardware was being worked
+  on at inspection time.
+- Open questions: ESP32-S2 USB identity (native USB CDC vs. a CP210x
+  bridge), camera connection/config, and contents of ai_camera_detect.py.
+  Re-run the read-only camera and serial checks once each is connected.
 
 ## Handoff log
 
@@ -139,6 +181,129 @@ Never treat the displayed wheel values as a command to real hardware.
   - Review and merge 9251279 from feature/replay-camera-backend into
     feature/dashboard-control. Keep the image-dimension container decision
     synchronized before external camera providers are introduced.
+
+### 2026-09-26 EDT - Pi-side serial protocol and simulated link failures
+
+- Commit: branch feature/serial-protocol (worktree ../rescuebot-serial),
+  based on f6eae78; feat: add Pi-side serial protocol and link simulation.
+- Changed files and interfaces:
+  - Added app/rescuebot/serial_protocol.py: strict newline-delimited JSON
+    codec for the frozen drive packet and ACK, a bounded LineDecoder
+    (256-byte lines), and rejection of non-finite, out-of-range,
+    non-integer, missing/extra/duplicate-key, and oversized input.
+  - Added app/rescuebot/serial_link.py: transport-agnostic MotorLink with a
+    fresh session per connect, monotonically increasing seq, no
+    retransmission, explicit arm confirmation, 250 ms advancing-ACK
+    deadline, and stale/foreign ACK rejection. IMU messages never refresh
+    the deadline. Connect sends only a disarm and never arms.
+  - Added app/rescuebot/serial_sim.py: host simulation of the firmware
+    behavior (500 ms watchdog, hardware ceiling, shared mix_mecanum).
+  - Added fixtures/serial_protocol_vectors.json (25 cases) for firmware
+    parity, and tests/control/test_serial_protocol.py.
+  - No existing module, the frozen drive/ACK shapes, or mixing changed.
+- Proposed interface additions (need ESP32-workstream agreement and a
+  changes.md decision before they are frozen):
+  - Pi -> ESP32: {"type":"arm"|"disarm","session","seq"}, sharing the
+    drive seq counter. Disarm always stops and adopts its session; arm
+    requires the current session and a newer seq.
+  - ESP32 -> Pi: {"type":"state","session","armed","ack","fault"} in reply
+    to arm/disarm (ack = that seq) and unprompted on boot (session null,
+    fault "boot"), watchdog ("watchdog"), and malformed input
+    ("malformed"). IMU uses {"type":"imu",...}; the untyped message
+    remains the frozen drive ACK.
+  - Sessions are 1-32 characters of [A-Za-z0-9_-]; seq starts at 1.
+  - Firmware ignores (no ACK, no watchdog refresh) wrong-session,
+    duplicate, out-of-order, and disarmed drive packets; it stops and
+    disarms on any malformed line.
+- Tests and results:
+  - PYTHONPATH=app ../shellhacks2026/.venv/bin/python -m unittest discover
+    -s tests: 64 passed (41 existing, 23 new). PYTHONPATH is needed
+    because the shared venv's editable install points at the main checkout.
+  - Mutation checks (stale ACK acceptance, IMU refreshing the deadline,
+    unrequested arm, duplicate seq, late watchdog, silent connect) each
+    made the suite fail.
+- Mock or physical coverage:
+  - Simulated firmware only. No serial port, pyserial, ESP32, or motors.
+- Known limitations:
+  - No real serial transport, motor-bridge process, or arbiter IPC yet;
+    nothing calls MotorLink from the dashboard.
+  - Vectors are a proposal until the firmware passes them.
+- Next action:
+  - Share fixtures/serial_protocol_vectors.json and the proposed messages
+    with the ESP32 workstream; after agreement, add the motor-bridge
+    process with a pyserial transport around MotorLink.
+
+### 2026-09-26 EDT - Align Pi-side serial link with ESP32 firmware messages
+
+- Commit: feature/serial-protocol; fix: align serial link with firmware
+  messages. Supersedes the "Proposed interface additions" in the previous
+  entry.
+- Changed files and interfaces:
+  - serial_protocol.py now parses the firmware's replies from
+    feature/esp32-controller 48ae9dd: arm_ack/disarm_ack
+    {type, session, seq, armed}, fault {type, reason, armed:false} with
+    reasons malformed_packet, oversized_packet, watchdog_expired, and imu
+    {type, timestamp_ms, available, heading?, calibration?}. The "state"
+    message is removed. MAX_LINE_BYTES is now 200 to match the firmware
+    LineReader.
+  - serial_link.py arms only on an arm_ack matching its pending arm seq,
+    answers unrequested or foreign-session arm_acks with a disarm, disarms
+    on any fault, and detects reboots from an IMU timestamp reset or,
+    at the latest, the 250 ms ACK deadline (the firmware sends no boot
+    message).
+  - serial_sim.py mirrors the firmware's current behavior, including arm
+    adopting any session and faults being sent even while disarmed.
+  - fixtures/serial_protocol_vectors.json regenerated: 26 cases in the
+    firmware format. Cases still under discussion (stale arm, extra or
+    duplicate fields, boot message, re-arm output reset) are omitted.
+  - Drive packet, drive ACK, and arm/disarm commands are unchanged.
+- Tests and results:
+  - PYTHONPATH=app ../shellhacks2026/.venv/bin/python -m unittest discover
+    -s tests: 67 passed.
+  - Mutation checks (link ignoring faults, unrequested or foreign arm,
+    IMU reset, ACK deadline, sim driving after malformed input, 256-byte
+    line limit) each made the suite fail.
+  - The firmware's own C++ tests had not yet been compiled or run.
+- Mock or physical coverage:
+  - Simulated firmware only. The firmware's C++ was not compiled here.
+- Known limitations:
+  - Parity with the firmware is by code reading until the firmware runs
+    these vectors in its native test suite.
+  - Change requests for the ESP32 workstream are pending (stale-arm
+    rejection, boot message, re-arm output reset, extra/duplicate field
+    policy).
+- Next action:
+  - After the firmware's native tests pass, have the firmware run
+    fixtures/serial_protocol_vectors.json, then record the agreed
+    messages as a changes.md decision during integration.
+
+### 2026-09-26 EDT - Merge replay camera backend and serial protocol
+
+- Commit: merge of feature/replay-camera-backend (fast-forward to 4c51298)
+  and feature/serial-protocol (b23d95e) into feature/dashboard-control.
+  feature/detection-replay was already contained at f6eae78. Not merged:
+  main and feature/esp32-controller (other workstreams).
+- Changed files and interfaces:
+  - No code conflicts. The only conflict was this handoff log, where both
+    branches appended entries; all entries are kept in chronological order
+    and Current state was recomputed.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 71 passed
+    (control 13, detections 20, mecanum 8, mecanum fixtures 1,
+    replay camera 4, serial protocol 25), matching both branches'
+    pre-merge totals (46 and 67, sharing 42).
+  - node --check app/rescuebot/static/dashboard.js: passed.
+  - Correction: the earlier serial-protocol entry's "41 existing, 23 new"
+    should read "42 existing, 22 new"; f6eae78 had added one test.
+- Mock or physical coverage:
+  - Mock, fixture replay, and simulated firmware only.
+- Known limitations:
+  - ESP32 change requests and the detection image-dimension decision are
+    still open; a1vcm's ai_camera_detect.py on main emits a different
+    detection shape (flat width/height, integer camera_id, nanosecond
+    timestamp) that our loader does not accept yet.
+- Next action:
+  - Motor-bridge process around MotorLink using the simulated firmware.
 
 ## Entry template
 
