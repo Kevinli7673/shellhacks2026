@@ -24,7 +24,11 @@ struct WheelWiring {
 };
 
 struct ChassisConfig {
-    WheelWiring front_left{1, false};
+    // Inverted: bench test 2026-09-26 (all four ports driven FORWARD) showed
+    // only the front-left wheel pushing backward; its motor leads are reversed
+    // relative to the other three. Port M1 for front-left is still the
+    // placeholder mapping and must be confirmed with a one-port-at-a-time test.
+    WheelWiring front_left{1, true};
     WheelWiring front_right{2, false};
     WheelWiring rear_left{3, false};
     WheelWiring rear_right{4, false};
