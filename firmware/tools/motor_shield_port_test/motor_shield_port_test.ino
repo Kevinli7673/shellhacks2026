@@ -1,23 +1,21 @@
 /*
  * Raised-chassis Adafruit Motor Shield V2 port test.
  *
- * Before uploading, replace the three placeholders below with the confirmed
- * ESP32-S2 I2C pins and motor-shield address. This sketch will refuse to run
- * while the pin placeholders remain unset. Keep the chassis raised and clear
+ * Confirmed hardware: Adafruit QT Py ESP32-S2 default Wire (SDA=GPIO7,
+ * SCL=GPIO6) and motor shield address 0x60. Keep the chassis raised and clear
  * of people and objects. It drives exactly one port at a time, FORWARD at PWM
  * 60 for two seconds, releases it, and prints the port number over Serial.
  *
- * Record, for M1 through M4: which physical wheel moved and the direction it
- * pushed. Do not change ChassisConfig channel or inversion settings until the
- * recorded results are available.
+ * Recorded mapping: M1=front-right, M2=rear-right, M3=front-left,
+ * M4=rear-left. The right side is direction-inverted in ChassisConfig.
  */
 
 #include <Wire.h>
 #include <Adafruit_MotorShield.h>
 
-constexpr int kI2cSdaPin = -1;  // Replace after confirming the ESP32-S2 wiring.
-constexpr int kI2cSclPin = -1;  // Replace after confirming the ESP32-S2 wiring.
-constexpr uint8_t kMotorShieldAddress = 0x00;  // Replace after confirming I2C address.
+constexpr int kI2cSdaPin = 7;
+constexpr int kI2cSclPin = 6;
+constexpr uint8_t kMotorShieldAddress = 0x60;
 
 constexpr uint8_t kTestPwm = 60;
 constexpr unsigned long kSpinDurationMs = 2000;
@@ -40,11 +38,6 @@ void setup() {
   Serial.begin(115200);
   const unsigned long wait_started_ms = millis();
   while (!Serial && millis() - wait_started_ms < 2000) {
-  }
-
-  if (kI2cSdaPin < 0 || kI2cSclPin < 0 || kMotorShieldAddress == 0x00) {
-    Serial.println("Set confirmed I2C SDA, SCL, and shield address before testing.");
-    return;
   }
 
   Wire.begin(kI2cSdaPin, kI2cSclPin);

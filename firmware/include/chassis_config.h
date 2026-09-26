@@ -2,16 +2,7 @@
 
 #include <cstdint>
 
-// Physical wheel mapping, direction inversion, and the validated hardware
-// PWM ceiling.
-//
-// changes.md "Open hardware facts" lists these as NOT yet confirmed against
-// real hardware: exact channel mapping, direction inversions, and validated
-// motor-output ceiling. hardware_pwm_ceiling defaults to 0 so the firmware
-// cannot command real motor output at all until it is set from a physically
-// validated value (IMPLEMENTATION_PLAN.md section 7: "Keep real driving
-// disabled until hardware configuration is validated." / "Do not assume the
-// original document's approximate 80% PWM cap is universally safe.").
+// Physical wheel mapping, direction inversion, and the hardware PWM ceiling.
 //
 // AGENTS.md: "Correct physical wheel direction through configuration, not
 // equation edits." All wiring corrections belong here, never in mixing.cpp.
@@ -24,18 +15,19 @@ struct WheelWiring {
 };
 
 struct ChassisConfig {
-    // Bench test 2026-09-26: with every shield port commanded FORWARD,
-    // the front-left wheel alone pushed backward, so its motor leads are
-    // reversed. M1 remains a provisional mapping until the port test.
-    WheelWiring front_left{1, true};
-    WheelWiring front_right{2, false};
-    WheelWiring rear_left{3, false};
-    WheelWiring rear_right{4, false};
+    // Verified 2026-09-26 on the raised chassis: one port at a time (FORWARD at
+    // 60) gave M1=front-right, M2=rear-right, M3=front-left, M4=rear-left, and
+    // mapped forward/backward/strafe/rotate checks all matched with the right
+    // side (M1, M2) inverted. "Front" is the camera end.
+    WheelWiring front_left{3, false};
+    WheelWiring front_right{1, true};
+    WheelWiring rear_left{4, false};
+    WheelWiring rear_right{2, true};
 
-    // Validated maximum PWM (0-255) the hardware may be commanded to. Zero
-    // until confirmed by physical testing; see
-    // docs/handoffs/esp32-controller.md "Hardware facts still required".
-    int hardware_pwm_ceiling = 0;
+    // Maximum PWM (0-255) the hardware may be commanded to. 60 is a
+    // raised-chassis bench value confirmed by the team on 2026-09-26, not a
+    // validated floor-driving ceiling; raise it only after floor tests.
+    int hardware_pwm_ceiling = 60;
 };
 
 }  // namespace rescuebot

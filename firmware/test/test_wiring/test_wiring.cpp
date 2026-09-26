@@ -16,26 +16,26 @@ using rescuebot::mix;
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_default_wiring_inverts_front_left_forward_output(void) {
+void test_confirmed_wiring_maps_forward_outputs_to_shield_ports(void) {
     const ChassisConfig config;
     const auto logical_outputs = mix(1.0, 0.0, 0.0, 100);
     const auto motor_commands = applyChassisConfig(logical_outputs, config);
 
-    TEST_ASSERT_EQUAL_UINT8(1, motor_commands.front_left.channel);
-    TEST_ASSERT_EQUAL_INT(-100, motor_commands.front_left.signed_pwm);
+    TEST_ASSERT_EQUAL_UINT8(3, motor_commands.front_left.channel);
+    TEST_ASSERT_EQUAL_INT(100, motor_commands.front_left.signed_pwm);
 
-    TEST_ASSERT_EQUAL_UINT8(2, motor_commands.front_right.channel);
-    TEST_ASSERT_EQUAL_INT(100, motor_commands.front_right.signed_pwm);
+    TEST_ASSERT_EQUAL_UINT8(1, motor_commands.front_right.channel);
+    TEST_ASSERT_EQUAL_INT(-100, motor_commands.front_right.signed_pwm);
 
-    TEST_ASSERT_EQUAL_UINT8(3, motor_commands.rear_left.channel);
+    TEST_ASSERT_EQUAL_UINT8(4, motor_commands.rear_left.channel);
     TEST_ASSERT_EQUAL_INT(100, motor_commands.rear_left.signed_pwm);
 
-    TEST_ASSERT_EQUAL_UINT8(4, motor_commands.rear_right.channel);
-    TEST_ASSERT_EQUAL_INT(100, motor_commands.rear_right.signed_pwm);
+    TEST_ASSERT_EQUAL_UINT8(2, motor_commands.rear_right.channel);
+    TEST_ASSERT_EQUAL_INT(-100, motor_commands.rear_right.signed_pwm);
 }
 
 int main(int argc, char** argv) {
     UNITY_BEGIN();
-    RUN_TEST(test_default_wiring_inverts_front_left_forward_output);
+    RUN_TEST(test_confirmed_wiring_maps_forward_outputs_to_shield_ports);
     return UNITY_END();
 }
