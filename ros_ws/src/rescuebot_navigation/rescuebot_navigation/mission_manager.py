@@ -203,6 +203,11 @@ class MissionManager(Node):
             self.get_logger().warning("discarded malformed autonomy status")
             return
         if self._mission != mission or (self._active and not active):
+            if self._active or self._search["phase"] in SEARCH_BUSY:
+                self.get_logger().warning(
+                    f"canceling navigation after host status: active={active}, "
+                    f"reason={record.get('reason')!r}, mission={mission!r}, "
+                    f"previous_mission={self._mission!r}")
             self._cancel_search()
             self._cancel_goal()
             self._last_request = None
@@ -217,6 +222,10 @@ class MissionManager(Node):
         host_fresh = self._last_status is not None and now - self._last_status < 0.25
         if not host_fresh:
             if self._active:
+                age = "missing" if self._last_status is None else f"{now-self._last_status:.3f}s"
+                self.get_logger().warning(
+                    f"canceling navigation: host status stale; age={age}, "
+                    f"limit=0.250s, mission={self._mission!r}")
                 self._cancel_search()
                 self._cancel_goal()
                 self._active = False

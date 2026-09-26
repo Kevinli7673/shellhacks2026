@@ -151,3 +151,31 @@ def test_goal_deadline_is_checked_when_received_not_when_tick_started(manager, r
         assert manager._action.send_goal_async.called == accepted
     finally:
         sender.close()
+
+
+def test_local_host_status_expiry_logs_measured_age_without_idle_masking(manager):
+    status(manager)
+    logger = Mock()
+    manager.get_logger = Mock(return_value=logger)
+    manager._last_status = time.monotonic() - .30
+    manager._tick()
+    message = logger.warning.call_args.args[0]
+    assert "host status stale" in message and "limit=0.250s" in message
+    assert float(message.split("age=", 1)[1].split("s", 1)[0]) >= .30
+    assert "mission='test'" in message
+    assert not manager._active and manager._goal_state == "canceled"
+    manager._idle_velocity.publish.assert_not_called()
+
+
+def test_host_cancellation_logs_original_reason_and_mission(manager):
+    status(manager)
+    logger = Mock()
+    manager.get_logger = Mock(return_value=logger)
+    manager._status(String(data=json.dumps({
+        "active": False, "mission": None, "reason": "autonomy_timeout",
+    })))
+    message = logger.warning.call_args.args[0]
+    assert "after host status" in message
+    assert "reason='autonomy_timeout'" in message
+    assert "mission=None" in message and "previous_mission='test'" in message
+    assert not manager._active and manager._goal_state == "canceled"
