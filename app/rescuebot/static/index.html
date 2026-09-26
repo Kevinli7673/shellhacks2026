@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rescuebot Control</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">RESCUEBOT / MANUAL CONTROL</p>
+          <h1>Operator dashboard</h1>
+        </div>
+        <span id="connection-status" class="pill offline">Connecting</span>
+      </header>
+
+      <section class="grid">
+        <article class="video-panel">
+          <div class="video-placeholder">
+            <span class="camera-icon">◉</span>
+            <strong id="camera-status">Camera mock is offline</strong>
+            <p id="camera-message">Live camera integration is the next perception stage.</p>
+          </div>
+        </article>
+
+        <article class="control-panel">
+          <div class="status-row">
+            <span>Control ownership</span>
+            <strong id="ownership-status">Read-only</strong>
+          </div>
+          <div class="status-row">
+            <span>Driving state</span>
+            <strong id="driving-status">Disabled</strong>
+          </div>
+          <div class="speed">
+            <div>
+              <span>Speed setting</span>
+              <strong id="speed-value">30%</strong>
+            </div>
+            <span id="speed-limit">0 / 255 PWM</span>
+          </div>
+          <div class="actions">
+            <button id="enable-button" type="button">Enable Driving</button>
+            <button id="stop-button" class="stop" type="button">Stop</button>
+          </div>
+          <p id="fault-message" class="fault">Connect to claim control.</p>
+        </article>
+      </section>
+
+      <section class="grid lower-grid">
+        <article>
+          <h2>Wheel outputs</h2>
+          <div class="wheels" aria-label="Mock wheel output values">
+            <div><span>Front left</span><strong id="wheel-fl">0</strong></div>
+            <div><span>Front right</span><strong id="wheel-fr">0</strong></div>
+            <div><span>Rear left</span><strong id="wheel-rl">0</strong></div>
+            <div><span>Rear right</span><strong id="wheel-rr">0</strong></div>
+          </div>
+          <p class="muted">Mock backend; values are signed PWM requests before wheel mapping.</p>
+        </article>
+
+        <article>
+          <h2>Keyboard controls</h2>
+          <dl class="keys">
+            <div><dt>W / S</dt><dd>Forward / backward</dd></div>
+            <div><dt>A / D</dt><dd>Strafe left / right</dd></div>
+            <div><dt>← / →</dt><dd>Rotate counterclockwise / clockwise</dd></div>
+            <div><dt>↑ / ↓</dt><dd>Increase / decrease speed</dd></div>
+            <div><dt>Space</dt><dd>Stop and disable driving</dd></div>
+          </dl>
+        </article>
+      </section>
+    </main>
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>

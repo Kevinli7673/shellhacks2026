@@ -1,0 +1,2 @@
+[console_scripts]
+rescuebot-dashboard = rescuebot.web:main

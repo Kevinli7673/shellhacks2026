@@ -1,0 +1,90 @@
+[
+  {
+    "name": "stopped",
+    "forward": 0.0,
+    "sideways": 0.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
+  },
+  {
+    "name": "physical_forward_w",
+    "forward": 1.0,
+    "sideways": 0.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": 100, "fr": 100, "rl": 100, "rr": 100}
+  },
+  {
+    "name": "physical_backward_s",
+    "forward": -1.0,
+    "sideways": 0.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": -100, "fr": -100, "rl": -100, "rr": -100}
+  },
+  {
+    "name": "physical_right_strafe_d",
+    "forward": 0.0,
+    "sideways": 1.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": 100, "fr": -100, "rl": -100, "rr": 100}
+  },
+  {
+    "name": "physical_left_strafe_a",
+    "forward": 0.0,
+    "sideways": -1.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": -100, "fr": 100, "rl": 100, "rr": -100}
+  },
+  {
+    "name": "physical_clockwise_right_arrow",
+    "forward": 0.0,
+    "sideways": 0.0,
+    "turn": 1.0,
+    "speed_limit": 100,
+    "expected": {"fl": 100, "fr": -100, "rl": 100, "rr": -100}
+  },
+  {
+    "name": "physical_counterclockwise_left_arrow",
+    "forward": 0.0,
+    "sideways": 0.0,
+    "turn": -1.0,
+    "speed_limit": 100,
+    "expected": {"fl": -100, "fr": 100, "rl": -100, "rr": 100}
+  },
+  {
+    "name": "normalized_forward_right_translation",
+    "forward": 1.0,
+    "sideways": 1.0,
+    "turn": 0.0,
+    "speed_limit": 100,
+    "expected": {"fl": 100, "fr": 0, "rl": 0, "rr": 100}
+  },
+  {
+    "name": "normalized_forward_right_clockwise",
+    "forward": 1.0,
+    "sideways": 1.0,
+    "turn": 1.0,
+    "speed_limit": 100,
+    "expected": {"fl": 100, "fr": -41, "rl": 41, "rr": 17}
+  },
+  {
+    "name": "partial_combined_motion",
+    "forward": 0.4,
+    "sideways": 0.3,
+    "turn": 0.2,
+    "speed_limit": 150,
+    "expected": {"fl": 135, "fr": -15, "rl": 45, "rr": 75}
+  },
+  {
+    "name": "zero_limit",
+    "forward": 1.0,
+    "sideways": -1.0,
+    "turn": 1.0,
+    "speed_limit": 0,
+    "expected": {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
+  }
+]
