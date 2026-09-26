@@ -98,3 +98,74 @@ simulation acceptance. Evaluate time-to-first-detection in simulation seconds
 and distance rather than drawing conclusions from wall time at variable load.
 No push is authorized for this subsidiary branch; the coordinator owns final
 feature/autonomy-sim publication and the combined handoff.
+
+## Implementation checkpoint and additional reproducibility
+
+Implementation commit: `939e746` (unpublished subsidiary branch). The
+coordinator retained the 12-sample minimum pending live varied/absent-target
+validation; this is an explicit sampled-coverage limitation, not proof of
+complete absence. The following exact command ran the six existing pure
+planner cases without importing ROS or installing pytest:
+
+```bash
+PYTHONPATH=ros_ws/src/rescuebot_navigation /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python - <<'PY'
+import ast
+import math
+from rescuebot_navigation.search import Coverage, Grid, observe, next_viewpoint
+path = 'ros_ws/src/rescuebot_navigation/test/test_search.py'
+names = {
+    'grid', 'sensed',
+    'test_unknown_and_occupied_cells_occlude_target',
+    'test_viewpoints_are_reachable_unvisited_and_have_clearance',
+    'test_empty_or_unknown_area_has_no_goal',
+    'test_offset_passage_connects_rooms_only_when_observed_free',
+    'test_north_start_does_not_crop_the_southern_detour',
+}
+module = ast.parse(open(path).read())
+module.body = [node for node in module.body
+               if isinstance(node, ast.FunctionDef) and node.name in names]
+for node in module.body:
+    node.decorator_list = []
+namespace = globals()
+exec(compile(module, path, 'exec'), namespace)
+for name in sorted(names):
+    if name.startswith('test_'):
+        if name.startswith('test_offset'):
+            namespace[name](True)
+            namespace[name](False)
+        else:
+            namespace[name]()
+        print('PASS', name)
+PY
+```
+
+Additional single-sample timings (same host, open all-free maps; current pose
+(0, 0, 0), observe at (0, 0) then select one goal):
+
+| Grid | Resolution | Observation | Selection |
+|---|---|---|---|
+| 120×120 | 0.05 m | 1.4 ms | 260 ms |
+| 180×180 | 0.05 m | 1.5 ms | 684 ms |
+| 500×500 (maximum accepted cell count) | 0.025 m | 2.8 ms | 8.612 s |
+
+These are fixture measurements, not latency guarantees. The maximum-size,
+minimum-resolution fixture retains the pre-existing expensive map-cell disk
+clearance loop; it demonstrates why planning remains off the command timer.
+The live simulation uses 0.05 m resolution. No additional caching or
+resolution change was introduced as part of these selected optimizations.
+
+```bash
+PYTHONPATH=ros_ws/src/rescuebot_navigation /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python - <<'PY'
+import time
+from rescuebot_navigation.search import Coverage, Grid, observe, next_viewpoint
+for width, resolution in ((120, .05), (180, .05), (500, .025)):
+    origin = -width * resolution / 2
+    grid = Grid(width, width, resolution, origin, origin, (0,) * (width * width))
+    started = time.monotonic()
+    coverage = observe(grid, (0., 0.), Coverage())
+    observation = time.monotonic() - started
+    started = time.monotonic()
+    point = next_viewpoint(grid, (0., 0., 0.), ((0., 0.),), (), coverage)
+    print(width, resolution, observation, time.monotonic() - started, point)
+PY
+```
