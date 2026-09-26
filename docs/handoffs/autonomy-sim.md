@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Search coverage repair validated on the final Docker image. Fresh-map and northern-start search/notification/return/disarm both pass at requested 3x playback. The repair uses map-cell connectivity, 0.55 m destination clearance, and NavFn Dijkstra expansion after a reproduced A* return-path failure. All 27 ROS tests and 166 application tests pass (two optional skips); ordinary dashboard goals, Stop, takeover, and source-loss regression also pass. Repair commit: 6afe288 on feature/autonomy-sim, not integrated. The simulator is left navigation-ready, disarmed, unowned, and at zero wheel output. Physical autonomy and varied/absent targets remain unvalidated.
+Status: Movement blending validated and committed in f5f5848 on feature/autonomy-sim, not integrated. Ordinary turns combine translation and yaw; sharp reversals and final alignment may turn in place. Seven-goal routes, direct divider detour, obstacle stopping during combined motion, fresh/northern search-and-return, Stop/takeover/source-loss, 166 application tests (two skips), and all 27 ROS tests pass. Simulator is ready at fresh search-house spawn, disarmed, zero output, requested 3x playback. Physical autonomy remains unvalidated.
 
 ## User-authorized scope exception
 
@@ -34,6 +34,161 @@ The existing non-Gazebo application paths must retain their behavior. Scope is
 ros_ws/, simulation-specific application behavior and tests, and this handoff.
 No direct firmware edits, other workstream handoff edits, or merges into
 test/integration or main are authorized. Push only feature/autonomy-sim.
+
+## Movement blending (2026-09-26)
+
+Tested code checkpoint: `f5f5848` (parent `4130a62`).
+
+Accepted user decision: combine translation (including diagonal/strafe) and
+rotation through ordinary turns instead of requiring full alignment before
+moving. This supersedes strict turn-then-drive behavior in the historical
+forward-facing checkpoint. Facing travel remains a preference; sharp reversals
+and final pose alignment can still turn in place. Workstream: simulation
+autonomy in /private/tmp/rescuebot-autonomy-sim, base 4130a62. Fetched origin;
+no cross-workstream requests route here. The integrator should record this
+refinement in the shared plan/log. Only this feature branch may be pushed.
+
+The underlying DWB controller and mecanum simulation already accept combined
+x/y/yaw velocity. The rotation shim was overriding DWB whenever the path
+heading differed by more than 0.35 rad, holding translation at zero until
+within 0.12 rad. Changed only its engagement/disengagement thresholds to
+1.75 / 0.65 rad (about 100° / 37°). Ordinary bends now use DWB's simultaneous
+translation/rotation; a large reversal starts in place and finishes alignment
+while moving. Final-heading behavior, DWB critics, speed/acceleration limits,
+20% autonomy setting, map planner, collision geometry, Stop and wall-time
+source expiry remain unchanged. No firmware, wheel mixing, IPC, or manual
+control behavior changed. The simulation-panel text describes the new motion.
+See the [Jazzy rotation-shim source](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_rotation_shim_controller/src/nav2_rotation_shim_controller.cpp)
+for the handoff between pure rotation and its primary controller.
+
+`validate_heading.py` now measures translation/yaw overlap from actual Gazebo
+poses. Samples must translate at least 2 mm and rotate at least 0.008 rad to
+count. The first two clear turns must travel at least 10 cm during measurable
+rotation and at least 8 cm before alignment, while preserving goal/heading,
+clearance, and bounded backward-travel checks. The former requirement to remain
+stationary until aligned and the 80% forward-share threshold for each short
+turn intentionally no longer apply: sideways travel while turning is now
+requested behavior. Forward share is still reported. `--baseline` allows
+comparison without requiring blending. Search acceptance retains its existing
+80% overall forward-share check and all previous safety checks.
+
+Baseline and tuned results use the same clear-aisle goals from fresh spawn,
+requested 3x playback, unchanged speed limits, macOS ARM64 / Docker Ubuntu
+24.04 / ROS Jazzy / Gazebo Harmonic with software rendering:
+
+| Actual-pose result | Old thresholds | Tuned thresholds |
+|---|---:|---:|
+| First 90° turn: travel during measured rotation | 0.122 m | 0.443 m |
+| First turn: rotation during that travel | 0.147 rad | 1.061 rad |
+| Second 90° turn: travel during measured rotation | 0.176 m | 0.464 m |
+| Second turn: rotation during that travel | 0.266 rad | 1.087 rad |
+| Three clear goals, total wall time | 24.30 s | 18.27 s |
+| Maximum position error across those goals | 0.0831 m | 0.0759 m |
+
+The older configuration translated less than 0.4 mm before initial alignment.
+The new one actually moves while turning, rather than merely issuing combined
+requests. Short-goal forward share is 55–70%, reflecting intentional strafe.
+Wall-time reduction here is an indicative comparison, not a guaranteed 25%
+speedup: actual world playback varies with computing load.
+
+Additional runtime acceptance:
+
+- Seven-goal route, including reversal and lower-divider passage: all goals
+  pass over 8.211 m; maximum destination/heading error 0.0828 m / 0.1328 rad;
+  minimum wall/divider clearance 0.1428 m. The reversal retains initial
+  in-place turning and then blends the remaining alignment.
+- Direct destination across the divider, with no intermediate goal supplied:
+  3.011 m planned detour in 20.28 s; 2.085 m of travel during measured rotation;
+  goal error 0.0699 m, minimum clearance 0.1291 m, final-heading error 0.1047 rad.
+- New `validate_obstacle.py --heading -90 --during-turn` waits for simultaneous
+  safe translation and yaw before inserting its own panel. FootprintStop
+  appeared 0.381 s after creation began; filtered velocity became zero;
+  geometric clearance was 0.0974 m and subsequent translation was 0.00079 m.
+  The validator sends Stop and removes its uniquely named obstacle. This is
+  simulated stopping evidence, not physical reaction-time certification.
+- Fresh-house search: found/returned/disarmed in 147.286 s over 18.056 m;
+  90.48% forward travel, return error 0.0801 m / 0.0804 rad, minimum clearance
+  0.1567 m, maximum SLAM error 0.0397 m.
+- Northern-start search on the retained map: found/returned/disarmed in
+  149.497 s over 18.386 m; 96.26% forward travel, return error
+  0.0666 m / 0.1170 rad, minimum clearance 0.1562 m, maximum SLAM error 0.0168 m.
+- Both searches also pass target range/occlusion, all four mission phases,
+  Stop/restart, post-return hold, and a new explicit start clearing detection.
+- Final dashboard-goal regression passes completion, Stop and stationary hold,
+  manual takeover without resume, source loss, and no automatic rearm. Managed
+  Nav2 pause disarmed in 0.305 s including test/lifecycle overhead; all six
+  managed nodes remained active after resume.
+
+Final runtime image:
+`df9130e572b57f146db43cea0cccd83f0050a8f5ba11bc29043877346fc7effd`.
+All four ROS packages build; the Ubuntu application suite reports 168 tests,
+166 passed and two optional skips; all 27 ROS tests pass with no failures or
+skips, and JavaScript syntax passes. No new dependency or host installation.
+The final image differs from the initial tuned-route image only in simulation
+UI guidance and obstacle validator; controller configuration is identical.
+The macOS suite was not rerun in this session.
+
+Commands from this worktree (`docker` is /Users/shaderahman/.docker/bin/docker):
+
+```bash
+git fetch origin --prune
+# Baseline: accepted image, fresh indoor_maze world, updated validator copied in.
+RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker cp ros_ws/docker/validate_heading.py rescuebot-autonomy-sim-sim-1:/workspace/ros_ws/docker/validate_heading.py
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --baseline
+# After applying the thresholds, build/update the single simulator.
+docker build -f /private/tmp/rescuebot-search-fix.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
+# Final image includes simulation UI guidance and the new obstacle check.
+docker build -f /private/tmp/rescuebot-blend.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --heading -90 --during-turn
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --detour
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py --north-start
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+git diff --check
+```
+
+The temporary final Dockerfile derives from the accepted image, copies app/,
+ros_ws/src/, and ros_ws/docker/ with rescuebot ownership, then runs the same
+colcon build as the canonical Dockerfile. Clean builds still use
+`docker compose -f ros_ws/docker/compose.yaml build`. Logs stay outside Git:
+`/private/tmp/rescuebot-blend-{baseline,routes,detour,obstacle,tests,final-build,search-fresh,search-north,search-runtime,safety}.log`.
+No physical autonomy, varied-target, absent-target, or blocked-return coverage
+is claimed. Git identity was checked before committing; no history or Git
+configuration was rewritten. Publication is limited to feature/autonomy-sim;
+no merge into main/test/integration or other workstream edits occurred.
+
+After safety acceptance, restarted the same container to fresh search-house
+spawn and restored requested 3x with validate_playback.py --set-only 3. Final
+API verification confirms navigation Ready, driving disarmed, autonomy inactive,
+zero wheel outputs, and pose within 3 cm of spawn. Updated simulation guidance
+is served by the dashboard. Evidence: /private/tmp/rescuebot-blend-final-state.json
+and rescuebot-blend-final-rate.log. The old control tab was navigated to
+about:blank before testing; automated restoration encountered active user window
+changes, so further browser actions were left to the operator.
+
+Removed the temporary search-6afe288 image tag after the new checkpoint passed;
+its code remains in Git. `docker buildx prune --builder desktop-linux --all
+--force` removed 1.188 GB of unused build cache. Final Docker storage: one active
+5.618 GB image, one active container, zero volumes/cache. The active simulator
+was preserved. Evidence: /private/tmp/rescuebot-blend-cleanup.log.
+
+Next: open http://localhost:18000, then Enable driving → Start autonomy → Send
+goal or Search for person & return. Watch the Gazebo desktop for motion;
+the replay camera still becomes stale independently.
 
 ## Search coverage acceptance (2026-09-26)
 
@@ -431,6 +586,7 @@ is recorded above. Shared serial, firmware, and non-Gazebo app paths are unchang
 | `0fdf41c` | Map coverage search, synthetic notification, return/disarm, local SLAM loop tuning | Full 14.98 m mission, Stop/restart/repeat-start and selected-goal safety regression; 159 Python passes/two skips on each OS, 21 ROS passes. |
 | `1d6f9fa` | Merge latest origin/test/integration through 7071d1e | Imported three upstream firmware initialization fixes unchanged; post-merge Python suite: 159 passes, two optional skips. No direct firmware edits or physical tests. |
 | `6afe288` | Map-cell search coverage, arrival clearance, retained ending reasons, northern-start validator, Dijkstra return planning | Final image: 166 application passes/two skips, 27 ROS passes; fresh and northern searches with detection/return/disarm pass; selected-goal/Stop/takeover/source-loss regression passes. Simulation only. |
+| `f5f5848` | Simultaneous translation/yaw through ordinary turns, measured overlap and obstacle-stop validation | Seven-goal route, direct divider detour, combined-motion obstacle stop, fresh/northern search return, and safety regression pass; 166 application passes/two skips, 27 ROS passes. |
 
 Previous publication: code through `784f08b` and its handoff were committed
 and pushed only to origin/feature/autonomy-sim, not integrated. The goal-form
