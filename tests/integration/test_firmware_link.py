@@ -47,19 +47,22 @@ class _Firmware:
             [str(binary), str(ceiling)], stdin=master, stdout=master, stderr=subprocess.PIPE, text=True
         )
         self.motors: dict | None = None
-        threading.Thread(target=self._watch, daemon=True).start()
+        self._reader = threading.Thread(target=self._watch, daemon=True)
+        self._reader.start()
 
     def _watch(self) -> None:
         assert self.proc.stderr is not None
-        for line in self.proc.stderr:
-            match = re.match(r"MOTORS armed=(\d) fl=(-?\d+) fr=(-?\d+) rl=(-?\d+) rr=(-?\d+)", line)
-            if match:
-                armed, fl, fr, rl, rr = map(int, match.groups())
-                self.motors = {"armed": bool(armed), "wheels": {"fl": fl, "fr": fr, "rl": rl, "rr": rr}}
+        with self.proc.stderr:
+            for line in self.proc.stderr:
+                match = re.match(r"MOTORS armed=(\d) fl=(-?\d+) fr=(-?\d+) rl=(-?\d+) rr=(-?\d+)", line)
+                if match:
+                    armed, fl, fr, rl, rr = map(int, match.groups())
+                    self.motors = {"armed": bool(armed), "wheels": {"fl": fl, "fr": fr, "rl": rl, "rr": rr}}
 
     def stop(self) -> None:
         self.proc.kill()
         self.proc.wait()
+        self._reader.join(2)  # the reader closes the pipe when it reaches EOF
 
 
 class _Arbiter:
