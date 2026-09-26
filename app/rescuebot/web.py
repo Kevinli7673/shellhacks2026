@@ -27,6 +27,7 @@ from .motor_bridge import default_run_dir
 from .navigation_ipc import NavigationHostEndpoint
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .service import RobotControlService
+from .simulation_playback import SimulationPlayback
 
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -43,8 +44,11 @@ def _dashboard_state(
     service: RobotControlService,
     session: str | None,
     camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend,
+    playback: SimulationPlayback | None = None,
 ) -> dict[str, object]:
     state = service.state()
+    if playback is not None:
+        state["simulation_playback"] = playback.state()
     state["camera"] = camera.status()
     control = state["control"]
     assert isinstance(control, dict)
@@ -102,6 +106,7 @@ def create_app(
         )
     else:
         raise ValueError("motor_backend must be mock, bridge, or gazebo")
+    playback = SimulationPlayback() if isinstance(control_service.backend, GazeboMotorBackend) else None
     if camera is not None:
         camera_service = camera
     elif camera_backend == "mock":
@@ -123,6 +128,8 @@ def create_app(
     async def lifespan(app: FastAPI):
         camera_service.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
+        if playback is not None:
+            playback.start()
         try:
             yield
         finally:
@@ -130,6 +137,8 @@ def create_app(
             with suppress(asyncio.CancelledError):
                 await app.state.control_loop
             control_service.stop("dashboard_shutdown")
+            if playback is not None:
+                await playback.close()
             control_service.close()
             camera_service.close()
 
@@ -144,14 +153,14 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_service)
+        return _dashboard_state(control_service, None, camera_service, playback)
 
     @app.websocket("/ws/control")
     async def control_socket(websocket: WebSocket) -> None:
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_service, playback)}
         )
 
         try:
@@ -167,8 +176,17 @@ def create_app(
                     accepted = control_service.claim(session)
                     response: dict[str, Any] = {"type": "claim", "accepted": accepted}
                 elif message_type == "enable":
-                    accepted = control_service.enable(session)
+                    accepted = not (playback is not None and playback.pending) and control_service.enable(session)
                     response = {"type": "enable", "accepted": accepted}
+                elif message_type == "simulation_playback" and playback is not None:
+                    accepted = (
+                        session == control_service.control.owner_session
+                        and not control_service.control.armed
+                        and not control_service.autonomy.active
+                        and not control_service.control.has_movement
+                        and playback.request(message.get("rate"))
+                    )
+                    response = {"type": "simulation_playback", "accepted": accepted}
                 elif message_type == "keys":
                     keys = message.get("keys")
                     if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
@@ -199,7 +217,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service, playback)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)

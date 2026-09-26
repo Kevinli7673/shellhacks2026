@@ -13,8 +13,8 @@ a map, Nav2 completes a selected goal, and Stop/manual override/source loss canc
 Forward-facing travel and a seven-goal route around the divider have also
 passed ground-truth pose checks. The controller uses a 0.60 m local path
 horizon so goals across a wall follow the planned detour instead of stalling.
-The Ubuntu suite reports 158 tests (156 pass, 2 environment-gated skips), and
-all seven ROS tests pass. This is simulation coverage only.
+The Ubuntu suite reports 168 tests (166 pass, 2 environment-gated skips), and
+all 23 ROS tests pass. This is simulation coverage only.
 
 ## Build and start
 
@@ -48,6 +48,44 @@ sockets are mounted into the container. It runs as an unprivileged user and
 publishes only the dashboard and browser desktop on Mac loopback ports.
 
 ## Validation and navigation
+
+### Simulation playback speed
+
+In **Simulation autonomy → Simulation playback**, click **Stop**, then choose
+**1×**, **2×**, or **3×**. Wait for the requested rate to be confirmed, then
+enable driving and start autonomy as usual. The selection lasts until Gazebo
+restarts; a restart restores the world's 1× default. Only the controlling
+browser can change the rate, and changes are rejected while driving is enabled.
+
+Playback changes Gazebo's world clock. It keeps the 1 ms physics step, motor
+velocity limits, Nav2 configuration, and the 20% autonomy setting unchanged.
+The separate **Motor speed** / Up-Down controls still adjust manual driving.
+Stop and command-expiry deadlines use wall time and are not multiplied by the
+playback setting. The short replay camera fixture is not a Gazebo camera and
+does not accelerate with the world; watch the Gazebo desktop.
+
+**Actual** reports a one-second average from Gazebo's elapsed clocks. Requested 3× may run below 3×
+when CPU or rendering cannot keep up; missing statistics show **Clock
+unavailable**. On the tested Apple Silicon Docker setup, 2× and 3× reached
+roughly 1.7–2.1× during the motion probes with the obstacle house and navigation
+stack running; other portions of the run approached the requested 3×.
+The world clock setting follows Gazebo's
+[Harmonic physics update implementation](https://github.com/gazebosim/gz-sim/blob/gz-sim8/src/SimulationRunner.cc).
+
+From a fresh stopped world, with the simulation control tab closed:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py
+# Set the clock without driving, e.g. before search acceptance after a restart:
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+```
+
+This checks clock acceleration, distance per simulated second, rejection while
+armed, and stationary Stop holds at each setting. It leaves playback at 3× and
+driving disarmed for subsequent navigation tests. It requires useful acceleration
+on the validation host; a heavily loaded machine may fail the performance check.
+
+### Runtime checks
 
 Commands executed with Compose need the ROS overlay; the entrypoint sources it:
 

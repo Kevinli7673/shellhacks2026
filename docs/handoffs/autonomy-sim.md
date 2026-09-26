@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. The optional obstacle-house search mission chooses map viewpoints, finds a synthetic target, notifies the dashboard, returns to the saved start, and disarms. A 14.98 m / 306 s mission passed with 8.8 cm return error and 13.3 cm minimum clearance. Existing short/long goal and obstacle checkpoints remain available. A false SLAM match on the initial search run prompted tighter local loop matching and a localization-jump stop guard. Varied targets, missing targets, blocked returns, and physical autonomy need further runtime acceptance.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. The simulation dashboard now offers 1x/2x/3x world-clock playback with unchanged motor settings and an averaged actual-rate readout. At requested 3x, search/notification/return/disarm passed over 14.92 m in 155 s, with 6.6 cm return error and 12.2 cm minimum clearance. A goal receive-time deadline race was fixed in e653430. Existing goal, obstacle, Stop, takeover, and source-loss checks pass at accelerated playback. Varied targets, missing targets, blocked returns, and physical autonomy still need further runtime acceptance.
 
 ## User-authorized scope exception
 
@@ -23,15 +23,130 @@ extends the same simulation-only scope exception. Physical camera snapshots,
 buzzer integration, and physical autonomy remain deferred. The integrator
 should carry this accepted design into IMPLEMENTATION_PLAN.md and changes.md.
 
+The user also clarified that adjustable simulation speed means **world-clock
+playback**, not faster robot movement. The future physical demo is intended to
+use a constant, conservative driving speed. The playback control is simulation
+only; no physical speed policy is changed here. The integrator should record
+this distinction in the shared plan/log.
+
 Gazebo/ROS output must never reach the serial transport, ESP32, or real motors.
 The existing non-Gazebo application paths must retain their behavior. Scope is
 ros_ws/, simulation-specific application behavior and tests, and this handoff.
 No direct firmware edits, other workstream handoff edits, or merges into
 test/integration or main are authorized. Push only feature/autonomy-sim.
 
-## Checkpoints
+## Simulation playback checkpoint (2026-09-26)
 
-### Playback validation: goal deadline correction (2026-09-26)
+The Gazebo-only dashboard accepts `simulation_playback` WebSocket requests
+with numeric rate 1, 2, or 3. The control owner must be disarmed with no movement
+keys held. A bounded asynchronous Gazebo `set_physics/blocking` request changes
+only `real_time_factor`; Enable is rejected while the request is pending, and
+Stop stays responsive. A failed request leaves the previously confirmed target
+visible and reports an error. There is no automatic retry or automatic arming.
+The world returns to its SDF 1x default when restarted.
+
+A separate Gazebo CLI process reads world statistics. Actual speed is computed
+from native simulation/real elapsed clocks over a one-second window, avoiding
+spikes in Gazebo's instantaneous RTF. Missing/stale statistics are unavailable,
+paused statistics show zero, and world reset clears the old rate. This adds a
+Gazebo-only `simulation_playback` state object. Mock/bridge dashboards create no
+playback process or state and retain their existing unsupported-message behavior.
+The physics step remains 1 ms. Motor conversion, Nav2 limits, 20% autonomy,
+serial packets, firmware, and wall-time source/watchdog deadlines are unchanged.
+
+Validation environment: macOS 26.6.2 ARM64 with Docker Desktop 4.92.0 / Engine
+29.8.0, Ubuntu 24.04 ARM64, ROS 2 Jazzy and Gazebo Harmonic with software
+rendering. No host packages were installed. All commands ran from the dedicated
+worktree above; `docker` below is `/Users/shaderahman/.docker/bin/docker`.
+
+The earlier Docker cleanup removed 7.298 GB of build cache. To avoid downloading
+ROS again, this run updated the existing validated image (original base image
+`a820ce95974c817452b874eafea595c45389235060f805fa9c746ef5d5d91e83`) with this temporary
+Dockerfile, then rebuilt the overlay. The repository's canonical Dockerfile still
+supports a clean build with `docker compose -f ros_ws/docker/compose.yaml build`.
+
+```dockerfile
+FROM rescuebot-autonomy-sim:jazzy
+COPY --chown=rescuebot:rescuebot app/ /workspace/app/
+COPY --chown=rescuebot:rescuebot tests/ /workspace/tests/
+COPY --chown=rescuebot:rescuebot ros_ws/docker/ /workspace/ros_ws/docker/
+COPY --chown=rescuebot:rescuebot ros_ws/src/ /workspace/ros_ws/src/
+RUN source /opt/ros/jazzy/setup.bash && cd ros_ws && colcon build --symlink-install --event-handlers console_direct+
+```
+
+```bash
+git fetch origin --prune
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+docker build -f /private/tmp/rescuebot-playback.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --shape panel --heading 180
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+git diff --check
+```
+
+- Final macOS and Ubuntu suites: 168 discovered, 166 passed, two optional
+  browser/firmware-link integration skips. JavaScript syntax passes. All four
+  ROS packages build and all 23 ROS tests pass.
+- Clock/motion probe after the deadline fix: requested 1/2/3x measured
+  0.989/1.680/2.047x over four-second windows. Manual forward/backward averages
+  stayed 0.108–0.115 m per simulation second at the unchanged 30% setting.
+  Armed rate changes were rejected and Stop held position within 5 mm at each
+  setting. CPU/render load can prevent reaching the target rate; other portions
+  approached 3x. An initial test incorrectly assumed at least 75% of requested
+  3x and failed at 2.104x; the validator now records actual acceleration and
+  checks useful speedup without treating the target as a performance guarantee.
+- At requested 3x, selected-goal completion, Stop, manual takeover, source loss,
+  six-node Nav2 resume, and no automatic rearm passed. Managed pause disarmed
+  in 0.303 s, including test/lifecycle overhead. The inserted panel triggered
+  FootprintStop in 0.362 s, with 0.0743 m clearance and less than 0.0005 m drift.
+- Full search at requested 3x: 154.970 wall seconds, 14.923 m path, 98.81%
+  forward travel, target notification, return error 0.0662 m / 0.0848 rad,
+  minimum clearance 0.1220 m, maximum SLAM error 0.0383 m. All four mission
+  phases occurred, completion disarmed, stationary hold passed, and explicit
+  repeat start worked. The earlier 1x checkpoint took 306 s on a similar
+  14.98 m route; this is not a claim that every search takes exactly half time.
+
+Evidence logs are `/private/tmp/rescuebot-playback-{build,mac-tests,ubuntu-tests,
+runtime,navigation,obstacle,search-rate,search}.log`. The initial post-restart
+probe began before HTTP was ready; the validator now waits up to 60 seconds for
+clock/navigation readiness. Logs and generated artifacts are not committed.
+
+The final averaged-readout image is
+`622574c90af0a5799f9cfe2e93cb0eb269b508f2aee156c1609618b3d6cacf81`.
+Its complete clock/motion/Stop probe passed again: achieved 0.999/1.714/2.065x
+at requested 1/2/3x. Evidence: /private/tmp/rescuebot-playback-final-runtime.log.
+Native Chrome verified all three buttons and the pending state, disabled rate
+controls while armed, a successful default nearby goal at 2x, and Space disarm.
+The dashboard is left open, navigation ready, requested 2x, driving disabled,
+near map (-0.04, -0.42) m after that goal. Gazebo's noVNC view was reconnected.
+
+Docker inspection found only the active image/container and no volumes or
+dangling images. `docker buildx prune --builder desktop-linux --all --force`
+removed the new 1.191 GB build cache. Final `docker system df`: one 5.608 GB
+image, one active container, zero build cache/volumes; live RAM 1.249 GiB.
+Evidence: /private/tmp/rescuebot-playback-cleanup.log. The active simulator was
+preserved. No old simulator was left running.
+
+Publication: deadline fix e653430 and this playback implementation are committed
+on feature/autonomy-sim; only that branch is pushed. Nothing is merged into
+test/integration or main. Expected team identity was checked before each commit;
+Git configuration and history were not rewritten. The shared plan/log update
+remains the integrator's responsibility under the scope exception above.
+
+No physical tests, camera alarm integration, or real-motor changes occurred.
+Sustained exact 3x under arbitrary Mac load is not guaranteed. Existing varied-
+target, absent-target, blocked-return, and physical acceptance limitations still
+apply. Next: click Stop, choose a playback rate, wait for confirmation, then
+Enable driving → Start autonomy → Send goal or Search for person & return.
+Watch the Gazebo desktop; the replay camera remains independent and becomes stale.
+
+## Goal deadline correction (e653430, 2026-09-26)
+
 
 During work on user-requested world-clock acceleration, the fourth dashboard
 goal in `validate_navigation.py --dashboard-goals` was not acknowledged at the
@@ -59,7 +174,9 @@ passes, and 23 ROS tests pass. Evidence: /private/tmp/rescuebot-playback-build.l
 rescuebot-playback-ubuntu-tests.log, rescuebot-playback-navigation.log, and
 rescuebot-playback-nav-failure.log. No physical coverage. This small correction
 is committed independently of the playback UI; accelerated runtime acceptance
-continues below. Shared serial, firmware, and non-Gazebo app paths are unchanged.
+is recorded above. Shared serial, firmware, and non-Gazebo app paths are unchanged.
+
+## Checkpoints
 
 | Commit | Coverage | Validation |
 |---|---|---|

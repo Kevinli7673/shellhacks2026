@@ -65,6 +65,17 @@
             <p id="navigation-status" role="status">Waiting for navigation</p>
           </div>
           <p>Enable driving, start autonomy, then send a nearby goal. The robot turns toward the route, drives forward, and strafes when needed.</p>
+          <div id="simulation-playback" hidden>
+            <h3>Simulation playback</h3>
+            <div class="playback-rates" role="group" aria-label="Simulation playback speed">
+              <button type="button" data-playback-rate="1" aria-pressed="false">1×</button>
+              <button type="button" data-playback-rate="2" aria-pressed="false">2×</button>
+              <button type="button" data-playback-rate="3" aria-pressed="false">3×</button>
+            </div>
+            <p id="playback-status" role="status">Waiting for simulation clock</p>
+            <p>Stop driving to change playback. This speeds up the whole world; robot movement settings stay the same. Actual rate depends on available computing power.</p>
+            <p id="playback-feedback" role="status"></p>
+          </div>
           <button id="autonomy-button" class="enable" type="button" hidden>Start autonomy</button>
           <form id="navigation-form">
             <div class="navigation-fields">
@@ -84,7 +95,7 @@
             <p id="search-status" role="status">Enable driving and start autonomy first.</p>
             <p id="search-notification" role="alert" hidden></p>
           </div>
-          <p>After Stop: Enable driving → Start autonomy → Send goal. W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy speed is fixed at 20%.</p>
+          <p>After Stop: Enable driving → Start autonomy → Send goal. W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy motor speed is fixed at 20%.</p>
         </section>
 
         <div class="keypanel" aria-label="Keyboard controls">

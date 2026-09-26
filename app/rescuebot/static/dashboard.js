@@ -229,6 +229,19 @@ function updateDashboard(data) {
   autonomyButton.disabled = !connected || !canControl || drive !== "armed" || heldKeys.size > 0 || autonomy.active;
   autonomyButton.textContent = autonomy.active ? "Autonomy active" : "Start autonomy";
   updateNavigation(autonomy, drive);
+  const playback = data.simulation_playback;
+  element("simulation-playback").hidden = !playback;
+  if (playback) {
+    if (playback.pending) element("enable-button").disabled = true;
+    for (const button of document.querySelectorAll("[data-playback-rate]")) {
+      button.disabled = !connected || !canControl || drive !== "disabled" || playback.pending || heldKeys.size > 0;
+      button.setAttribute("aria-pressed", String(Number(button.dataset.playbackRate) === playback.target));
+    }
+    const actual = playback.actual === null ? "Clock unavailable" : `Actual ${playback.actual.toFixed(2)}×${playback.paused ? " (paused)" : ""}`;
+    const target = playback.target === null ? "Choose a playback rate" : `Requested ${playback.target}×`;
+    setText("playback-status", playback.pending ? "Applying playback rate…" : `${target} · ${actual}`);
+    if (playback.error) setText("playback-feedback", playback.error);
+  }
 }
 
 function navigationGoalInput() {
@@ -332,6 +345,9 @@ function connect() {
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") updateDashboard(message.data);
+    if (message.type === "simulation_playback") {
+      setText("playback-feedback", message.accepted ? "" : "Playback change not accepted. Stop driving and wait for any pending change.");
+    }
     if (message.type === "navigation_goal") {
       setText("navigation-feedback", message.accepted ? "" : "Goal not accepted. Check readiness and wait for the current goal to finish.");
     }
@@ -395,6 +411,9 @@ element("enable-button").addEventListener("click", () => send({ type: "enable" }
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("search-button").addEventListener("click", () => send({ type: "start_search" }));
 element("stop-button").addEventListener("click", clearAndStop);
+for (const button of document.querySelectorAll("[data-playback-rate]")) {
+  button.addEventListener("click", () => send({ type: "simulation_playback", rate: Number(button.dataset.playbackRate) }));
+}
 element("navigation-form").addEventListener("input", () => {
   if (!currentState?.autonomy.available) return;
   setText("navigation-feedback", "");

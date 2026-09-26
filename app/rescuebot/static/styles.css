@@ -588,6 +588,10 @@ body[data-drive="armed"] .keycluster-arrows .keycap.lit[data-key^="ArrowR"] {
 .navigation-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .navigation-fields label { display: grid; gap: 0.3rem; font-size: var(--t-sm); }
 .navigation-fields input { width: 100%; min-width: 0; padding: 0.65rem; border: 1px solid var(--desk-line); border-radius: var(--radius); background: var(--bezel); color: var(--ink); font: inherit; }
+.playback-rates { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
+.playback-rates button { padding: 0.5rem 1rem; background: var(--bezel); color: var(--ink); border: 1px solid var(--desk-line); }
+.playback-rates button[aria-pressed="true"] { color: var(--tally-amber); border-color: var(--tally-amber); }
+.playback-rates button:disabled { opacity: 0.5; }
 
 @media (max-width: 1500px) {
   .chain { grid-template-columns: 1fr; }
