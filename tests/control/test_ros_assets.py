@@ -23,8 +23,20 @@ class RosAssetTests(unittest.TestCase):
         plugin = root.find(".//plugin[@name='gz::sim::systems::MecanumDrive']")
         self.assertIsNotNone(plugin)
         assert plugin is not None
-        self.assertEqual(plugin.findtext("topic"), "cmd_vel")
-        self.assertEqual(plugin.findtext("odom_topic"), "odom")
+        self.assertEqual(plugin.findtext("topic"), "/model/rescuebot/cmd_vel")
+        self.assertEqual(plugin.findtext("odom_topic"), "/model/rescuebot/odometry")
+
+    def test_bridge_endpoints_match_model_publishers_and_subscriber(self) -> None:
+        model = ET.parse(ROS / "rescuebot_gazebo" / "models" / "rescuebot" / "model.sdf").getroot()
+        bridge = (ROS / "rescuebot_gazebo" / "config" / "bridge.yaml").read_text()
+        plugin = model.find(".//plugin[@name='gz::sim::systems::MecanumDrive']")
+        for topic in (plugin.findtext("topic"), plugin.findtext("odom_topic")):
+            self.assertIn(f'gz_topic_name: "{topic}"', bridge)
+        for sensor in model.findall(".//sensor"):
+            self.assertIn(f'gz_topic_name: "{sensor.findtext("topic")}"', bridge)
+            self.assertTrue(sensor.findtext("gz_frame_id"))
+        world = ET.parse(ROS / "rescuebot_gazebo" / "worlds" / "indoor_maze.sdf").getroot()
+        self.assertIsNotNone(world.find(".//plugin[@name='gz::sim::systems::Imu']"))
 
     def test_bridge_declares_required_simulated_topics(self) -> None:
         text = (ROS / "rescuebot_gazebo" / "config" / "bridge.yaml").read_text()

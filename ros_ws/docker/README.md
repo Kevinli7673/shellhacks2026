@@ -5,11 +5,9 @@ inside one container. Docker uses the host's native architecture, including
 arm64 on Apple Silicon. Gazebo uses Mesa software rendering and a browser
 desktop, so no macOS X server is needed.
 
-Status: the ARM64 image builds, all four ROS packages build, and Gazebo spawns
-the robot using Mesa llvmpipe. The existing Python suite passes in Ubuntu
-(149 passed, 2 skipped). Initial runtime checks found adapter argument parsing
-and Gazebo topic mismatches; end-to-end driving/navigation validation is still
-in progress. Do not treat the build as a passing simulation checkpoint.
+Status: all four ROS packages build on ARM64. Gazebo sensors, bridges, manual
+dashboard keys, speed adjustment, release, Space, and input expiry have been
+validated against the actual model pose. SLAM/Nav2 validation is in progress.
 
 ## Build and start
 
@@ -42,10 +40,16 @@ Commands executed with Compose need the ROS overlay; the entrypoint sources it:
 ```bash
 docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim python3 -m unittest discover -s tests -v
 docker compose -f ros_ws/docker/compose.yaml exec sim node --check app/rescuebot/static/dashboard.js
-docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 topic list
+docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 topic list --no-daemon --spin-time 3
 docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 topic echo /odom --once
 docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 topic echo /scan --once
 docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 topic echo /imu/data --once
+```
+
+With other dashboard tabs closed, run the motion/Stop/expiry acceptance check:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_manual.py
 ```
 
 After manual driving and bridge validation, start SLAM/Nav2 in another terminal:

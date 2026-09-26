@@ -180,3 +180,62 @@ Initial container checkpoint:
   `--ros-args`; Gazebo subscribes to `/cmd_vel` while ros_gz publishes to
   `/model/rescuebot/cmd_vel`; odometry and scan bridge endpoints also mismatch
   actual Gazebo publishers. IMU does not publish. Fixes are in progress.
+
+## 2026-09-26 - Gazebo manual driving validated
+
+The Docker environment now runs the model and live ROS bridges. Fixed ROS
+launch argument parsing, absolute Gazebo topic names, IMU system loading,
+sensor frame IDs, and the duplicate base_link parent in TF. Real model-pose
+checks exposed backward wheel axes, chassis ground contact, and missing
+mecanum friction; the SDF now uses correctly aligned joints and anisotropic
+wheel contact. Geometry remains estimated, pending physical measurements.
+
+Only `app/rescuebot/gazebo_backend.py` changed in app/: Gazebo commands now
+honor dashboard speed and normalize diagonal translation. Non-Gazebo paths
+and all physical mixing remain unchanged.
+
+Validation on macOS Docker / Ubuntu 24.04 ARM64:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_manual.py
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+```
+
+- Build: all four colcon packages succeeded. Live `/clock`, `/odom`, `/scan`,
+  and `/imu/data` received; LiDAR and IMU identify their correct frames.
+- The manual validator passed all six directions against **Gazebo world pose**,
+  not wheel odometry alone. At 30% for 0.8 seconds: W +0.093 m, S -0.091 m,
+  A +0.092 m left, D -0.098 m left; left/right rotation +0.278/-0.277 rad.
+  Forward distance at 40% was 0.116 m versus 0.058 m at 20%.
+  Release, Stop while W remained held, and browser-input expiry all stopped
+  the model. The validator always stops on exit and requires the Gazebo backend.
+- Native Chrome UI at localhost:18000: W, A/D, left/right arrows moved the
+  actual model in the expected directions; Up/Down changed 40% to 50% and back;
+  Space displayed DISABLED, operator_stop, and zero requested wheel outputs.
+  Discrete key taps produced small motion. The test window was closed after
+  stopping. No headless-browser workaround was needed.
+- macOS suite: 153 discovered, 151 passed, 2 environment-gated tests skipped.
+  An invocation without `PYTHONPATH=app` accidentally used the other checkout's
+  editable install and failed imports; the correct command above passed.
+- A real ROS subprocess test verifies launch remapping, command conversion,
+  and zero velocity after IPC expiry; its colcon pytest run passed.
+- Initial navigation launch failed: costmap width/height require integers;
+  upstream bringup also creates a second Collision Monitor. Mapping and goal
+  navigation are still being corrected and are not yet validated.
+
+The ESP32 being attached to the Mac does not participate in these tests:
+Compose grants no devices, host mounts, or serial transport access. Physical
+acceptance remains entirely separate. Changes are on feature/autonomy-sim;
+no integration or main merge was performed.
+
+Ubuntu checkpoint verification with a disposable test container:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --packages-select rescuebot_sim_bridge --event-handlers console_direct+ && colcon test-result --verbose'
+```
+
+Passed: 153 discovered, 151 passed, 2 skipped; JavaScript syntax; one ROS
+adapter test, zero errors/failures/skips. This completes manual-driving runtime
+validation for the simulation model, not physical robot acceptance.

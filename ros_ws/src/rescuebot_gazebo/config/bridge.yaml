@@ -9,12 +9,12 @@
   gz_type_name: "gz.msgs.Twist"
   direction: ROS_TO_GZ
 - ros_topic_name: "/scan"
-  gz_topic_name: "/world/indoor_maze/model/rescuebot/link/lidar_link/sensor/lidar/scan"
+  gz_topic_name: "/model/rescuebot/scan"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 - ros_topic_name: "/imu/data"
-  gz_topic_name: "/world/indoor_maze/model/rescuebot/link/imu_link/sensor/imu/imu"
+  gz_topic_name: "/model/rescuebot/imu"
   ros_type_name: "sensor_msgs/msg/Imu"
   gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS

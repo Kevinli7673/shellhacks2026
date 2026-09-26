@@ -11,11 +11,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import time
 
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from std_msgs.msg import String
 
 from rescuebot.autonomy import AUTONOMY_TIMEOUT_S, AutonomyIntent, AutonomyStatus
@@ -112,11 +114,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-vx", type=float, default=0.40)
     parser.add_argument("--max-vy", type=float, default=0.40)
     parser.add_argument("--max-wz", type=float, default=1.20)
-    args = parser.parse_args(argv)
+    process_args = sys.argv if argv is None else [parser.prog, *argv]
+    args = parser.parse_args(remove_ros_args(args=process_args)[1:])
     if min(args.max_vx, args.max_vy, args.max_wz) <= 0.0:
         parser.error("velocity limits must be positive")
 
-    rclpy.init(args=None)
+    rclpy.init(args=process_args)
     node = SimulationAutonomyAdapter(
         args.command_socket, args.status_socket, args.max_vx, args.max_vy, args.max_wz
     )

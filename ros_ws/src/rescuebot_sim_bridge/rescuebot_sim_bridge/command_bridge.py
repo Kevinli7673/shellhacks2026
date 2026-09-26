@@ -9,11 +9,13 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import sys
 import time
 
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 
 from rescuebot.bridge_ipc import DatagramReceiver
 from rescuebot.ros_conversion import robot_to_ros_velocity
@@ -79,11 +81,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-vx", type=float, default=0.40)
     parser.add_argument("--max-vy", type=float, default=0.40)
     parser.add_argument("--max-wz", type=float, default=1.20)
-    args = parser.parse_args(argv)
+    process_args = sys.argv if argv is None else [parser.prog, *argv]
+    args = parser.parse_args(remove_ros_args(args=process_args)[1:])
     if min(args.max_vx, args.max_vy, args.max_wz) <= 0.0:
         parser.error("velocity limits must be positive")
 
-    rclpy.init(args=None)
+    rclpy.init(args=process_args)
     node = SimulationCommandBridge(args.socket, args.max_vx, args.max_vy, args.max_wz)
     try:
         rclpy.spin(node)

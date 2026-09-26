@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from pathlib import Path
 import time
 
@@ -41,13 +42,15 @@ class GazeboMotorBackend:
         now = time.monotonic() if now is None else now
         self._seq += 1
         armed = snapshot.armed and reason in {"manual", "autonomy"}
+        speed_scale = snapshot.speed_percent / 100.0
+        translation_scale = max(1.0, math.hypot(snapshot.intent.forward, snapshot.intent.sideways))
         command = SimulationCommand(
             seq=self._seq,
             expires_at=now + COMMAND_TTL_S,
             armed=armed,
-            forward=snapshot.intent.forward if armed else 0.0,
-            sideways=snapshot.intent.sideways if armed else 0.0,
-            turn=snapshot.intent.turn if armed else 0.0,
+            forward=snapshot.intent.forward / translation_scale * speed_scale if armed else 0.0,
+            sideways=snapshot.intent.sideways / translation_scale * speed_scale if armed else 0.0,
+            turn=snapshot.intent.turn * speed_scale if armed else 0.0,
         )
         self._sender.send(command.encode())
         self.wheels = snapshot.wheels if armed else WheelOutputs.stopped()

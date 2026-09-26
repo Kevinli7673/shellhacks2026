@@ -19,12 +19,12 @@
   <xacro:property name="wheel_width" value="$(arg wheel_width)"/>
   <xacro:property name="wheelbase" value="$(arg wheelbase)"/>
   <xacro:property name="track_width" value="$(arg track_width)"/>
+  <xacro:property name="body_center_height" value="${wheel_radius + body_height / 2}"/>
+  <xacro:property name="lidar_height" value="$(arg lidar_height)"/>
+  <xacro:property name="ai_camera_height" value="$(arg ai_camera_height)"/>
+  <xacro:property name="logitech_camera_height" value="$(arg logitech_camera_height)"/>
 
-  <link name="base_footprint"/>
-  <joint name="base_footprint_joint" type="fixed">
-    <parent link="base_footprint"/><child link="base_link"/>
-    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
-  </joint>
+  <!-- odom -> base_link is supplied by the simulation bridge. -->
 
   <link name="base_link">
     <visual><geometry><box size="${body_length} ${body_width} ${body_height}"/></geometry><material name="orange"><color rgba="0.9 0.25 0.05 1"/></material></visual>
@@ -40,7 +40,7 @@
     </link>
     <joint name="${name}_wheel_joint" type="continuous">
       <parent link="base_link"/><child link="${name}_wheel_link"/>
-      <origin xyz="${x} ${y} 0" rpy="0 0 0"/><axis xyz="0 1 0"/>
+      <origin xyz="${x} ${y} ${wheel_radius - body_center_height}" rpy="0 0 0"/><axis xyz="0 1 0"/>
     </joint>
   </xacro:macro>
 
@@ -53,8 +53,8 @@
     <link name="${name}_link"><visual><geometry><box size="0.035 0.035 0.025"/></geometry><material name="sensor"><color rgba="0.15 0.75 0.85 1"/></material></visual></link>
     <joint name="${name}_joint" type="fixed"><parent link="base_link"/><child link="${name}_link"/><origin xyz="${xyz}" rpy="0 0 0"/></joint>
   </xacro:macro>
-  <xacro:sensor_frame name="lidar" xyz="0 0 $(arg lidar_height)"/>
-  <xacro:sensor_frame name="imu" xyz="0 0 0.03"/>
-  <xacro:sensor_frame name="ai_camera" xyz="${body_length / 2} 0 $(arg ai_camera_height)"/>
-  <xacro:sensor_frame name="logitech_camera" xyz="${body_length / 2} 0 $(arg logitech_camera_height)"/>
+  <xacro:sensor_frame name="lidar" xyz="0 0 ${lidar_height - body_center_height}"/>
+  <xacro:sensor_frame name="imu" xyz="0 0 ${0.08 - body_center_height}"/>
+  <xacro:sensor_frame name="ai_camera" xyz="${body_length / 2} 0 ${ai_camera_height - body_center_height}"/>
+  <xacro:sensor_frame name="logitech_camera" xyz="${body_length / 2} 0 ${logitech_camera_height - body_center_height}"/>
 </robot>

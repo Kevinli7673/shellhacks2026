@@ -1,4 +1,5 @@
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,7 +48,28 @@ class GazeboBackendTests(unittest.TestCase):
             self.assertTrue(backend.healthy)
             command = SimulationCommand.decode(receiver.drain()[0])
             self.assertTrue(command.armed)
-            self.assertEqual((command.forward, command.sideways, command.turn), (1.0, 1.0, 0.0))
+            self.assertAlmostEqual(command.forward, 0.3 / math.sqrt(2))
+            self.assertAlmostEqual(command.sideways, 0.3 / math.sqrt(2))
+            self.assertEqual(command.turn, 0.0)
+
+    def test_speed_setting_scales_simulated_translation_and_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket = Path(directory) / "sim.sock"
+            receiver = DatagramReceiver(socket)
+            self.addCleanup(receiver.close)
+            backend = GazeboMotorBackend(socket)
+            self.addCleanup(backend.close)
+            control = ManualControl()
+            control.claim("operator")
+            control.enable("operator", now=1.0)
+            control.set_keys("operator", ["KeyW", "ArrowRight"], now=1.0)
+            for percent in (30, 40, 100, 10):
+                while control.speed_percent != percent:
+                    control.adjust_speed("operator", 10 if percent > control.speed_percent else -10)
+                backend.apply_snapshot(control.snapshot(now=1.0), "manual", now=1.0)
+                command = SimulationCommand.decode(receiver.drain()[-1])
+                self.assertEqual(command.forward, percent / 100.0)
+                self.assertEqual(command.turn, percent / 100.0)
 
     def test_disarmed_snapshot_forces_zero_logical_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
