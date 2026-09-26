@@ -112,7 +112,9 @@ class MissionManager(Node):
     def _dashboard_goals(self, now, pose, ready):
         for raw in self._goal_receiver.drain():
             try:
-                record = decode_navigation_goal(raw, now)
+                # TF/readiness work can overlap an arrival or expiry. Compare
+                # the deadline after receiving, not with the earlier tick time.
+                record = decode_navigation_goal(raw, time.monotonic())
             except (ValueError, TypeError, KeyError):
                 continue
             if (not ready or not self._active or record["mission"] != self._mission

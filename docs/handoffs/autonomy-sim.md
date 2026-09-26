@@ -31,6 +31,36 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 
 ## Checkpoints
 
+### Playback validation: goal deadline correction (2026-09-26)
+
+During work on user-requested world-clock acceleration, the fourth dashboard
+goal in `validate_navigation.py --dashboard-goals` was not acknowledged at the
+3x setting. Earlier goal completion, Stop hold, and manual takeover passed.
+Investigation found a deterministic receive-time race: `_dashboard_goals`
+decoded arrivals against the timestamp taken before TF/readiness work. A new
+arrival could exceed the apparent maximum TTL; a just-expired arrival could
+appear valid. Two regression cases reproduced both failures against the old
+code. Decode now samples monotonic time after receiving each datagram. The
+250 ms lifetime, mission checks, and movement limits are unchanged. This is
+a demonstrated defect consistent with the runtime symptom, not a claim that
+all unacknowledged goals have the same cause.
+
+Validation in the existing Ubuntu 24.04/Jazzy Docker environment:
+
+```bash
+# Before the fix, copied isolated test module: both new cases failed.
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 -m pytest -q /tmp/test_playback_goal_clock.py -k deadline
+# After rebuilding all four packages with colcon in the updated image:
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+```
+
+After the correction: 164 Python passes, two optional skips, JavaScript syntax
+passes, and 23 ROS tests pass. Evidence: /private/tmp/rescuebot-playback-build.log,
+rescuebot-playback-ubuntu-tests.log, rescuebot-playback-navigation.log, and
+rescuebot-playback-nav-failure.log. No physical coverage. This small correction
+is committed independently of the playback UI; accelerated runtime acceptance
+continues below. Shared serial, firmware, and non-Gazebo app paths are unchanged.
+
 | Commit | Coverage | Validation |
 |---|---|---|
 | `506f93e` | Gazebo backend, host arbitration, ROS IPC/conversion, model/world/bridges | 148 Python tests and JavaScript syntax check passed locally. |

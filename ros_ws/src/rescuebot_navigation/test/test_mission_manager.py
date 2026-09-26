@@ -134,3 +134,20 @@ def test_dashboard_goal_cannot_survive_stop_mission_change_or_expiry(manager):
         manager._action.send_goal_async.assert_not_called()
     finally:
         sender.close()
+
+
+@pytest.mark.parametrize("remaining, accepted", [(0.25, True), (-0.001, False)])
+def test_goal_deadline_is_checked_when_received_not_when_tick_started(manager, remaining, accepted):
+    status(manager)
+    manager._action.send_goal_async.return_value = Future()
+    now = time.monotonic()
+    record = {"mission": "test", "request_id": "during-tick", "expires_at": now + remaining,
+              "forward": .5, "right": 0}
+    sender = DatagramSender(manager._goal_receiver.path)
+    try:
+        sender.send(encode_navigation(record))
+        # TF/readiness work can overlap a new arrival or the expiry boundary.
+        manager._dashboard_goals(now - .02, {"x": 0, "y": 0, "yaw": 0}, True)
+        assert manager._action.send_goal_async.called == accepted
+    finally:
+        sender.close()
