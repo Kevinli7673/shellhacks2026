@@ -573,6 +573,37 @@ Private details (username, network, device serial numbers) are omitted.
 - Next action:
   - The user reviews the page; an Impeccable polish pass is optional.
 
+### 2026-09-26 EDT - Idle status refresh fix and opt-in integration tests
+
+- Commit: feature/dashboard-control; fix: refresh dashboard status while
+  idle; test: add opt-in firmware-link and browser integration tests.
+- Changed files and interfaces:
+  - dashboard.js: the 100 ms /api/state poll now refreshes every readout
+    (drive state, chain, wheels, telemetry), not only the camera, keeping
+    this browser's own can_control from its WebSocket. Previously, a bridge
+    that died while nobody was driving still showed "Connected", and
+    read-only viewers never saw updates. Key handling, heartbeat,
+    blur/hidden stop, and reconnect are unchanged.
+  - tests/integration/ (opt-in, RESCUEBOT_INTEGRATION=1):
+    - test_firmware_link.py compiles the firmware's host-compilable logic
+      with hostfw/main_host.cpp and drives it through the real bridge and
+      pyserial over a pseudo-terminal. It needs firmware/, a C++ compiler,
+      ArduinoJson (from `pio test -e native`), and rescuebot.serial_transport,
+      and skips with a reason otherwise.
+    - test_browser.py drives headless Chrome with real key and mouse events
+      against the real dashboard and bridge processes. It needs Chrome or
+      Chromium (RESCUEBOT_CHROME).
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 104 run, 2 skipped
+    (the integration tests).
+  - RESCUEBOT_INTEGRATION=1 on this branch: the browser test passes,
+    including the new idle checks; the firmware test skips (no firmware/).
+- Mock or physical coverage:
+  - Simulated firmware, a pseudo-terminal, and headless Chrome. No hardware.
+- Next action:
+  - Merge into test/integration and run RESCUEBOT_INTEGRATION=1 there,
+    where firmware/ and the serial transport are present.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
