@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
@@ -21,7 +25,34 @@ from rescuebot.bridge_ipc import DatagramReceiver, DatagramSender
 from rescuebot.navigation_ipc import (
     SEARCH_BUSY, STATUS_TIMEOUT_S, decode_navigation_goal, encode_navigation, navigation_socket,
 )
-from rescuebot_navigation.search import Grid, next_viewpoint
+from rescuebot_navigation.search import Coverage, Grid, is_valid_viewpoint, next_viewpoint, observe
+
+
+@dataclass(frozen=True)
+class SearchPreparation:
+    coverage: Coverage
+    grid: Grid
+    origin: tuple[float, float, float]
+    point: tuple[float, float] | None
+    planned: bool
+    projected: bool
+
+
+def prepare_search(grid, origin, coverage, observations, visited, rejected,
+                   *, planned=True, projected_view=None, candidate=None):
+    """Run sensing and planning off the status/command timer on frozen inputs."""
+    for observed_grid, position in observations:
+        coverage = observe(observed_grid, position, coverage)
+    point = None
+    if planned:
+        if (candidate is not None and projected_view is None
+                and is_valid_viewpoint(grid, origin, candidate, rejected,
+                                       coverage=coverage, visited=visited)):
+            point = candidate
+        else:
+            point = next_viewpoint(grid, origin, visited, rejected,
+                                   coverage=coverage, projected_view=projected_view)
+    return SearchPreparation(coverage, grid, origin, point, planned, projected_view is not None)
 
 
 class MissionManager(Node):
@@ -37,11 +68,26 @@ class MissionManager(Node):
         self._last_request = None
         self._last_safe_velocity = None
         self._search_enabled = self.declare_parameter("search_enabled", False).value
-        self._target = (1.8, .6)  # Synthetic detector fixture, never passed to the planner.
+        # Synthetic detector fixtures only; none of these values reach planning.
+        self._target = (self.declare_parameter("synthetic_target_x", 1.8).value,
+                        self.declare_parameter("synthetic_target_y", .6).value)
+        self._target_enabled = self.declare_parameter("synthetic_target_enabled", True).value
+        if not all(math.isfinite(v) for v in self._target):
+            raise ValueError("Synthetic target coordinates must be finite")
+        self._search_tree = str(Path(get_package_share_directory("rescuebot_navigation"))
+                                / "behavior_trees" / "search_viewpoint.xml")
         self._grid = None
         self._map_received = None
         self._planner = ThreadPoolExecutor(max_workers=1)
         self._plan = None
+        # Keep the running future even when its mission is canceled. The executor
+        # must never accumulate work from repeated Stop/start cycles.
+        self._worker = None
+        self._prefetched = None
+        self._coverage = Coverage()
+        self._observations = deque(maxlen=16)
+        self._last_observation = None
+        self._planning_started = 0.
         self._visited = []
         self._rejected = []
         self._viewpoint = None
@@ -81,8 +127,14 @@ class MissionManager(Node):
                 or abs(abs(q.w)-1) > .001
                 or abs(q.x)+abs(q.y)+abs(q.z) > .001):
             return
-        self._grid = Grid(info.width, info.height, info.resolution,
-                          info.origin.position.x, info.origin.position.y, tuple(message.data))
+        grid = Grid(info.width, info.height, info.resolution,
+                    info.origin.position.x, info.origin.position.y,
+                    tuple(0 if 0 <= value < 50 else 100 if value >= 50 else -1
+                          for value in message.data))
+        # Probability-only changes within the same free/occupied/unknown class
+        # do not change sensing or clearance and need not invalidate a plan.
+        if grid != self._grid:
+            self._grid = grid
         self._map_received = time.monotonic()
 
     def _map_pose(self):
@@ -168,17 +220,16 @@ class MissionManager(Node):
                 self._cancel_search()
                 self._cancel_goal()
                 self._active = False
-        if host_fresh and not self._pending and self._goal_handle is None:
-            # Nav2 is silent before/after goals. Keep an idle mission alive with
-            # zeros through the same smoother and Collision Monitor. Never
-            # replace missing controller output while a goal is in progress.
-            self._idle_velocity.publish(Twist())
         pose = self._map_pose()
         reason = self._readiness(now, pose)
         self._search["available"] = (self._search_enabled and self._map_received is not None
                                       and now-self._map_received < 3)
         self._dashboard_goals(now, pose, reason == "Ready")
         self._search_tick(now, pose)
+        if host_fresh and not self._pending and self._goal_handle is None:
+            # Only idle after search has had a chance to hand off a prepared
+            # goal. Never mask missing output from an in-progress controller.
+            self._idle_velocity.publish(Twist())
         record = {
             "mission": self._mission, "active": self._active,
             "goal_state": self._goal_state,
@@ -207,6 +258,8 @@ class MissionManager(Node):
         self._goal_state = "pending"
         goal = NavigateToPose.Goal()
         goal.pose = pose
+        if search and self._search["phase"] == "exploring":
+            goal.behavior_tree = self._search_tree
         future = self._action.send_goal_async(goal)
         future.add_done_callback(lambda result: self._goal_response(result, generation))
 
@@ -257,13 +310,21 @@ class MissionManager(Node):
     def _cancel_search(self):
         if self._search["phase"] in SEARCH_BUSY:
             self._search.update(phase="canceled", reason="Search canceled by operator or source loss")
+        self._discard_search_work()
+
+    def _discard_search_work(self):
         if self._plan is not None:
             self._plan.cancel()
             self._plan = None
+        self._prefetched = None
+        self._observations.clear()
 
     def _start_search(self, now, pose):
         if not self._search["available"]:
             return False
+        self._discard_search_work()
+        self._coverage = Coverage()
+        self._last_observation = None
         self._visited = [(pose["x"], pose["y"])]
         self._rejected = []
         self._viewpoint = None
@@ -290,15 +351,14 @@ class MissionManager(Node):
         self.get_logger().info(f"search ending after {self._goal_count} goals: {reason}")
         self._search.update(phase="notifying" if found else "return_pending", reason=reason)
         self._transition_started = now
-        if self._plan is not None:
-            self._plan.cancel()
-            self._plan = None
+        self._discard_search_work()
         if self._goal_handle is not None:
             # Wait for the action's terminal result before submitting home.
             # A late acceptance is canceled in _goal_response instead.
             self._goal_handle.cancel_goal_async()
 
     def _fail_search(self, reason):
+        self._discard_search_work()
         self._search.update(phase="failed", reason=reason)
         self._cancel_goal()
 
@@ -322,10 +382,15 @@ class MissionManager(Node):
             if math.dist(position, self._visited[-1]) >= .20 and len(self._visited) < 1024:
                 self._visited.append(position)
                 self._search["visited"] = len(self._visited)
+            self._record_observation(position)
+            self._collect_preparation()
+            if self._search["phase"] != "exploring":
+                return
             # A 360-degree, 0.9 m synthetic proximity detector. Both range and
             # an entirely observed free ray are required; unknown cells and
             # walls occlude the target. This is not a camera/person detector.
-            if math.dist(position, self._target) <= .9 and self._grid.visible(position, self._target):
+            if (self._target_enabled and math.dist(position, self._target) <= .9
+                    and self._grid.visible(position, self._target)):
                 self._search.update(found=True, target={"x": self._target[0], "y": self._target[1], "yaw": 0.})
                 self._begin_return(now, "Simulated person found; returning to start", found=True)
                 return
@@ -344,6 +409,8 @@ class MissionManager(Node):
             self._search_destination(home["x"], home["y"], home["yaw"], now)
             return
         if self._pending or self._goal_handle is not None:
+            if phase == "exploring":
+                self._prepare_next(now, pose, moving=True)
             if now-self._leg_started > (240 if phase == "returning" else 90):
                 if phase == "returning":
                     self._fail_search("Return route timed out; stopped away from start")
@@ -362,6 +429,9 @@ class MissionManager(Node):
                 self._fail_search("Return route failed; stopped away from start")
             return
         if self._goal_state in {"aborted", "failed", "rejected", "canceled"}:
+            # This destination was not reached: its projected successor is no
+            # longer applicable, and late worker output must be discarded.
+            self._discard_search_work()
             if self._viewpoint is not None:
                 self._rejected.append(self._viewpoint)
             self._failures += 1
@@ -371,26 +441,77 @@ class MissionManager(Node):
         if self._failures >= 3:
             self._begin_return(now, "Three search routes failed; returning without target")
             return
-        if self._plan is None:
-            self._plan = self._planner.submit(next_viewpoint, self._grid,
-                (pose["x"], pose["y"], pose["yaw"]),
-                tuple(self._visited), tuple(self._rejected))
-        elif self._plan.done():
-            try:
-                point = self._plan.result()
-            except Exception as exc:
-                self.get_logger().error(f"search planning failed: {exc}")
-                self._fail_search("Search planning failed; stopped")
-                point = None
-            self._plan = None
-            if self._search["phase"] != "exploring":
-                return
+        prepared = self._prefetched
+        if (prepared is not None and prepared.grid is self._grid
+                and prepared.coverage == self._coverage and not self._observations
+                and self._plan is None
+                and math.dist(prepared.origin[:2], position) <= .25
+                and (prepared.point is not None or not prepared.projected)):
+            self._prefetched = None
+            point = prepared.point
             if point is None:
-                self._begin_return(now, "No more reachable viewpoints; target not found")
+                self._begin_return(now, "No more useful reachable viewpoints; target not found")
                 return
             self._viewpoint = point
             self._goal_count += 1
             self._search_destination(*point, math.atan2(point[1]-pose["y"], point[0]-pose["x"]), now)
+            self.get_logger().info(f"search waypoint {self._goal_count}: ({point[0]:.3f}, {point[1]:.3f})")
+            return
+        self._prepare_next(now, pose, moving=False)
+
+    def _record_observation(self, position):
+        previous = self._last_observation
+        if previous is None or previous[0] is not self._grid or math.dist(previous[1], position) >= .10:
+            # Capture the map when sensing occurs. A map received later must
+            # never retroactively make old unknown/occluded space "searched".
+            observation = (self._grid, position)
+            self._observations.append(observation)
+            self._last_observation = observation
+
+    def _collect_preparation(self):
+        if self._plan is None or not self._plan.done():
+            return
+        try:
+            result = self._plan.result()
+        except Exception as exc:
+            self.get_logger().error(f"search planning failed: {exc}")
+            self._fail_search("Search planning failed; stopped")
+            return
+        self._plan = None
+        self._coverage = result.coverage
+        if result.planned and self._plan_goal_generation == self._generation:
+            self._prefetched = result
+
+    def _prepare_next(self, now, pose, *, moving):
+        if self._plan is not None or (self._worker is not None and not self._worker.done()):
+            return
+        if moving and self._viewpoint is None:
+            return
+        origin = (pose["x"], pose["y"], pose["yaw"])
+        projected = None
+        visited = tuple(self._visited)
+        if moving:
+            projected = self._viewpoint
+            origin = (*projected, math.atan2(projected[1]-pose["y"], projected[0]-pose["x"]))
+            visited += (projected,)
+        prepared = self._prefetched
+        planned = (not moving or prepared is None
+                   or ((prepared.grid is not self._grid or self._observations
+                        or prepared.coverage != self._coverage)
+                       and now-self._planning_started >= .5))
+        if not planned and not self._observations:
+            return
+        observations = tuple(self._observations)
+        self._observations.clear()
+        candidate = prepared.point if prepared is not None and not moving else None
+        self._plan = self._planner.submit(
+            prepare_search, self._grid, origin, self._coverage, observations,
+            visited, tuple(self._rejected), planned=planned,
+            projected_view=projected, candidate=candidate)
+        self._worker = self._plan
+        self._plan_goal_generation = self._generation
+        if planned:
+            self._planning_started = now
 
 
 def main() -> None:
