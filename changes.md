@@ -12,20 +12,20 @@ Correct historical mistakes with a new entry rather than silently erasing them.
 
 - Milestone: manual driving + person detection + dashboard.
 - Design: approved for implementation.
-- Implementation: documentation baseline in progress.
+- Implementation: documentation baseline complete; application code not started.
 - Stages A-K: not started.
 - Stage L: deferred until physical milestone acceptance.
 - Physical acceptance: not performed.
-- Known application checkpoint: none.
+- Known application checkpoint: Stage 0 documentation baseline (tag: stage-0-docs).
 - Initial repository baseline: 34fb0b2, "Initial commit".
 - Initial tracked content: README.md.
-- Next action: commit the documentation baseline, then begin Stage A.
+- Next action: begin Stage A, dashboard UI and mock status/video.
 
 ## Active work
 
 | Task/stage | Owner | Branch/worktree | Affected areas/interfaces | Status | Updated |
 |---|---|---|---|---|---|
-| Documentation baseline | Current implementation session | main | Plan, contributor rules, handoff log, original reference, README | In progress | 2026-09-26 EDT |
+| Documentation baseline | Current implementation session | main | Plan, contributor rules, handoff log, original reference, README | Complete | 2026-09-26 EDT |
 
 Assignments must be confirmed with the team before overlapping work begins.
 This table alone does not lock files or synchronize separate branches.
@@ -35,6 +35,7 @@ This table alone does not lock files or synchronize separate branches.
 | Reference | Coverage | Validation evidence | Limitations |
 |---|---|---|---|
 | 34fb0b2 | Initial repository | Repository inspection only | No application or hardware validation |
+| stage-0-docs | Documentation baseline | Original plan copied byte-for-byte; repository documentation inspected | No application or hardware validation |
 
 ## Open hardware facts
 
@@ -53,7 +54,9 @@ Required hardware configuration must be resolved before real driving.
 
 ### 2026-09-26 EDT - Documentation baseline
 
-Status: in progress.
+Status: completed.
+
+Initial documentation commit: 46b08e7, "docs: add implementation and handoff guidance".
 
 Decisions:
 
@@ -77,7 +80,6 @@ Validation:
 
 Next:
 
-- Commit the documentation baseline.
 - Begin Stage A, followed by the approved stage sequence.
 
 ## Entry template
