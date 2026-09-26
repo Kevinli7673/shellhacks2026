@@ -3,77 +3,155 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rescuebot Control</title>
+    <meta name="color-scheme" content="dark">
+    <title>Rescuebot · Operator gallery</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
-  <body>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">RESCUEBOT / MANUAL CONTROL</p>
-          <h1>Operator dashboard</h1>
-        </div>
-        <span id="connection-status" class="pill offline">Connecting</span>
-      </header>
+  <body data-drive="disabled" data-link="offline" data-camera="offline" data-control="none">
+    <header class="gallery-bar">
+      <div class="station">
+        <span class="wordmark">Rescuebot</span>
+        <span class="station-name">Operator gallery</span>
+      </div>
+      <div class="bar-readouts">
+        <span class="bar-item">
+          <span class="lamp" data-lamp="link" aria-hidden="true"></span>
+          <span id="connection-status">Connecting</span>
+        </span>
+        <span class="bar-item" id="ownership-status">Read-only</span>
+        <span class="bar-item on-air" id="on-air" aria-hidden="true">Driving</span>
+        <span class="bar-item timecode" aria-label="Session time">
+          <span class="timecode-label">Session</span>
+          <span id="timecode">--:--:--</span>
+        </span>
+      </div>
+    </header>
 
-      <section class="grid">
-        <article class="video-panel">
-          <div class="video-placeholder camera-viewport">
-            <span id="replay-label" class="replay-label" hidden>REPLAY</span>
-            <div id="detection-overlay" class="detection-overlay" aria-label="Detection bounding boxes"></div>
-            <span class="camera-icon">◉</span>
-            <strong id="camera-status">Camera mock is offline</strong>
-            <p id="camera-message">Live camera integration is the next perception stage.</p>
-            <p id="detection-count" class="detection-count">0 detections</p>
-          </div>
-        </article>
-
-        <article class="control-panel">
-          <div class="status-row">
-            <span>Control ownership</span>
-            <strong id="ownership-status">Read-only</strong>
-          </div>
-          <div class="status-row">
-            <span>Driving state</span>
-            <strong id="driving-status">Disabled</strong>
-          </div>
-          <div class="speed">
-            <div>
-              <span>Speed setting</span>
-              <strong id="speed-value">30%</strong>
+    <main class="gallery">
+      <section class="program" aria-labelledby="program-label">
+        <div class="monitor">
+          <div class="screen camera-viewport">
+            <div id="detection-overlay" class="detection-overlay" aria-label="Person detections"></div>
+            <div class="slate" id="camera-slate">
+              <p class="slate-title" id="camera-slate-title">No signal</p>
+              <p class="slate-message" id="camera-message">Camera service has not been integrated.</p>
             </div>
-            <span id="speed-limit">0 / 255 PWM</span>
+            <span class="umd-tag source-tag" id="camera-source">Cam 1 · Mock</span>
+            <span class="umd-tag camera-tag">
+              <span class="lamp" data-lamp="camera" aria-hidden="true"></span>
+              <span id="camera-status">Offline</span>
+            </span>
+            <p class="lower-third" id="detection-count">No people detected</p>
           </div>
-          <div class="actions">
-            <button id="enable-button" type="button">Enable Driving</button>
-            <button id="stop-button" class="stop" type="button">Stop</button>
-          </div>
-          <p id="fault-message" class="fault">Connect to claim control.</p>
-        </article>
+        </div>
+        <div class="umd monitor-umd">
+          <span id="program-label">PGM · Robot camera</span>
+          <span id="replay-label" class="replay-flag" hidden>Replay</span>
+          <span class="umd-value" id="camera-age">No frames</span>
+        </div>
       </section>
 
-      <section class="grid lower-grid">
-        <article>
-          <h2>Wheel outputs</h2>
-          <div class="wheels" aria-label="Mock wheel output values">
-            <div><span>Front left</span><strong id="wheel-fl">0</strong></div>
-            <div><span>Front right</span><strong id="wheel-fr">0</strong></div>
-            <div><span>Rear left</span><strong id="wheel-rl">0</strong></div>
-            <div><span>Rear right</span><strong id="wheel-rr">0</strong></div>
+      <section class="desk" aria-labelledby="drive-label">
+        <div class="readout">
+          <span class="tally" aria-hidden="true"></span>
+          <div class="readout-text">
+            <h1 class="readout-state"><span class="visually-hidden" id="drive-label">Drive state: </span><span id="driving-status">Disabled</span></h1>
+            <p class="reason" id="fault-message" role="status">Connect to claim control.</p>
           </div>
-          <p id="wheel-caption" class="muted">Mock backend; values are signed PWM requests before wheel mapping.</p>
-        </article>
+        </div>
 
-        <article>
-          <h2>Keyboard controls</h2>
-          <dl class="keys">
-            <div><dt>W / S</dt><dd>Forward / backward</dd></div>
+        <div class="actions">
+          <button id="enable-button" class="enable" type="button">Enable driving</button>
+          <button id="stop-button" class="stop" type="button">
+            <span>Stop</span>
+            <kbd>Space</kbd>
+          </button>
+        </div>
+
+        <div class="fader-row">
+          <div class="fader-head">
+            <span class="desk-label" id="speed-label">Speed</span>
+            <output id="speed-value" for="speed-fader">30%</output>
+            <span class="fader-pwm" id="speed-limit">0 / 255 PWM</span>
+          </div>
+          <div class="fader" id="speed-fader" role="meter" aria-labelledby="speed-label"
+               aria-valuemin="10" aria-valuemax="100" aria-valuenow="30">
+            <div class="fader-track"><div class="fader-fill" id="fader-fill"></div></div>
+            <div class="fader-detents" aria-hidden="true">
+              <span>10</span><span>20</span><span>30</span><span>40</span><span>50</span>
+              <span>60</span><span>70</span><span>80</span><span>90</span><span>100</span>
+            </div>
+          </div>
+          <p class="desk-note">Speed is a motor-command percentage, not ground speed.</p>
+        </div>
+
+        <div class="keypanel" aria-label="Keyboard controls">
+          <div class="keycluster keycluster-move">
+            <span class="keycap" data-key="KeyW">W</span>
+            <span class="keycap" data-key="KeyA">A</span>
+            <span class="keycap" data-key="KeyS">S</span>
+            <span class="keycap" data-key="KeyD">D</span>
+            <p class="key-legend">Drive · strafe</p>
+          </div>
+          <div class="keycluster keycluster-arrows">
+            <span class="keycap" data-key="ArrowUp" aria-label="Up arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3.5 7.5 8 3l4.5 4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowLeft" aria-label="Left arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowDown" aria-label="Down arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 8.5 8 13l4.5-4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowRight" aria-label="Right arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5"/></svg></span>
+            <p class="key-legend">Rotate · speed</p>
+          </div>
+          <dl class="key-map">
+            <div><dt>W / S</dt><dd>Forward / back</dd></div>
             <div><dt>A / D</dt><dd>Strafe left / right</dd></div>
-            <div><dt>← / →</dt><dd>Rotate counterclockwise / clockwise</dd></div>
-            <div><dt>↑ / ↓</dt><dd>Increase / decrease speed</dd></div>
-            <div><dt>Space</dt><dd>Stop and disable driving</dd></div>
+            <div><dt>Left / Right</dt><dd>Rotate counter / clockwise</dd></div>
+            <div><dt>Up / Down</dt><dd>Speed ±10%</dd></div>
+            <div><dt>Space</dt><dd>Stop and disable</dd></div>
           </dl>
-        </article>
+        </div>
+      </section>
+
+      <section class="chain" aria-label="Signal chain and telemetry">
+        <ol class="chain-links">
+          <li class="chain-node" data-node="browser">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Browser</span>
+            <span class="node-value" id="node-browser">Disconnected</span>
+          </li>
+          <li class="chain-node" data-node="control">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Control</span>
+            <span class="node-value" id="node-control">No owner</span>
+          </li>
+          <li class="chain-node" data-node="motor">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name" id="node-motor-name">Motor backend</span>
+            <span class="node-value" id="node-motor">Unknown</span>
+          </li>
+          <li class="chain-node" data-node="firmware">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Firmware</span>
+            <span class="node-value" id="node-firmware">Unknown</span>
+          </li>
+        </ol>
+
+        <div class="telemetry">
+          <div class="chassis" aria-label="Wheel outputs">
+            <span class="wheel wheel-fl"><span class="wheel-name">FL</span><strong id="wheel-fl">0</strong></span>
+            <span class="wheel wheel-fr"><span class="wheel-name">FR</span><strong id="wheel-fr">0</strong></span>
+            <span class="chassis-body" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M7.5 9.5 12 5l4.5 4.5"/></svg></span>
+            <span class="wheel wheel-rl"><span class="wheel-name">RL</span><strong id="wheel-rl">0</strong></span>
+            <span class="wheel wheel-rr"><span class="wheel-name">RR</span><strong id="wheel-rr">0</strong></span>
+          </div>
+          <p class="telemetry-caption" id="wheel-caption">Mock backend; values are signed PWM requests before wheel mapping.</p>
+          <dl class="readings">
+            <div><dt>ACK age</dt><dd id="t-ack">—</dd></div>
+            <div><dt>Status age</dt><dd id="t-status">—</dd></div>
+            <div><dt>Input age</dt><dd id="t-browser">—</dd></div>
+            <div><dt>IMU</dt><dd id="t-imu">—</dd></div>
+            <div><dt>Dropped</dt><dd id="t-dropped">—</dd></div>
+            <div><dt>Frame age</dt><dd id="t-camera">—</dd></div>
+          </dl>
+        </div>
       </section>
     </main>
     <script src="/static/dashboard.js"></script>

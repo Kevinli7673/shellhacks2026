@@ -1,11 +1,35 @@
 const movementKeys = new Set(["KeyW", "KeyS", "KeyA", "KeyD", "ArrowLeft", "ArrowRight"]);
+const displayKeys = new Set([...movementKeys, "ArrowUp", "ArrowDown"]);
 const heldKeys = new Set();
+const litKeys = new Set();
 let socket;
 let connected = false;
 let canControl = false;
 let currentState;
+let sessionStartedAt = null;
 
 const element = (id) => document.getElementById(id);
+
+const reasons = {
+  operator_stop: "Stopped by the operator.",
+  browser_timeout: "Stopped: keyboard input from the browser timed out.",
+  browser_disconnected: "Stopped: the controlling browser disconnected.",
+  release_keys_before_enable: "Release every movement key, then enable driving.",
+  backend_unavailable: "Motor bridge unavailable. Start the bridge, then enable driving.",
+  arm_timeout: "Stopped: the robot controller did not confirm arming within 1 second.",
+  boot: "Stopped: the robot controller rebooted. Enable driving again.",
+  link_lost: "Stopped: the USB link to the robot controller was lost.",
+  ack_timeout: "Stopped: the robot controller stopped acknowledging commands.",
+  watchdog_expired: "Stopped: the robot controller's watchdog expired.",
+  arbiter_timeout: "Stopped: the motor bridge stopped receiving commands.",
+  arbiter_changed: "Stopped: the control service restarted.",
+  firmware_disarmed: "Stopped: the robot controller disarmed.",
+  malformed_packet: "Stopped: the robot controller rejected a malformed packet.",
+  invalid_keys: "Stopped: the browser sent an unrecognized key.",
+  invalid_browser_message: "Stopped: the browser sent an invalid message.",
+  dashboard_shutdown: "Stopped: the dashboard is shutting down.",
+  motor_disarmed: "Stopped: the motors disarmed.",
+};
 
 function send(message) {
   if (socket?.readyState === WebSocket.OPEN) {
@@ -19,6 +43,8 @@ function sendKeys() {
 
 function clearAndStop() {
   heldKeys.clear();
+  litKeys.clear();
+  renderKeys();
   send({ type: "stop" });
 }
 
@@ -26,11 +52,39 @@ function setText(id, value) {
   element(id).textContent = value;
 }
 
+function setLamp(lamp, state) {
+  if (lamp) lamp.dataset.state = state;
+}
+
+function formatAge(ms) {
+  if (ms === null || ms === undefined) return "—";
+  return ms >= 10000 ? (ms / 1000).toFixed(0) + " s" : ms >= 1000 ? (ms / 1000).toFixed(1) + " s" : ms + " ms";
+}
+
+function titleCase(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function renderKeys() {
+  for (const cap of document.querySelectorAll(".keycap")) {
+    cap.classList.toggle("lit", litKeys.has(cap.dataset.key));
+  }
+}
+
 function updateCamera(camera) {
-  setText("camera-status", "Camera " + camera.backend + " is " + camera.status);
+  document.body.dataset.camera = camera.status;
+  setText("camera-source", "Cam 1 · " + titleCase(camera.backend));
+  setText("camera-status", titleCase(camera.status));
+  setLamp(document.querySelector('[data-lamp="camera"]'),
+    camera.status === "online" ? "ok" : camera.status === "stale" ? "warn" : "off");
+  setText("camera-slate-title", camera.status === "stale" ? "Signal stale" : "No signal");
   setText("camera-message", camera.message);
-  setText("detection-count", camera.detection_count + " detection" + (camera.detection_count === 1 ? "" : "s"));
+  setText("camera-age", camera.age_ms === null || camera.age_ms === undefined ? "No frames" : "Frame " + formatAge(camera.age_ms));
   element("replay-label").hidden = camera.backend !== "replay";
+
+  const count = camera.status === "online" ? camera.detection_count : 0;
+  setText("detection-count", count === 0 ? "No people detected" : count + (count === 1 ? " person detected" : " people detected"));
+  setText("t-camera", camera.age_ms === null || camera.age_ms === undefined ? "—" : formatAge(camera.age_ms));
 
   const overlay = element("detection-overlay");
   overlay.replaceChildren();
@@ -49,25 +103,101 @@ function updateCamera(camera) {
   }
 }
 
+function driveState(control) {
+  if (control.arming) return "arming";
+  return control.armed ? "armed" : "disabled";
+}
+
+function reasonText(control, drive) {
+  if (control.fault) {
+    return { text: reasons[control.fault] || "Stopped.", code: control.fault };
+  }
+  if (!connected) return { text: "Reconnecting to the dashboard. Driving stays disabled." };
+  if (!canControl) {
+    return { text: control.armed
+      ? "Another browser is driving. You can still stop the robot."
+      : "Another browser has control. You can still stop the robot." };
+  }
+  if (drive === "arming") return { text: "Waiting for the robot controller to confirm arming." };
+  if (drive === "armed") return { text: "Driving. Hold keys to move, release to stop. Space stops." };
+  return { text: "Release all keys, then enable driving." };
+}
+
+function updateChain(data) {
+  const { control, motor } = data;
+  const bridge = motor.backend === "bridge";
+
+  setLamp(document.querySelector('[data-node="browser"] .lamp'), connected ? "ok" : "fault");
+  setText("node-browser", connected ? "Connected" : "Disconnected");
+
+  setLamp(document.querySelector('[data-node="control"] .lamp'),
+    control.armed ? (control.arming ? "warn" : "ok") : control.owner_session ? "off" : "off");
+  setText("node-control", !control.owner_session ? "No owner" : canControl ? "You · " + (control.armed ? "armed" : "disarmed") : "Other browser");
+
+  setText("node-motor-name", bridge ? "Motor bridge" : "Motor backend");
+  if (bridge) {
+    setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
+    setText("node-motor", motor.healthy ? "Connected · " + formatAge(motor.status_age_ms) : "Unavailable");
+    setLamp(document.querySelector('[data-node="firmware"] .lamp'),
+      motor.firmware_armed ? "ok" : motor.transport_connected ? "off" : "fault");
+    setText("node-firmware", !motor.transport_connected ? "No link" : motor.firmware_armed ? "Armed" : "Disarmed");
+  } else {
+    setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
+    setText("node-motor", "Mock · in-process");
+    setLamp(document.querySelector('[data-node="firmware"] .lamp'), "off");
+    setText("node-firmware", "Not connected (mock)");
+  }
+
+  setText("t-ack", bridge ? formatAge(motor.ack_age_ms) : "—");
+  setText("t-status", bridge ? formatAge(motor.status_age_ms) : "—");
+  setText("t-browser", formatAge(control.browser_age_ms));
+  const imu = bridge ? motor.imu : null;
+  setText("t-imu", imu && imu.available && imu.heading !== null ? imu.heading.toFixed(1) + "° · cal " + imu.calibration : "—");
+  setText("t-dropped", bridge ? String(motor.dropped_commands) : "—");
+}
+
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
   canControl = data.can_control;
+  const drive = driveState(control);
 
-  const connection = element("connection-status");
-  connection.className = "pill " + (connected ? "online" : "offline");
-  connection.textContent = connected ? "Connected" : "Disconnected";
+  document.body.dataset.drive = drive;
+  document.body.dataset.link = connected ? "online" : "offline";
+  document.body.dataset.fault = control.fault ? "true" : "false";
+  document.body.dataset.control = canControl ? "owner" : "viewer";
 
-  setText("ownership-status", canControl ? "Control available" : "Read-only");
-  setText("driving-status", control.arming ? "Arming…" : control.armed ? "Enabled" : "Disabled");
+  setLamp(document.querySelector('[data-lamp="link"]'), connected ? "ok" : "fault");
+  setText("connection-status", connected ? "Connected" : "Disconnected");
+  setText("ownership-status", canControl ? "You have control" : "Read-only");
+  setText("driving-status", drive === "arming" ? "Arming…" : drive === "armed" ? "Armed · driving" : "Disabled");
+
+  const reason = reasonText(control, drive);
+  const message = element("fault-message");
+  message.textContent = reason.text;
+  if (reason.code) {
+    const code = document.createElement("code");
+    code.textContent = reason.code;
+    message.append(code);
+  }
+
   setText("speed-value", control.speed_percent + "%");
-  setText("speed-limit", motor.wheels ? control.speed_limit + " / 255 PWM" : "0 / 255 PWM");
-  setText("fault-message", control.fault || (canControl ? "Click Enable Driving to arm controls." : "Another browser owns driving."));
+  setText("speed-limit", control.speed_limit + " / 255 PWM");
+  element("fader-fill").style.width = control.speed_percent + "%";
+  element("speed-fader").setAttribute("aria-valuenow", control.speed_percent);
+  for (const detent of document.querySelectorAll(".fader-detents span")) {
+    detent.classList.toggle("active", Number(detent.textContent) === control.speed_percent);
+  }
+
   updateCamera(camera);
-  setText("wheel-fl", motor.wheels.fl);
-  setText("wheel-fr", motor.wheels.fr);
-  setText("wheel-rl", motor.wheels.rl);
-  setText("wheel-rr", motor.wheels.rr);
+  updateChain(data);
+
+  for (const wheel of ["fl", "fr", "rl", "rr"]) {
+    const value = motor.wheels[wheel];
+    const cell = element("wheel-" + wheel);
+    cell.textContent = value > 0 ? "+" + value : String(value);
+    cell.classList.toggle("moving", value !== 0);
+  }
   setText(
     "wheel-caption",
     motor.backend === "bridge"
@@ -76,7 +206,20 @@ function updateDashboard(data) {
       : "Mock backend; values are signed PWM requests before wheel mapping."
   );
 
-  element("enable-button").disabled = !connected || !canControl || heldKeys.size > 0;
+  element("enable-button").disabled = !connected || !canControl || heldKeys.size > 0 || drive !== "disabled";
+  element("enable-button").textContent = !canControl ? "Read-only"
+    : drive === "armed" ? "Driving enabled" : drive === "arming" ? "Arming…" : "Enable driving";
+  element("stop-button").disabled = !connected;
+}
+
+function renderTimecode() {
+  if (!connected || sessionStartedAt === null) {
+    setText("timecode", "--:--:--");
+    return;
+  }
+  const total = Math.floor((Date.now() - sessionStartedAt) / 1000);
+  const parts = [Math.floor(total / 3600), Math.floor(total / 60) % 60, total % 60];
+  setText("timecode", parts.map((part) => String(part).padStart(2, "0")).join(":"));
 }
 
 async function refreshCameraState() {
@@ -96,6 +239,7 @@ function connect() {
 
   socket.addEventListener("open", () => {
     connected = true;
+    sessionStartedAt = Date.now();
     send({ type: "claim" });
   });
 
@@ -103,6 +247,8 @@ function connect() {
     connected = false;
     canControl = false;
     heldKeys.clear();
+    litKeys.clear();
+    renderKeys();
     if (currentState) updateDashboard(currentState);
     window.setTimeout(connect, 1000);
   });
@@ -114,6 +260,11 @@ function connect() {
 }
 
 window.addEventListener("keydown", (event) => {
+  if (displayKeys.has(event.code)) {
+    litKeys.add(event.code);
+    renderKeys();
+  }
+
   if (movementKeys.has(event.code)) {
     event.preventDefault();
     if (!event.repeat) heldKeys.add(event.code);
@@ -135,6 +286,10 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (displayKeys.has(event.code)) {
+    litKeys.delete(event.code);
+    renderKeys();
+  }
   if (!movementKeys.has(event.code)) return;
   event.preventDefault();
   heldKeys.delete(event.code);
@@ -153,5 +308,6 @@ window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
 }, 50);
 window.setInterval(refreshCameraState, 100);
+window.setInterval(renderTimecode, 1000);
 
 connect();

@@ -485,6 +485,63 @@ Private details (username, network, device serial numbers) are omitted.
     Arming… and caption UI. Then add the optional dashboard-starts-bridge
     development flag, and run the mock dashboard on the Pi.
 
+### 2026-09-26 EDT - Operator dashboard redesign (Impeccable, broadcast gallery)
+
+- Commit: feature/dashboard-control; feat: redesign operator dashboard as
+  a broadcast gallery.
+- Process: user-requested redesign using the Impeccable skill (installed
+  guidance-only at user level from pbakaus/impeccable 9d715cc: no hooks,
+  no engine binary). The user chose the "Broadcast gallery" direction, an
+  even camera/controls split, and always-on debug telemetry.
+  Launcher-dependent steps ran in their documented degraded forms: the
+  concept roll did not run (directions were hand-ranked), the build was
+  code-led, and the finish review and documenter ran in-thread.
+- Changed files and interfaces:
+  - index.html, styles.css, dashboard.js rebuilt. The program monitor's
+    tally ring and the gallery bar show drive state (dark, amber pulse
+    while arming, red when armed). Also: source/camera UMD tags, a
+    detection lower-third, a speed fader, keycaps that light while held,
+    a signal-chain lamp strip, and wheel PWM at the chassis corners with
+    ack/status/input/IMU/dropped/frame ages. Fault codes map to plain
+    reasons with the code shown. Read-only viewers get viewer copy.
+  - Safety logic in dashboard.js is unchanged (diffed): key handling,
+    heartbeat, blur/hidden stop, and reconnect. Additions are display-only
+    (lit keys, session timecode). Enable is now also disabled while arming
+    or armed, and Stop is disabled only while disconnected (it could not
+    send then anyway).
+  - Added app/rescuebot/static/fonts/ (B612 Bold woff2 plus its OFL
+    license, self-hosted for offline venues); pyproject package-data now
+    ships static/fonts/*.
+  - Added PRODUCT.md, DESIGN.md, .impeccable/design.json, and the
+    development-only surface brief .impeccable/briefs/operator-dashboard.md.
+    No server, protocol, or test interface changed.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 102 passed.
+  - node --check dashboard.js passed; every element ID the script uses
+    exists in index.html.
+  - A live uvicorn server served /, styles, script, font, and /api/state
+    (all 200).
+  - Visual: headless Chrome with DevTools device emulation (1600, 1440,
+    1280, and 390 px) over a scripted state preview (disabled, arming,
+    armed with detections, fault, read-only). Two inspection rounds plus
+    one verdict pass. Earlier plain headless 390 px captures were invalid
+    (Chrome's minimum 500 px layout) and were discarded.
+  - Finish review (in-thread): disposition fix. Two fixes resolved
+    (imitation-material bevels and gloss removed; display face moved from
+    the system sans to B612). One item is open by process: the skipped
+    concept roll.
+- Mock or physical coverage:
+  - Scripted preview states and the mock server only. Not checked on the
+    Pi, a projector, or with live camera video.
+- Known limitations:
+  - Not yet viewed in a real browser by a person; no real screen-reader
+    pass.
+  - Live video still shows the NO SIGNAL slate until the camera service
+    lands.
+- Next action:
+  - The user opens the dashboard (mock or --motor-backend bridge) and
+    checks it on a projector or large screen.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>

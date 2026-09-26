@@ -19,4 +19,4 @@ rescuebot-dashboard = "rescuebot.web:main"
 where = ["app"]
 
 [tool.setuptools.package-data]
-rescuebot = ["static/*"]
+rescuebot = ["static/*", "static/fonts/*"]
