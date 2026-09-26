@@ -40,3 +40,15 @@ The package now explicitly declares `ament_index_python` and `python3-yaml`, alr
 The coordinator should integrate coverage and movement sequentially, build the combined simulation image, verify controller/checker loading, then run fresh/northern/varied/absent-target missions and normal-goal, obstacle-stop, Stop/manual takeover/source-loss regressions. Measure simulation time to first detection, path length, and goal-transition delay; no runtime speedup is claimed from unit tests. The immutable last passing baseline remains at `877a1b5`.
 
 Source behavior inspected for the policy split: [Jazzy rotation shim](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_rotation_shim_controller/src/nav2_rotation_shim_controller.cpp), [position checker](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_controller/plugins/position_goal_checker.cpp), and [DWB final-heading critic](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_dwb_controller/dwb_critics/src/rotate_to_goal.cpp). Installed `/opt/ros/jazzy/share/nav2_controller/plugins.xml` confirms PositionGoalChecker is available; both trees derive from the installed `navigate_to_pose_w_replanning_and_recovery.xml`.
+
+## Cancellation diagnostics follow-up
+
+Code checkpoint `f79dd94` adds observability only after an untouched-spawn runtime search canceled in open space without a preceding collision/recovery error. The original post-cleanup state retained `browser_disconnected`, which could not identify the initiating fault. The manager now logs its own stale host-status cancellation with measured wall age, unchanged 0.250 s limit, and mission. A cancellation received through host status logs its incoming reason, active state, and previous/new mission. No cancellation, expiry, idle-velocity, or motion behavior changes.
+
+Focused ROS tests, including two added diagnostics regressions and all prior mission-manager scenarios: **9 passed in 0.46 seconds**, isolated Docker domain 88. Source files were copied under `/tmp/search-motion-diagnostics`; installed/running simulation sources remained untouched. Exact test command after arranging that temporary package:
+
+```bash
+/Users/shaderahman/.docker/bin/docker exec -e ROS_DOMAIN_ID=88 rescuebot-autonomy-sim-sim-1 bash -c 'source /opt/ros/jazzy/setup.bash && source /workspace/ros_ws/install/setup.bash && export PYTHONPATH=/tmp/search-motion-diagnostics:/workspace/app:$PYTHONPATH && python3 -m pytest -q /tmp/search-motion-diagnostics/test_mission_manager.py'
+```
+
+A host-only probe running twelve planner jobs alongside a 10 ms heartbeat thread observed mean planning 124.6 ms, maximum 131.5 ms, and maximum heartbeat gap 18.6 ms. This did not reproduce 250 ms Python-thread starvation and does not establish simulator scheduling behavior. The coordinator owns an instrumented exact-spawn rerun before claiming a root cause or fix. No process-pool change, timing-margin relaxation, or synthetic idle heartbeat was introduced.
