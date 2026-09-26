@@ -51,8 +51,8 @@ coordinating agent before edits:
 
 | Workstream | Branch/worktree | Ownership | Dependency/status |
 |---|---|---|---|
-| Search movement | feature/autonomy-search-motion / /private/tmp/rescuebot-search-motion | mission manager, search-specific Nav2 goal/controller/BT configuration, focused manager tests, autonomy-search-motion handoff | Active; consumes agreed coverage API |
-| Coverage and scoring | feature/autonomy-search-coverage / /private/tmp/rescuebot-search-coverage | search.py, planner tests, autonomy-search-coverage handoff | Active; supplies immutable observation coverage and gain/cost waypoint selection |
+| Search movement | feature/autonomy-search-motion / /private/tmp/rescuebot-search-motion | mission manager, search-specific Nav2 goal/controller/BT configuration, focused manager tests, autonomy-search-motion handoff | Integrated sequentially; also supplied cancellation diagnostics |
+| Coverage and scoring | feature/autonomy-search-coverage / /private/tmp/rescuebot-search-coverage | search.py, planner tests, autonomy-search-coverage handoff | Integrated sequentially; independently diagnosed western-map reachability |
 | Simulation integration | feature/autonomy-sim / /private/tmp/rescuebot-autonomy-sim | runtime validators, sequential integration, simulator acceptance, this handoff | Active; sole operator of shared simulator |
 
 Coverage must reflect the 0.9 m synthetic detector's actual capture-time range
@@ -70,7 +70,7 @@ identified and closed a race that could send a prefetched goal while newer
 observations were still being processed. The integrated image builds all four
 ROS packages. Full Ubuntu application and ROS suites pass: 168 application
 tests (166 passed, two optional skips), 56 ROS tests (zero failures/skips), and
-JavaScript syntax. Runtime acceptance and performance comparison are pending.
+JavaScript syntax. Runtime acceptance and performance comparisons follow below.
 Baseline logs are `/private/tmp/rescuebot-opt-baseline-{fresh,north,repeat}.log`;
 integrated build/tests are `/private/tmp/rescuebot-opt-{build,tests}.log`.
 The prior passing image remains tagged
@@ -123,6 +123,33 @@ Additional completed search acceptance:
   Nav2 pause disarms in 0.303 seconds including lifecycle/test overhead; all
   six nodes remain active after resume, without automatic rearm. Evidence:
   `/private/tmp/rescuebot-opt-safety.log`.
+
+Validation commands (run from this worktree; `docker` resolves to
+`/Users/shaderahman/.docker/bin/docker` on the validation host):
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps -e ROS_DOMAIN_ID=88 sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+# Use a fresh search_house for each independently measured spawn case.
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+# Run the northern case after the spawn case retains its map.
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py --north-start
+# For each following independent safety case, use a fresh indoor_maze world,
+# restart sim, and set playback to 3 as above before invoking the validator.
+RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --heading -90 --during-turn
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+git diff --check
+```
+
+No-target and alternate-target runs use the startup fixture variables shown
+below and in the Docker README; the no-target run adds `--expect-absent`.
+These are Ubuntu 24.04 ARM64/Jazzy/Harmonic simulation checks on Docker Desktop
+with software rendering. Application optional integration tests remain skipped;
+no serial, ESP32, or physical motion validation is claimed.
 
 ### Broader route limitations exposed during acceptance
 

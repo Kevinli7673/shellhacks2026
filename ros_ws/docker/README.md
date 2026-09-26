@@ -311,6 +311,8 @@ travel, return position/heading, automatic disarming, and a new explicit start.
 It reports wall time, simulation time, traveled distance, sampled stationary
 and rotation-only intervals, and time/distance to first detection. Compare
 simulation time and distance when playback load differs between runs.
+Terminal control/autonomy status is captured before cleanup sends Stop, so
+source faults remain distinguishable from the validator's final cancellation.
 By default it first moves briefly and checks Stop, then uses that stopped pose
 as the mission home. After a fresh simulator restart, use `--skip-stop-probe`
 to test a full mission from the untouched world spawn instead; that variant

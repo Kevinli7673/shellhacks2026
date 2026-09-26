@@ -202,6 +202,11 @@ async def run(pose, north_start=False, expect_absent=False, skip_stop_probe=Fals
                 heading_error = abs(displacement(home, previous)[2])
                 result = dict(phase=search()["phase"], found=search()["found"], phases=phases,
                               reason=search()["reason"], visited_samples=search()["visited"],
+                              terminal_control=state()["control"],
+                              terminal_autonomy={key: value for key, value in state()["autonomy"].items()
+                                                 if key != "navigation"},
+                              terminal_navigation={key: state()["autonomy"]["navigation"].get(key)
+                                                   for key in ("active", "reason", "goal_state", "mission")},
                               home_pose=home, final_pose=previous,
                               seconds=time.monotonic()-started, path_m=path,
                               sim_seconds=previous_sim-start_sim, detection=detection,
