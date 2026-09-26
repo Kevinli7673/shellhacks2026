@@ -24,7 +24,7 @@ Included:
 
 Deferred until this milestone passes physical acceptance:
 
-- Optional ROS 2 integration.
+- Optional ROS 2 Jazzy integration and Gazebo Harmonic simulation.
 - LiDAR, SLAM, autonomous navigation, survivor localization, hazard mapping,
   A*, ESP32-C6 features, environmental sensors, Logitech integration,
   and unrelated polish.
@@ -353,7 +353,7 @@ Then follow this order:
 | I | Generic person-detection events |
 | J | Correct annotations and bounded-latency video |
 | K | Dashboard integration, recording, replay, and acceptance testing |
-| L | Optional ROS 2 adapters, only after physical milestone acceptance |
+| L | Optional ROS 2 adapters and Gazebo simulation, only after physical milestone acceptance |
 
 Do not parallelize dependent stages prematurely.
 Independent work may overlap after shared interfaces are agreed.
@@ -362,6 +362,106 @@ ROS adapters must preserve browser controls and the ESP32 protocol.
 Any future movement source enters through the arbiter.
 Convert physical velocity units and ROS axes explicitly; do not present
 normalized PWM commands as measured velocity.
+
+### Stage L: ROS 2 Jazzy and Gazebo Harmonic (deferred)
+
+Start this stage only after the physical acceptance list for the current
+milestone passes. Gazebo is a development and test environment, never a
+requirement for dashboard driving or a replacement for physical safety tests.
+
+Use modern Gazebo Harmonic with ROS 2 Jazzy and `ros_gz`; do not start a new
+Gazebo Classic integration. Develop the simulation on a supported workstation
+with suitable graphics resources. Keep the Raspberry Pi hardware runtime
+headless and independent of Gazebo. Any future Pi simulation use requires its
+own performance validation.
+
+The simulation architecture is:
+
+    Browser manual command / future ROS autonomy command
+      -> existing command arbiter
+      -> simulation velocity adapter
+      -> ROS 2 topic
+      -> ros_gz bridge
+      -> Gazebo rescuebot model
+
+    Gazebo IMU, lidar, camera, clock, transforms, and odometry
+      -> ros_gz bridge
+      -> ROS 2 consumers and visualization
+
+The physical architecture remains separate:
+
+    existing command arbiter
+      -> motor bridge
+      -> USB serial
+      -> ESP32-S2
+      -> motor shield and motors
+
+Never bridge a Gazebo command to USB serial, firmware arm/disarm, or a real
+motor output. Simulation and hardware launch profiles are mutually exclusive.
+The browser keeps its existing normalized manual-control interface. A ROS
+adapter converts between that interface and explicit physical units before
+publishing a ROS velocity message; it does not reinterpret browser PWM values
+as measured velocity.
+
+#### Simulation model and interfaces
+
+- Create a versioned robot-description package with a URDF/Xacro description
+  for frames, chassis dimensions, mass, inertia, wheel locations, sensor
+  mounts, and the robot footprint. Keep hardware measurements and assumptions
+  in configuration, not in control code.
+- Create the Gazebo SDF model and a small indoor rubble/debris test world from
+  that description. Start with geometry that supports collision and manual
+  driving tests; realistic disaster environments come later.
+- Select or implement the Gazebo mecanum drive behavior only after it passes
+  the same forward/right/clockwise fixture and manual-control tests used by
+  the physical controller. Simulation wheel configuration must not change the
+  approved ESP32 mixing equations or wheel-mapping configuration.
+- Use an explicit `ros_gz_bridge` YAML configuration. Bridge simulation clock,
+  transforms, odometry, IMU, lidar, and camera data from Gazebo to ROS. Bridge
+  only the simulation velocity input from ROS to Gazebo. Use bounded queues
+  and document each topic name, message type, direction, and QoS choice.
+- Preserve the generic detection-event structure at the perception boundary.
+  Simulated imagery or synthetic detections may exercise the dashboard, but
+  they do not validate AI Camera inference or person-detection accuracy.
+
+#### Command and safety behavior in simulation
+
+- Manual control retains priority over the future autonomous ROS source; the
+  existing Stop/E-stop state overrides both before the simulation adapter.
+- A simulation Stop publishes zero simulated velocity and disables its adapter.
+  It must never affect a physical motor process because the profiles are
+  mutually exclusive.
+- ROS nodes, Gazebo, RViz, Nav2, SLAM, and mapping remain optional processes.
+  Their slowdown, crash, or restart must not delay the browser/control-service
+  safety loop in a hardware launch.
+- Simulation may test command expiry, ownership, stale sensor data, dropped
+  frames, collisions, and recovery scenarios. It cannot establish physical
+  braking distance, motor-current behavior, watchdog timing, wheel traction,
+  camera latency, or sensor calibration.
+
+#### Deferred rollout and acceptance
+
+1. Install the supported ROS 2 Jazzy and Gazebo Harmonic/`ros_gz` pairing on
+   the development workstation; record the OS, package versions, graphics
+   driver, and launch commands in the project documentation.
+2. Bring up the robot model in an empty world and validate frames, footprint,
+   collision geometry, and simulated manual forward, right strafe, and
+   clockwise rotation at low simulated speed.
+3. Add and bridge simulated IMU and lidar data. Verify timestamps, frame IDs,
+   transform tree, coordinate conventions, and bounded behavior for slow
+   consumers before connecting autonomy software.
+4. Add simulated camera input only to test the model-independent detection and
+   dashboard interfaces. Keep live AI Camera work independent.
+5. Add SLAM, Nav2, autonomous exploration, survivor localization, hazard
+   mapping, and route planning only after separate user authorization and
+   their own design review.
+
+Stage L acceptance requires a repeatable launch, documented topic contract,
+manual coordinate-convention tests, `ros_gz` bridge tests, and evidence that
+simulation failure cannot command or delay physical motors. The recommended
+ROS/Gazebo pairing and bridge guidance are documented by
+[Gazebo's ROS installation guide](https://gazebosim.org/docs/garden/ros_installation/)
+and [Gazebo's ROS 2 integration guide](https://gazebosim.org/docs/harmonic/ros2_integration/).
 
 ## 11. Tests and definition of done
 
