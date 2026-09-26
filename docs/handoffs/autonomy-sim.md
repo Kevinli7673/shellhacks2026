@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Milestone A manual driving and live bridges pass. Milestone B SLAM map, Nav2 goal success, Stop/manual override, and safe-source expiry pass; obstacle-entry and long-mission validation remain.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Milestone A manual driving and live bridges pass. Milestone B SLAM map, Nav2 goal success, Stop/manual override, and safe-source expiry pass. One newly inserted rear-obstacle scenario now passes with positive measured clearance; varied approaches and long-mission validation remain.
 
 ## User-authorized scope exception
 
@@ -33,8 +33,9 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `e6e5bee` | Native ARM64 Docker environment | All four ROS packages build; initial Ubuntu suite 149 passed, 2 skipped. |
 | `95073de` | Gazebo model physics, sensors, bridges, and manual speed | Six actual-pose direction checks, browser keys/Space, speed, release, Stop and input expiry pass; 151 Python passes, 2 skips, one ROS pass. |
 | `aaf3f88` | Runtime SLAM/Nav2, mission cancellation, matching IPC/velocity limits | Map and goal success, Stop/manual override, safe-source expiry/no rearm; 152 Python passes, 2 skips on each OS, five ROS passes. |
+| `0dcfc75` | Wider simulation collision zone and reproducible obstacle/recovery checks | Rear obstacle: FootprintStop, zero filtered output and 0.0875 m clearance; goal/override/managed pause-resume pass; 152 Python passes, 2 skips, five ROS passes. |
 
-Publication: runtime code through `aaf3f88` is committed and pushed to
+Publication: runtime code through `0dcfc75` is committed and pushed to
 origin/feature/autonomy-sim. The branch has not been integrated. This handoff
 checkpoint is committed on the same branch. Working tree is clean at handoff.
 
@@ -89,8 +90,8 @@ ROS 2 Jazzy and Gazebo Harmonic.
 ## Remaining work
 
 1. Replace estimated chassis dimensions in the Xacro/SDF with measured values.
-2. Validate Collision Monitor with a newly introduced simulated obstacle;
-   short goal, Stop, override, and source-expiry checks now pass.
+2. Extend the passing rear-obstacle check to front/side approaches and
+   different speeds. Short goal, Stop, override, and source-expiry checks pass.
 3. Extend mapping/navigation to long routes, loop closure, and varied goals.
    Verify RViz goal selection interactively; runtime goal tests use `/goal_pose`.
 4. Evaluate the Jazzy-compatible frontier package in the simulator before
@@ -338,3 +339,115 @@ Final packaging and publication:
   differences exist after integration merge `38c686d`.
 - The last commit identity matched the expected team identity before each
   commit. Git configuration was not changed.
+
+
+## 2026-09-26 - Visible obstacle-stop acceptance
+
+The user authorized the next simulation obstacle test and asked how to see
+movement because the dashboard camera was stale. The live simulator is the
+noVNC Gazebo desktop at http://localhost:16080/vnc.html?autoconnect=true&resize=scale .
+The localhost:18000 dashboard uses a short detection replay, not a simulated
+camera image. A stale replay banner is expected. Use two windows side by side,
+with focus on the control dashboard for manual input; focus loss stops driving.
+The Gazebo view was zoomed onto the robot through Entity Tree / Move To and
+scroll. The user closed the simulation control tab for automated ownership;
+the Pi dashboard and all physical hardware were left outside the test.
+
+Work remains in /private/tmp/rescuebot-autonomy-sim on feature/autonomy-sim.
+Fetched origin before changes; the request channel applies only to dashboard
+and ESP32 workstreams, with no simulation request routing. The previously
+recorded user scope exception remains in force.
+
+Changes:
+
+- Added `/rescuebot/collision_state` telemetry to Collision Monitor so the
+  acceptance test can distinguish its FootprintStop action from planner stops.
+- Added `ros_ws/docker/validate_obstacle.py`. It requires the Gazebo backend
+  and unowned/disarmed dashboard, starts a mission-owned backward goal,
+  inserts a uniquely named red Gazebo panel, and checks nonzero incoming
+  velocity, Collision Monitor STOP, zero filtered output, actual world-pose
+  stability, and geometric clearance using the model's collision dimensions.
+  It always sends Stop and removes only its own panel.
+- The original stop-zone half-extents (0.19 m x 0.16 m) failed the runtime
+  clearance assertion. Collision Monitor did command Stop, but the final
+  model/obstacle projection was at the contact boundary (-0.00000063 m).
+- Widened the simulation stop-zone half-extents to 0.30 m x 0.26 m, leaving
+  room for sensor, command and stopping delay outside the estimated chassis.
+  No app/, firmware, serial protocol, velocity limits, or physical paths changed.
+- Updated the simulation README files with live-view instructions and the
+  reproducible obstacle test. These are simulation margins, not calibrated
+  physical safety distances.
+
+Commands from the worktree root (navigation.launch.py running separately):
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh ros2 launch rescuebot_navigation navigation.launch.py
+# Another terminal, with localhost:18000 control tabs closed:
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py
+```
+
+The actual development run copied the revised YAML/script into the existing
+container and restarted only navigation, preserving the user's live Gazebo
+viewport. The final Docker image was rebuilt from the worktree for reproduction.
+
+Results with the wider zone:
+
+- PASS: FootprintStop reported STOP; `/cmd_vel_safe` was zero while nonzero
+  `/cmd_vel_smoothed` requests reached the filter.
+- STOP telemetry arrived 0.392 seconds after the Gazebo creation request began.
+  This includes creation/CLI latency; it is not a standalone sensor latency
+  or worst-case braking bound.
+- Final measured clearance: 0.0875 m. Translation drift during the stationary
+  check: approximately 0.0029 m; yaw drift 0.0206 rad.
+- The red panel was visible in noVNC, then removed after the test. The script
+  sent Stop and released control. The first harness attempt also exposed a
+  status propagation race; it now waits for ROS to confirm the current host
+  mission before publishing a goal.
+- A follow-up navigation check run during a concurrent Docker build tripped
+  `browser_timeout` and correctly disarmed. Runtime checks should run without
+  simultaneous image builds on this software-rendered Docker environment.
+
+This validates one rear-obstacle scenario at the configured low autonomy speed.
+Front/side approaches, different velocities, long routes, loop closure, measured
+geometry, and physical acceptance remain unvalidated. Next: extend obstacle
+coverage, then longer navigation routes. No physical autonomy is authorized.
+
+
+Final validation at code checkpoint `0dcfc75`:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+git diff --check
+```
+
+- The wider zone also passed ordinary Nav2 goal following, Stop, manual
+  override, source expiry, and no automatic rearming.
+- Recovery testing exposed a harness cleanup bug: directly toggling one
+  managed node causes a delayed bond failure in Nav2's lifecycle manager.
+  The harness now uses managed PAUSE/RESUME and verifies every managed node
+  remains active five seconds afterward. This change is in the test only.
+- A repeated browser timeout without a build showed that synchronous HTTP
+  state reads/ROS spinning in the acceptance harness could starve its own
+  heartbeat. Polling/spinning now runs outside the heartbeat event loop.
+  The host safety deadlines were not increased or bypassed.
+- Final goal succeeded; managed pause disarmed with `autonomy_timeout` 0.305 s
+  after the pause request began (including lifecycle transition time). Resume
+  kept the robot disarmed and all six Nav2 nodes active after the five-second
+  stability check. No delayed lifecycle error remained.
+- Ubuntu Python regression: 154 discovered, 152 passed, 2 environment-gated
+  skips in 2.060 seconds. Four colcon packages completed, five tests passed,
+  zero errors/failures/skips. Final Docker image build and diff check passed.
+- The live container has the same revised configuration and test scripts;
+  navigation remains running and the robot was left disarmed. Rebuilding did
+  not restart the desktop or disturb the user's zoomed view.
+- Obstacle protection here is in the autonomous Nav2 path. Manual dashboard
+  commands still use the existing direct simulation control path and require
+  operator stopping. No simulated camera video stream was added.
+
+Status: code and this handoff committed on feature/autonomy-sim, pushed only
+to that branch, not integrated. The user-authorized simulation scope exception
+still applies; the integrator owns shared plan/status updates. No app/ or
+firmware edits were made in this checkpoint, and no physical device was used.
