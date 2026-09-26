@@ -51,9 +51,15 @@ uint32_t g_last_motor_attempt_ms = 0;
 // 100 kHz, so one four-motor update stalled the loop ~0.5 s. Setting the
 // clock explicitly reconfigures the bus (~0.06 ms per transaction at 400 kHz).
 // The motor shield (PCA9685) and BNO055 both support 400 kHz. Reapply after
-// every device begin(), since a begin() may reinitialize Wire.
+// every device begin(), since a begin() may reinitialize Wire. Adafruit_BNO055
+// begin() leaves the bus slow (~2.2 ms per transaction) while getClock() still
+// reports the old value, and setClock() skips an unchanged value, so set a
+// different clock first to force a real reconfiguration.
 constexpr uint32_t kI2cClockHz = 400000;
-void configureI2cBus() { Wire.setClock(kI2cClockHz); }
+void configureI2cBus() {
+    Wire.setClock(100000);
+    Wire.setClock(kI2cClockHz);
+}
 uint32_t g_last_imu_ms = 0;
 uint32_t g_last_imu_attempt_ms = 0;
 
