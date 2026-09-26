@@ -1,5 +1,5 @@
 {
-  "description": "ESP32-S2 serial behavior vectors, matching the firmware on feature/esp32-controller (48ae9dd). Each case starts from a fresh boot with watchdog_ms and hardware_ceiling unless a case overrides hardware_ceiling (the firmware default ceiling is 0 until physically validated, so harnesses must set it). Each step sends one line (a newline is appended) at t_ms, or advances the watchdog with tick; emit lists the JSON lines expected in response, in order; armed and outputs are the logical (pre-wiring) state afterwards. Cases whose behavior is still being agreed (stale arm, extra/duplicate fields, boot message) are intentionally omitted.",
+  "description": "ESP32-S2 serial behavior vectors, matching the firmware on feature/esp32-controller (3cbea5f). Each case starts from a fresh boot (the boot line itself is listed once in boot_emit) with watchdog_ms and hardware_ceiling unless a case overrides hardware_ceiling (the firmware default ceiling is 0 until physically validated, so harnesses must set it). Each step sends one line (a newline is appended) at t_ms, or advances the watchdog with tick; emit lists the JSON lines expected in response, in order; armed and outputs are the logical (pre-wiring) state afterwards. Duplicate JSON keys are intentionally not covered: the firmware reads the first occurrence and no legitimate sender produces them.",
   "watchdog_ms": 500,
   "hardware_ceiling": 255,
   "cases": [
@@ -1789,10 +1789,10 @@
           ],
           "armed": true,
           "outputs": {
-            "fl": 100,
-            "fr": 100,
-            "rl": 100,
-            "rr": 100
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
           }
         },
         {
@@ -1801,10 +1801,10 @@
           "emit": [],
           "armed": true,
           "outputs": {
-            "fl": 100,
-            "fr": 100,
-            "rl": 100,
-            "rr": 100
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
           }
         },
         {
@@ -1894,6 +1894,383 @@
           }
         }
       ]
+    },
+    {
+      "name": "stale_arm_in_same_session_is_ignored",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 60,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":3}",
+          "emit": [],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 70,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "rearm_same_session_with_newer_seq_zeroes_outputs",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 60,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":4}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 4,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 70,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":4,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 80,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":5,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 5,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "arm_after_disarm_in_same_session_uses_newer_seq",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 60,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":4}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 4,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 70,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":5}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 5,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown_extra_field_is_ignored",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100,\"future_field\":true}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        }
+      ]
+    }
+  ],
+  "boot_emit": [
+    {
+      "type": "fault",
+      "reason": "boot",
+      "armed": false
     }
   ]
 }

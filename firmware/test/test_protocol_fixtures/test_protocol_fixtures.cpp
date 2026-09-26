@@ -1,32 +1,16 @@
 // Replays the dashboard/control workstream's shared serial protocol
-// vectors (fixtures/serial_protocol_vectors.json on feature/serial-protocol,
-// vendored here as firmware/test/fixtures/serial_protocol_vectors.json)
-// against Controller, byte-for-byte the same way main.cpp feeds real serial
-// bytes through LineReader. Run with:
+// vectors (fixtures/serial_protocol_vectors.json, vendored verbatim here as
+// firmware/test/fixtures/serial_protocol_vectors.json) against Controller,
+// feeding each line through LineReader the same way main.cpp does. Run with:
 //   pio test -e native -f test_protocol_fixtures
 //
-// This is the least-verified file in the firmware: it leans on ArduinoJson
-// v6 object/array iteration APIs (JsonObjectConst, JsonArrayConst,
-// JsonPairConst, containsKey, the `variant | default` idiom) that have not
-// been compiled anywhere. Fix compile errors here first if this suite
-// doesn't build.
+// The vectors are a shared interface: if a case disagrees with the
+// firmware, report it rather than editing the vendored copy.
 //
 // All cases are checked with plain comparisons collected into a failure
-// list, and only ONE Unity assertion fires at the end (rather than
-// TEST_ASSERT per field), so a mismatch in one case never hides results
-// from the remaining ones the way Unity's abort-on-first-failure normally
-// would inside a single test function.
-//
-// Known expected failure: the fixture's own description notes it matches
-// firmware commit 48ae9dd and intentionally omits cases for behavior
-// "still being agreed" (stale arm, extra/duplicate fields, boot message).
-// But one already-committed case, "rearm_with_new_session_rejects_old_
-// session", still asserts the PRE-fix "motors keep running through a
-// re-arm" outputs (100/100/100/100 after the arm to a new session). Now
-// that arm() zeroes outputs (see docs/handoffs/esp32-controller.md), that
-// step's expected outputs are stale and this case is expected to fail
-// until it's updated on their end — not edited here, since fixtures/ is
-// the dashboard/control workstream's path.
+// list, and only ONE Unity assertion fires at the end, so a mismatch in one
+// case never hides results from the remaining ones (Unity otherwise aborts
+// a test function at its first failed assertion).
 #include <unity.h>
 
 #include <ArduinoJson.h>
@@ -117,6 +101,11 @@ void runCase(JsonObjectConst test_case, uint32_t default_watchdog_ms, int defaul
     int ceiling = test_case["hardware_ceiling"] | default_ceiling;
     Controller controller(default_watchdog_ms, ceiling);
     LineReader reader;
+
+    // Mirror setup(): every case starts from a fresh boot. The boot line
+    // itself is checked once against the top-level boot_emit, not per case.
+    char boot_buf[128];
+    controller.boot(boot_buf, sizeof(boot_buf));
 
     for (JsonObjectConst step : test_case["steps"].as<JsonArrayConst>()) {
         uint32_t t_ms = step["t_ms"] | 0;
@@ -231,6 +220,23 @@ void test_shared_serial_protocol_vectors(void) {
     int default_ceiling = doc["hardware_ceiling"] | 0;
 
     std::vector<std::string> failures;
+
+    JsonArrayConst boot_emit = doc["boot_emit"].as<JsonArrayConst>();
+    if (!boot_emit.isNull()) {
+        Controller controller(default_watchdog_ms, default_ceiling);
+        char boot_buf[128];
+        size_t n = controller.boot(boot_buf, sizeof(boot_buf));
+        DynamicJsonDocument actual_doc(512);
+        bool ok = boot_emit.size() == 1 && n > 0 &&
+                  !deserializeJson(actual_doc, boot_buf, n) &&
+                  jsonObjectEquals(actual_doc.as<JsonObjectConst>(),
+                                   boot_emit[0].as<JsonObjectConst>());
+        if (!ok) {
+            failures.emplace_back("boot_emit: boot message mismatch, got: " +
+                                  std::string(boot_buf, n));
+        }
+    }
+
     size_t case_count = 0;
     for (JsonObjectConst test_case : doc["cases"].as<JsonArrayConst>()) {
         ++case_count;
