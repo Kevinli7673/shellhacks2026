@@ -91,6 +91,55 @@ Never treat the displayed wheel values as a command to real hardware.
     replay camera_backend that feeds DetectionTracker status to the
     dashboard in a process isolated from motor control.
 
+### 2026-09-26 EDT - Reviewed detection replay and replay-camera backend
+
+- Commits and branch state:
+  - Reviewed feature/detection-replay commit 179c067 and added review fix
+    f6eae78, `fix: keep detection recording shutdown nonblocking`.
+  - Fast-forwarded feature/detection-replay into feature/dashboard-control at
+    f6eae78. The merged dashboard branch passed its full test suite.
+  - Created feature/replay-camera-backend from that merged branch and added
+    9251279, `feat: add replay camera backend`.
+- Review findings and frozen-interface decisions:
+  - Fixed DetectionRecorder shutdown: a full queue previously allowed close()
+    to block and could race a concurrent submit(). Close now remains bounded,
+    and no submit is accepted after closing starts.
+  - Detection image dimensions currently serialize as
+    `image: {width, height}`. This is used consistently by the implementation,
+    but the frozen event interface should be explicitly confirmed by the
+    integrator before adding external producers.
+  - `tests/control/` is the assigned dashboard/control test location; no test
+    path change is needed.
+  - `offline` means no frame has ever reached DetectionTracker. A replay
+    process that ends or fails after a received frame becomes `stale` once the
+    one-second receipt-time expiry passes; `process_alive` remains available
+    as separate health context.
+- Changed files and interfaces in 9251279:
+  - Added replay_camera.py with a separate replay process, bounded size-one
+    latest-frame IPC, receipt-time DetectionTracker status, and mock fallback.
+  - The dashboard API and browser display camera status, count, normalized
+    bounding boxes, and a REPLAY label. Camera polling is separate from the
+    20 Hz control loop.
+  - `rescuebot-dashboard --camera-backend replay --replay-path <file>` selects
+    a JSONL recording; mock/offline remains the default.
+- Tests and results:
+  - `.venv/bin/python -m unittest discover -s tests -v`: 46 passed.
+  - `node --check app/rescuebot/static/dashboard.js`: passed.
+  - `.venv/bin/python -m py_compile app/rescuebot/replay_camera.py app/rescuebot/web.py`:
+    passed.
+  - `.venv/bin/rescuebot-dashboard --help`: passed.
+  - Replay backend lifecycle smoke test: passed.
+- Mock or physical coverage:
+  - JSONL fixture replay and mock only. No physical camera, IMX500 model,
+    Raspberry Pi, motor hardware, or annotated video stream was used.
+- Known limitations:
+  - Live capture/inference and video streaming remain intentionally deferred.
+  - The replay process feeds detections only; it has no motor-control path.
+- Next action:
+  - Review and merge 9251279 from feature/replay-camera-backend into
+    feature/dashboard-control. Keep the image-dimension container decision
+    synchronized before external camera providers are introduced.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
