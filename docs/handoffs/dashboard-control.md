@@ -342,6 +342,60 @@ Private details (username, network, device serial numbers) are omitted.
     record the agreed serial messages as a changes.md decision during
     integration.
 
+### 2026-09-26 EDT - Motor-bridge process and arbiter IPC (step 1)
+
+- Commit: branch feature/motor-bridge from feature/dashboard-control
+  (e101f82); feat: add motor bridge process and arbiter IPC.
+- Changed files and interfaces:
+  - Added app/rescuebot/bridge_ipc.py: nonblocking Unix datagram IPC.
+    Arbiter commands are {kind: drive|stop|arm, arbiter, seq, expires_at
+    (time.monotonic), forward, sideways, turn, speed_limit}. Senders drop
+    and count instead of blocking. Receivers drain a bounded batch; a stop
+    discards drives received before it, and only the newest drive is kept.
+    The bridge reports BridgeStatus datagrams (armed, arm_pending, fault,
+    ack age, wheels, IMU) back to the service.
+  - Added app/rescuebot/motor_bridge.py: MotorBridge around MotorLink.
+    It sends drive packets at 20 Hz from the newest fresh command only, and
+    disarms after 250 ms without a fresh arbiter command (receipt age or
+    expiry) or an advancing ACK. Stop is handled in the same step. It
+    arms only on an explicit "arm" plus the firmware arm_ack, disarms on a
+    new arbiter id, rejects replayed seqs, disarms if the transport closes,
+    and reconnects with a new session at most once per second without
+    re-arming. SIGTERM/SIGINT send a final disarm before exit.
+  - Only a simulated-firmware transport exists: `python -m
+    rescuebot.motor_bridge [--command-socket P] [--status-socket P]`.
+    Default sockets live under /tmp/rescuebot-<uid>/ (RESCUEBOT_RUN_DIR).
+  - Control-service contract for step 2: send current intent every tick,
+    "drive" while armed or while waiting for arm_ack (zero axes while
+    waiting), "stop" otherwise. A "stop" cancels a pending arm.
+  - No changes to service.py, control.py, web.py, mock.py, the serial
+    protocol, or mixing.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 92 passed; 25 and 10
+    repeated runs all passed after fixes.
+  - tests/control/test_motor_bridge.py includes a separate-process test
+    over real Unix sockets (arm, drive to 80, stop, SIGTERM exit 0).
+  - Mutation checks (no arbiter timeout, accepting expired or replayed
+    commands, ignoring stop, arbiter change, dead transport, 20 Hz cadence,
+    stop not dropping an earlier drive) each made the suite fail.
+  - Bugs found and fixed while testing: a transport closed without an
+    error left the bridge reporting armed; SIGTERM skipped the final
+    disarm.
+- Mock or physical coverage:
+  - Simulated firmware only. No serial port, pyserial, ESP32, or motors.
+- Known limitations:
+  - Not yet used by the dashboard; the control service still drives the
+    in-process mock backend.
+  - No real serial transport yet (pyserial is installed on the Pi but is
+    not a project dependency).
+  - macOS local datagram buffers are 4 KB; drops are expected under stall
+    and repaired by per-tick resend.
+- Next action:
+  - Step 2: add motor_backend = mock | bridge to the control service, send
+    arbiter commands each tick, gate Enable on the bridge's arm_ack
+    status, and show bridge health on the dashboard.
+  - Step 3: pyserial transport opened by /dev/serial/by-id path.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
