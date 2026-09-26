@@ -218,12 +218,19 @@ function updateDashboard(data) {
   element("stop-button").disabled = !connected;
 }
 
-async function refreshCameraState() {
+async function refreshState() {
+  // Keeps every readout fresh while idle or read-only, when no WebSocket
+  // replies arrive. Ownership stays whatever this browser's own socket
+  // reported: the HTTP poll cannot know which session is asking.
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
-    if (data.camera) updateCamera(data.camera);
+    if (data.control && data.motor && data.camera) {
+      updateDashboard({ ...data, can_control: canControl });
+    } else if (data.camera) {
+      updateCamera(data.camera);
+    }
   } catch (_error) {
     // The WebSocket control path retains its own safety handling.
   }
@@ -302,6 +309,6 @@ element("stop-button").addEventListener("click", clearAndStop);
 window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
 }, 50);
-window.setInterval(refreshCameraState, 100);
+window.setInterval(refreshState, 100);
 
 connect();
