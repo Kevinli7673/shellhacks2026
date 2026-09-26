@@ -116,3 +116,9 @@ Collision Monitor stops motion when a simulated obstacle enters its safety
 zone. The validated stop-zone half-extents are 0.30 m forward/back and 0.26 m
 left/right, including clearance beyond the estimated chassis. These simulation
 values need measured geometry and braking validation before physical use.
+
+The optional `search_house.sdf` scenario adds map-driven coverage search,
+synthetic target notification, and return to the saved start. It uses the same
+mission owner and Nav2/safety/host command path. See the
+[Docker search demo](docker/README.md#search-and-return-demo) for setup, limits,
+and acceptance commands. It does not use the real camera detector or hardware.

@@ -29,6 +29,8 @@ const reasons = {
   dashboard_shutdown: "Stopped: the dashboard is shutting down.",
   motor_disarmed: "Stopped: the motors disarmed.",
   autonomy_timeout: "Stopped: the simulation navigation source timed out. Wait for readiness, then enable again.",
+  search_complete: "Search mission finished. Returned to start and disarmed.",
+  search_failed: "Search mission stopped. Check the mission status before trying again.",
 };
 
 function send(message) {
@@ -246,7 +248,9 @@ function updateNavigation(autonomy, drive) {
   if (!autonomy.available) return;
   const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
   const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
-  const busy = currentMission && (nav.pending || ["pending", "executing"].includes(nav.goal_state));
+  const search = nav.search;
+  const searching = search && ["exploring", "notifying", "return_pending", "returning"].includes(search.phase);
+  const busy = currentMission && (searching || nav.pending || ["pending", "executing"].includes(nav.goal_state));
   const labels = {
     idle: "Ready for a goal", pending: "Sending goal…", executing: "Navigating to goal",
     succeeded: "Goal reached — choose another", canceled: "Goal canceled",
@@ -254,7 +258,7 @@ function updateNavigation(autonomy, drive) {
     rejected: "Goal rejected — choose another",
   };
   const status = !connected ? "Dashboard disconnected" : !nav.ready ? nav.reason
-    : currentMission ? (nav.pending ? labels.pending : labels[nav.goal_state])
+    : currentMission ? (searching ? "Search mission active — progress below" : nav.pending ? labels.pending : labels[nav.goal_state])
     : autonomy.active ? "Starting mission…"
     : drive === "armed" ? "Driving enabled — click Start autonomy, then Send goal"
     : "Ready — enable driving, then Start autonomy again";
@@ -271,6 +275,21 @@ function updateNavigation(autonomy, drive) {
     ? `SLAM position: x ${pose.x.toFixed(2)} m · y ${pose.y.toFixed(2)} m`
     : "Map position unavailable");
   if (nav.request_error && currentMission) setText("navigation-feedback", nav.request_error);
+  element("search-mission").hidden = !search || (!search.available && search.phase === "idle");
+  element("search-button").disabled = !connected || !canControl || drive !== "armed"
+    || heldKeys.size > 0 || !nav.ready || !currentMission || busy || !search?.available;
+  const phases = {
+    idle: "Enable driving → Start autonomy → Search for person & return",
+    exploring: "Searching for a person marker…", notifying: "Simulated person found — stopping to report",
+    return_pending: "Search ended — preparing to return", returning: "Returning to the saved starting position…",
+    complete: search?.reason, failed: search?.reason, canceled: "Search canceled. Start a new mission to try again.",
+  };
+  setText("search-status", phases[search?.phase] || "Search world unavailable");
+  element("search-notification").hidden = !search?.found;
+  if (search?.found && search.target) {
+    const notice = `SIMULATION: person marker found at x ${search.target.x.toFixed(2)} m, y ${search.target.y.toFixed(2)} m. ${search.phase === "complete" ? "Returned to start." : ""}`;
+    if (element("search-notification").textContent !== notice) setText("search-notification", notice);
+  }
 }
 
 async function refreshState() {
@@ -315,6 +334,9 @@ function connect() {
     if (message.type === "state") updateDashboard(message.data);
     if (message.type === "navigation_goal") {
       setText("navigation-feedback", message.accepted ? "" : "Goal not accepted. Check readiness and wait for the current goal to finish.");
+    }
+    if (message.type === "start_search") {
+      setText("navigation-feedback", message.accepted ? "" : "Search not accepted. Start autonomy and wait for the current goal to finish.");
     }
     if (message.type === "start_autonomy" && currentState?.autonomy.available) {
       setText("navigation-feedback", message.accepted ? "" : "Start was not accepted. Release keys, enable driving, and wait for navigation readiness.");
@@ -371,6 +393,7 @@ document.addEventListener("visibilitychange", () => {
 
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
+element("search-button").addEventListener("click", () => send({ type: "start_search" }));
 element("stop-button").addEventListener("click", clearAndStop);
 element("navigation-form").addEventListener("input", () => {
   if (!currentState?.autonomy.available) return;

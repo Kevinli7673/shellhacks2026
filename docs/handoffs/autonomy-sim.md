@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Dashboard goals turn toward the route and travel primarily forward, retaining holonomic correction. Seven-goal/8.23 m travel, a Nav2-selected divider detour, panel/cylinder stops, and regression checks pass. One final-image Gazebo startup hang recovered with restart and remains documented. Blocked-goal recovery, exploration, and physical autonomy remain unvalidated.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. The optional obstacle-house search mission chooses map viewpoints, finds a synthetic target, notifies the dashboard, returns to the saved start, and disarms. A 14.98 m / 306 s mission passed with 8.8 cm return error and 13.3 cm minimum clearance. Existing short/long goal and obstacle checkpoints remain available. A false SLAM match on the initial search run prompted tighter local loop matching and a localization-jump stop guard. Varied targets, missing targets, blocked returns, and physical autonomy need further runtime acceptance.
 
 ## User-authorized scope exception
 
@@ -47,12 +47,10 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `942ae00` | Nearby local path horizon, longer routes, continuous-pose acceptance, panel/cylinder stops | Final seven-goal route 8.23 m, independent 2.99 m divider detour, two inserted-obstacle stops, final safety regression; 156 Python passes/two skips on each OS and seven ROS passes. |
 | `784f08b` | Simulation form distance feedback, restart guidance, Select All shortcut | Native Chrome invalid/valid goals and two completed missions with Stop/re-enable between them; Cmd+A preserves autonomy, A takeover and Space Stop pass; 156 Python passes/two skips on each OS and JavaScript syntax passes. |
 
-Publication: code through `784f08b` and this handoff are
-committed and pushed only to origin/feature/autonomy-sim, not integrated.
-The working tree is clean at handoff. Expected commit identity was verified
-before each commit; Git configuration and branch history were not rewritten.
-The simulation control tab is open with the updated form; the robot is
-disarmed and navigation is ready after browser acceptance.
+Previous publication: code through `784f08b` and its handoff were committed
+and pushed only to origin/feature/autonomy-sim, not integrated. The goal-form
+checkpoint ended clean, disarmed, and navigation-ready after browser acceptance.
+See the search checkpoint below for the current work and validation status.
 
 ## Search obstacle-world checkpoint (2026-09-26)
 
@@ -68,6 +66,127 @@ ros_ws/docker/compose.yaml up -d`. Actual-pose streaming, SLAM, and Nav2 became
 ready, and an in-progress search run navigated its first partition. The mission
 implementation and its full acceptance are a separate checkpoint below.
 No firmware, serial interfaces, or physical devices were accessed.
+
+## Search-and-return implementation and first long-run finding
+
+The optional house now has a simulation-only WebSocket `start_search` request,
+an expiring `{task: "search"}` goal-datagram variant, and an optional bounded
+`search` status object. Existing relative-goal datagrams are still accepted.
+Update the host and ROS manager together: old strict status readers do not
+accept the added field. The Docker image bundles both sides.
+The Gazebo-only service gates requests by owner, arm state, active mission,
+readiness, and idle goal/search state. On current-mission completion/failure it
+disarms. Mock/bridge behavior and the frozen serial/detection interfaces are
+unchanged. The new notification is explicitly synthetic and separate from
+the camera pipeline.
+
+The mission records the current map pose/heading as home, chooses reachable
+unvisited viewpoints from SLAM, and sends ordinary NavigateToPose actions.
+Planning runs in one bounded background worker and never receives the target
+coordinates. Unknown/occupied cells block viewpoint connectivity and detection rays. A
+0.9 m, 360-degree synthetic detector reports the pink marker; exploration
+cancels and waits for an action terminal result before return begins. Home
+success must also meet 0.20 m / 0.30 rad pose tolerances. Stop/manual takeover,
+host loss, new mission IDs, and late action/planning results cannot restart an
+old search. Limits and failure behavior are in ros_ws/docker/README.md.
+
+The initial end-to-end run exposed a large SLAM error after rounding the
+divider: actual Gazebo pose was approximately (1.49, -0.87), while SLAM reported
+(-1.81, -0.91). Collision Monitor stopped near the east crate; the run ended
+disarmed on source expiry without a found notification. The discrepancy is
+consistent with a false match between repeated walls. The broad default loop
+search was replaced with a 0.6 m candidate radius, 1.0 m search dimension, and
+0.55/0.65 coarse/fine response thresholds, retaining loop closure. See the
+[upstream Jazzy configuration](https://github.com/SteveMacenski/slam_toolbox/blob/jazzy/config/mapper_params_online_async.yaml)
+for parameter definitions/defaults. This is simulation tuning, not physical
+localization acceptance.
+
+Search now disarms on an implausible consecutive-pose jump (>0.30 m plus
+0.12 m/s elapsed allowance, or >0.45 rad plus 0.30 rad/s allowance) instead of
+trying to return using a corrupted home/map relationship. The full validator
+also compares the SLAM pose to Gazebo ground truth throughout, requiring
+less than 0.25 m error. Ground truth is used only for acceptance assertions,
+never for mission navigation.
+
+The viewpoint planner uses known-free connectivity; Nav2 retains its existing
+`GridBased.allow_unknown: true` route setting. A route may therefore cross
+unobserved cells before subsequent scans reveal them. Collision Monitor remains
+in the command path. Complete known-space-only route planning is a future
+acceptance item; this checkpoint does not claim it or arbitrary-building search.
+
+### Search validation commands and results
+
+Environment: macOS 26.6.2 ARM64 host; existing Docker Desktop 4.92.0 / Engine
+29.8.0 runs Ubuntu 24.04 ARM64, ROS 2 Jazzy, Gazebo Harmonic, and software
+rendering. No host system packages were installed. Commands below ran from
+`/private/tmp/rescuebot-autonomy-sim`; `docker` refers to
+`/Users/shaderahman/.docker/bin/docker`.
+
+```bash
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+node --check app/rescuebot/static/dashboard.js
+git diff --check
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+```
+
+- All four ROS packages built. macOS and Ubuntu each discovered 161 Python
+  tests: 159 passed, two optional integration tests skipped. macOS tests first
+  encountered sandbox socket-bind restrictions and passed with normal temporary
+  socket access. JavaScript syntax and diff checks passed.
+- ROS: 21 tests passed (19 mission/search, two bridge). New cases cover
+  occupied/unknown visibility, reachable viewpoints, unavailable maps,
+  cancellation before late goal acceptance, late planning results, saved home,
+  repeat start, search limit, return failure, and localization-jump stopping.
+- The Mac was locked, so native browser visual acceptance was unavailable.
+  The stale browser connection still owned control. For automated tests only,
+  the existing container used `/private/tmp/rescuebot-search-test-ports.yaml`
+  with `services.sim.ports: !override ["127.0.0.1:16080:6080"]`. This removed
+  dashboard host exposure while keeping noVNC; no second simulator or owner
+  bypass was used. Normal dashboard exposure is restored after acceptance.
+
+```bash
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml -f /private/tmp/rescuebot-search-test-ports.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+The final run passed Stop while exploring, explicit restart, autonomous
+viewpoint selection, target detection/notification, cancel-before-return,
+return to saved home/heading, automatic disarming, stationary hold, and a new
+explicit search after completion. Actual path: **14.9806 m in 305.98 s**,
+**98.82% forward travel**, home error **0.0876 m / 0.1212 rad**, minimum obstacle
+clearance **0.1326 m**, maximum SLAM-vs-Gazebo position error **0.0413 m**.
+The target was first reported at actual pose (1.2437, -0.0871, 1.5138 rad),
+within 0.9 m of (1.8, 0.6), with a clear ground-truth ray. The code uses map
+visibility; the acceptance independently checks world geometry. Live ROS
+parameter reads confirmed all four tightened loop values and loop closing true.
+
+The existing selected-goal and safety flow also passed in the search house:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+```
+
+It completed a relative goal, held stationary on Stop, canceled on manual
+override without resuming, disarmed within 0.308 s of managed Nav2 pause,
+resumed all six lifecycle nodes, and did not rearm when the source returned.
+Log: `/private/tmp/rescuebot-search-goal-regression.log`.
+
+Logs: `/private/tmp/rescuebot-search-build.log`,
+`/private/tmp/rescuebot-search-mac-tests.log`,
+`/private/tmp/rescuebot-search-regression.log`, and
+`/private/tmp/rescuebot-search-acceptance-local-loops.log`.
+The failed broad-loop run is retained in
+`/private/tmp/rescuebot-search-acceptance.log`; generated logs/builds are not
+committed.
+
+Remaining acceptance: native browser rendering/button interaction, multiple
+target placements, missing-target completion, blocked return, arbitrary/narrow
+layouts, and dynamic-obstacle recovery. Unit checks cover several failure
+transitions, but they do not establish those full runtime scenarios. Physical
+motors, SLAM/localization, person recognition, image capture, and buzzer behavior
+were not validated. Next: review the new dashboard, then add independent target
+placements and no-target/blocked-return scenarios before physical autonomy.
 
 ## Current checkpoint
 

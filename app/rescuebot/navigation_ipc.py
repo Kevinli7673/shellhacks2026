@@ -15,6 +15,8 @@ from .bridge_ipc import DatagramReceiver, DatagramSender
 GOAL_TIMEOUT_S = 0.25
 STATUS_TIMEOUT_S = 0.5
 GOAL_STATES = {"idle", "pending", "executing", "succeeded", "canceled", "aborted", "failed", "rejected"}
+SEARCH_PHASES = {"idle", "exploring", "notifying", "return_pending", "returning", "complete", "failed", "canceled"}
+SEARCH_BUSY = {"exploring", "notifying", "return_pending", "returning"}
 
 
 def navigation_socket(name: str) -> Path:
@@ -62,17 +64,22 @@ def _decode(raw: bytes, now: float, lifetime: float) -> dict:
 
 def decode_navigation_goal(raw: bytes, now: float) -> dict:
     record = _decode(raw, now, GOAL_TIMEOUT_S)
-    if set(record) != {"mission", "request_id", "expires_at", "forward", "right"}:
+    fields = set(record)
+    if fields == {"mission", "request_id", "expires_at", "task"}:
+        if record["task"] != "search":
+            raise ValueError("invalid task")
+    elif fields == {"mission", "request_id", "expires_at", "forward", "right"}:
+        goal_offsets(record["forward"], record["right"])
+    else:
         raise ValueError("invalid goal fields")
     _identifier(record["mission"])
     _identifier(record["request_id"])
-    goal_offsets(record["forward"], record["right"])
     return record
 
 
 def decode_navigation_status(raw: bytes, now: float) -> dict:
     record = _decode(raw, now, STATUS_TIMEOUT_S)
-    if set(record) != {"ready", "reason", "mission", "active", "goal_state", "request_id", "pose", "expires_at"}:
+    if set(record) - {"search"} != {"ready", "reason", "mission", "active", "goal_state", "request_id", "pose", "expires_at"}:
         raise ValueError("invalid status fields")
     if not isinstance(record["ready"], bool) or not isinstance(record["active"], bool):
         raise ValueError("invalid navigation flags")
@@ -91,6 +98,23 @@ def decode_navigation_status(raw: bytes, now: float) -> dict:
             _number(value, 1e6)
     if record["ready"] and pose is None:
         raise ValueError("ready navigation needs a pose")
+    if "search" in record:
+        search = record["search"]
+        if not isinstance(search, dict) or set(search) != {"available", "phase", "found", "home", "target", "visited", "reason"}:
+            raise ValueError("invalid search status")
+        if not isinstance(search["available"], bool) or not isinstance(search["found"], bool):
+            raise ValueError("invalid search flags")
+        if search["phase"] not in SEARCH_PHASES or not isinstance(search["reason"], str) or len(search["reason"]) > 100:
+            raise ValueError("invalid search phase/reason")
+        if type(search["visited"]) is not int or not 0 <= search["visited"] <= 1024:
+            raise ValueError("invalid visit count")
+        for name in ("home", "target"):
+            value = search[name]
+            if value is not None:
+                if not isinstance(value, dict) or set(value) != {"x", "y", "yaw"}:
+                    raise ValueError("invalid search location")
+                for coordinate in value.values():
+                    _number(coordinate, 1e6)
     return record
 
 
@@ -127,15 +151,23 @@ class NavigationHostEndpoint:
 
     def send_goal(self, mission: str, forward: object, right: object) -> bool:
         forward, right = goal_offsets(forward, right)
+        return self._send(mission, {"forward": forward, "right": right})
+
+    def start_search(self, mission: str) -> bool:
+        return self._send(mission, {"task": "search"})
+
+    def _send(self, mission, payload):
         now = time.monotonic()
         status = self.state(now)
         if (not status["ready"] or not status.get("active") or status.get("mission") != mission
-                or status["pending"] or status["goal_state"] in {"pending", "executing"}):
+                or status["pending"] or status["goal_state"] in {"pending", "executing"}
+                or status.get("search", {}).get("phase") in SEARCH_BUSY
+                or (payload.get("task") == "search" and not status.get("search", {}).get("available"))):
             return False
         request_id = secrets.token_hex(12)
         sent = self._sender.send(encode_navigation({
             "mission": mission, "request_id": request_id,
-            "expires_at": now + GOAL_TIMEOUT_S, "forward": forward, "right": right,
+            "expires_at": now + GOAL_TIMEOUT_S, **payload,
         }))
         if sent:
             self._pending = (mission, request_id, now + STATUS_TIMEOUT_S)

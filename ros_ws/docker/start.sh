@@ -29,12 +29,15 @@ pids+=("$!")
 websockify --web=/usr/share/novnc 6080 localhost:5900 &
 pids+=("$!")
 
-ros2 launch rescuebot_gazebo sim.launch.py &
+world="${RESCUEBOT_WORLD:-indoor_maze.sdf}"
+search_enabled=false
+if [[ "$world" == "search_house.sdf" ]]; then search_enabled=true; fi
+ros2 launch rescuebot_gazebo sim.launch.py world:="$world" &
 pids+=("$!")
 rescuebot-dashboard --motor-backend gazebo --camera-backend replay \
     --replay-path /workspace/fixtures/detections/person_appears_disappears.jsonl &
 pids+=("$!")
-ros2 launch rescuebot_navigation navigation.launch.py &
+ros2 launch rescuebot_navigation navigation.launch.py search_enabled:="$search_enabled" &
 pids+=("$!")
 
 # A failed service ends the container. Docker init reaps child processes;

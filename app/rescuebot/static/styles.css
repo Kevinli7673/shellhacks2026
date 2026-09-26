@@ -632,3 +632,5 @@ body[data-drive="armed"] .keycluster-arrows .keycap.lit[data-key^="ArrowR"] {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: 0ms !important; }
 }
+/* Simulation notifications remain separate from live camera detections. */
+#search-notification { padding: 12px; border: 2px solid #e684ba; border-radius: 8px; font-weight: 700; }

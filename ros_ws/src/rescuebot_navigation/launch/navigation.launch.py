@@ -1,11 +1,11 @@
 """Launch the simulation mapping and goal-navigation lifecycle nodes."""
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 
 def generate_launch_description():
@@ -25,6 +25,7 @@ def generate_launch_description():
         ("nav2_collision_monitor", "collision_monitor", []),
     ]
     return LaunchDescription([
+        DeclareLaunchArgument("search_enabled", default_value="false", choices=["true", "false"]),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare("slam_toolbox"), "launch", "online_async_launch.py",
@@ -45,5 +46,5 @@ def generate_launch_description():
                          "node_names": [name for _, name, _ in nodes]}],
         ),
         Node(package="rescuebot_navigation", executable="rescuebot_mission_manager", output="screen",
-             parameters=[{"use_sim_time": True}]),
+             parameters=[{"use_sim_time": True, "search_enabled": LaunchConfiguration("search_enabled")}]),
     ])

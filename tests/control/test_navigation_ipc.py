@@ -81,5 +81,44 @@ class NavigationDashboardTests(unittest.TestCase):
         service.enable("owner")
         self.assertIsNone(service.start_autonomy("owner"))
         self.assertFalse(service.navigation_goal("owner", 0.5, 0))
+        self.assertFalse(service.start_search("owner"))
         self.assertNotIn("navigation", service.state()["autonomy"])
         self.assertEqual(self.goals.drain(), [])
+
+    def search_status(self, phase="idle"):
+        return dict(available=True, phase=phase, found=False, home=None,
+                    target=None, visited=0, reason="")
+
+    def test_search_requires_current_owner_and_blocks_other_goals_until_stop(self):
+        self.publish(search=self.search_status())
+        mission = self.service.start_autonomy("owner")
+        self.publish(mission=mission, search=self.search_status())
+        self.assertFalse(self.service.start_search("viewer"))
+        self.assertTrue(self.service.start_search("owner"))
+        record = decode_navigation_goal(self.goals.drain()[0], time.monotonic())
+        self.assertEqual(record["task"], "search")
+        self.publish(mission=mission, request_id=record["request_id"], search=self.search_status("return_pending"))
+        self.assertFalse(self.service.navigation_goal("owner", .5, 0))
+        self.assertFalse(self.service.start_search("owner"))
+        self.service.stop()
+        self.assertFalse(self.service.start_search("owner"))
+
+    def test_terminal_search_disarms_only_its_own_mission(self):
+        self.publish()
+        mission = self.service.start_autonomy("owner")
+        self.publish(mission="old", search=self.search_status("complete"))
+        # No intent yet: stay within the fresh mission's grace period.
+        self.service.tick()
+        self.assertTrue(self.service.control.armed)
+        self.publish(mission=mission, search=self.search_status("complete"))
+        self.service.tick()
+        self.assertFalse(self.service.control.armed)
+        self.assertFalse(self.service.autonomy.active)
+        self.assertEqual(self.service.autonomy.status().reason, "search_complete")
+
+    def test_search_protocol_rejects_extra_fields_and_unknown_tasks(self):
+        now = time.monotonic()
+        record = dict(mission="test", request_id="one", expires_at=now+.25, task="search")
+        for changes in ({"target": [1, 2]}, {"task": "drive"}):
+            with self.assertRaises(ValueError):
+                decode_navigation_goal(encode_navigation({**record, **changes}), now)

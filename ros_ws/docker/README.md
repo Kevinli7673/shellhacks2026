@@ -181,9 +181,68 @@ Stop all container processes with:
 docker compose -f ros_ws/docker/compose.yaml down
 ```
 
+## Search-and-return demo
+
+Select the obstacle house in the existing container (the original maze remains
+the default and is used by the older driving/obstacle validators):
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml build
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+```
+
+Open the [dashboard](http://localhost:18000) and
+[Gazebo view](http://localhost:16080/vnc.html?autoconnect=true&resize=scale).
+Keep the dashboard focused while observing Gazebo in a separate window.
+Use **Enable driving → Start autonomy → Search for person & return**.
+The pink disk is the synthetic person location; the green disk marks the
+world's spawn. Home is saved from the robot's actual SLAM pose when Search is
+clicked, so a mission started elsewhere returns there instead.
+
+The robot chooses reachable, unvisited viewpoints from its evolving SLAM map,
+with 0.38 m map clearance. It receives no target location for planning. A
+separate synthetic detector reports the target only within 0.9 m with a clear,
+known-free map ray. This is a 360-degree proximity simulation, not person
+recognition or camera validation. The dashboard's replay camera remains a
+separate demonstration and may be stale.
+
+Finding the marker produces a persistent **SIMULATION** notification, cancels
+the exploration goal, waits for cancellation, and navigates to the saved home
+position and heading. Completion disarms. Stop, Space, manual takeover,
+browser loss, or source expiry cancels every mission phase and never resumes
+it. Start a new mission explicitly after interruption. A fresh mission clears
+the previous notification and saves a new home.
+
+Search viewpoint selection is bounded to 4 m per axis around home, 48 destinations, and 10 minutes
+of wall-clock time. Known unreachable viewpoints are skipped; three consecutive
+failed destinations or exhausted coverage triggers a return without claiming a
+detection. A search leg has a 90-second deadline, return has 240 seconds, and
+failed cancellation, stale map/pose, or failed return stops/disarms with a
+failure message. Sudden localization jumps also stop the mission; restart the
+simulation before searching again. SLAM's loop search is restricted to nearby
+poses for this small, repetitive layout. This demo is map coverage, not a guarantee of complete search
+in arbitrary buildings. Narrow passages and moving obstacles need separate
+acceptance. Viewpoints must be connected through known free cells, but Nav2
+retains its existing route settings and may plan through unknown cells as new
+scans arrive; the Collision Monitor remains in the velocity path.
+
+For end-to-end acceptance, close simulation control tabs first:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+The validator checks Stop/restart, SLAM error against Gazebo truth, a found notification within physical sensor
+range and without an obstacle crossing, actual Gazebo clearance and forward
+travel, return position/heading, automatic disarming, and a new explicit start.
+It always sends Stop. Restore the original world using
+`RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d`.
+
 The healthcheck tests dashboard HTTP availability only. It does not establish
 working Gazebo sensors, ROS bridges, SLAM, or navigation. Software rendering
-works on this Mac; long missions, varied obstacle approaches,
-and map accuracy against measured geometry remain unvalidated. The short
+works on this Mac. The handoff records validated routes and search results;
+different target locations, blocked returns, and physical geometry still need
+acceptance. The short
 replay fixture expires quickly, so a stale camera banner is expected and does
 not indicate a motor or ROS failure.

@@ -102,6 +102,14 @@ class RobotControlService:
         if self.control.has_movement:
             self.autonomy.cancel("manual_override")
             return snapshot
+        if self.navigation_endpoint is not None:
+            navigation = self.navigation_endpoint.state(now)
+            phase = navigation.get("search", {}).get("phase")
+            if navigation.get("mission") == self.autonomy.mission and phase in {"complete", "failed"}:
+                reason = "search_complete" if phase == "complete" else "search_failed"
+                self.control.stop(reason)
+                self.autonomy.cancel(reason)
+                return self.control.snapshot(now)
         motion = self.autonomy.motion(now)
         if motion is None:
             self.control.stop("autonomy_timeout")
@@ -214,6 +222,16 @@ class RobotControlService:
             return self.navigation_endpoint.send_goal(self.autonomy.mission, forward, right)
         except ValueError:
             return False
+
+    def start_search(self, session: str) -> bool:
+        """Start the simulation search only within an explicitly enabled mission."""
+        self.tick()
+        if (not self.allow_autonomy or not isinstance(self.backend, GazeboMotorBackend)
+                or self.navigation_endpoint is None or session != self.control.owner_session
+                or not self.control.armed or self.control.has_movement
+                or not self.autonomy.active or self.autonomy.mission is None):
+            return False
+        return self.navigation_endpoint.start_search(self.autonomy.mission)
 
     def close(self) -> None:
         bridge = self._bridge

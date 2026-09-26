@@ -7,6 +7,8 @@ services:
       dockerfile: ros_ws/docker/Dockerfile
     image: rescuebot-autonomy-sim:jazzy
     init: true
+    environment:
+      RESCUEBOT_WORLD: ${RESCUEBOT_WORLD:-indoor_maze.sdf}
     shm_size: 1gb
     stop_grace_period: 15s
     ports:

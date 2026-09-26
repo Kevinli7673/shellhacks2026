@@ -187,6 +187,9 @@ def create_app(
                 elif message_type == "navigation_goal" and isinstance(control_service.backend, GazeboMotorBackend):
                     accepted = control_service.navigation_goal(session, message.get("forward"), message.get("right"))
                     response = {"type": "navigation_goal", "accepted": accepted}
+                elif message_type == "start_search" and isinstance(control_service.backend, GazeboMotorBackend):
+                    accepted = control_service.start_search(session)
+                    response = {"type": "start_search", "accepted": accepted}
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}

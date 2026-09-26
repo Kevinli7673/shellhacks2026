@@ -77,6 +77,13 @@
           </form>
           <p id="navigation-feedback" role="status"></p>
           <p id="navigation-pose">Map position unavailable</p>
+          <div id="search-mission" hidden>
+            <h3>Search and return</h3>
+            <p>Search the obstacle house for the pink target marker, notify here, and return to this mission’s starting position. The target uses a simulated proximity detector, not the camera feed.</p>
+            <button id="search-button" class="enable" type="button" disabled>Search for person &amp; return</button>
+            <p id="search-status" role="status">Enable driving and start autonomy first.</p>
+            <p id="search-notification" role="alert" hidden></p>
+          </div>
           <p>After Stop: Enable driving → Start autonomy → Send goal. W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy speed is fixed at 20%.</p>
         </section>
 
