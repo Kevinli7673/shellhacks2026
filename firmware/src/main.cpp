@@ -30,6 +30,7 @@ using rescuebot::MotorShield;
 constexpr uint32_t kWatchdogTimeoutMs = 500;    // IMPLEMENTATION_PLAN.md section 7 default
 constexpr uint32_t kImuIntervalMs = 50;         // ~20 Hz telemetry cadence
 constexpr uint32_t kImuRetryIntervalMs = 1000;  // bounded, non-blocking re-init cadence
+constexpr uint32_t kMotorRetryIntervalMs = 1000;  // bounded, non-blocking shield re-init
 
 LineReader g_line_reader;
 rescuebot::ChassisConfig g_chassis;  // TODO: set validated wheel mapping/ceiling before Stage G
@@ -39,6 +40,10 @@ ImuSensor g_imu;
 
 char g_out_buf[256];
 bool g_imu_ready = false;
+// The shield must be initialized before any write reaches it; without this,
+// MotorShield holds no motor handles and every write is silently dropped.
+bool g_motors_ready = false;
+uint32_t g_last_motor_attempt_ms = 0;
 uint32_t g_last_imu_ms = 0;
 uint32_t g_last_imu_attempt_ms = 0;
 
@@ -65,7 +70,9 @@ void applyControllerOutputs() {
 
 void setup() {
     Serial.begin(115200);
-    g_motors.allOff();  // outputs off before sensor init (section 7)
+    // Initialize the shield first; begin() leaves every output off (section 7).
+    g_motors_ready = g_motors.begin();
+    g_last_motor_attempt_ms = millis();
     g_controller.setHardwarePwmCeiling(g_chassis.hardware_pwm_ceiling);
 
     // Lets the Pi notice a reboot immediately instead of only inferring it
@@ -98,6 +105,11 @@ void loop() {
             sendLine(g_out_buf, n);
             applyControllerOutputs();
         }
+    }
+
+    if (!g_motors_ready && now_ms - g_last_motor_attempt_ms >= kMotorRetryIntervalMs) {
+        g_motors_ready = g_motors.begin();
+        g_last_motor_attempt_ms = now_ms;
     }
 
     if (!g_imu_ready && now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {
