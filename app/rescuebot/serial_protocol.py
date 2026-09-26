@@ -1,10 +1,10 @@
 """Newline-delimited JSON messages between the Pi motor bridge and the ESP32-S2.
 
 The drive packet and drive acknowledgment are the frozen shared interface.
-The arm/disarm commands and the typed "state" and "imu" messages are the
-Pi-side proposal recorded in docs/handoffs/dashboard-control.md and in
-fixtures/serial_protocol_vectors.json; they need agreement from the ESP32
-workstream before either side treats them as frozen.
+The arm/disarm commands and the arm_ack, disarm_ack, fault, and imu replies
+follow the ESP32 workstream's firmware (feature/esp32-controller, 48ae9dd,
+firmware/include/protocol_messages.h). They are agreed in practice but not
+yet recorded as frozen in changes.md.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any, Mapping
 
 
 BAUD_RATE = 115200
-MAX_LINE_BYTES = 256
+MAX_LINE_BYTES = 200  # firmware LineReader kMaxLineLength
 MAX_PWM = 255
 SEQ_MAX = 2**31 - 1
 _SESSION_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,32}")
@@ -199,6 +199,18 @@ def parse_command(line: bytes | str) -> DriveCommand | ControlCommand:
 # ESP32 -> Pi messages.
 
 
+def _require_bool(name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ProtocolError("bad_field", f"{name}={value!r}")
+    return value
+
+
+def _require_reason(value: Any) -> str:
+    if not isinstance(value, str) or not 0 < len(value) <= 32:
+        raise ProtocolError("bad_field", f"reason={value!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class DriveAck:
     session: str
@@ -222,64 +234,106 @@ class DriveAck:
 
 
 @dataclass(frozen=True)
-class FirmwareState:
-    """Arm state report (proposed interface).
+class ControlAck:
+    """Firmware reply to arm ("arm_ack") or disarm ("disarm_ack").
 
-    Sent in reply to arm/disarm (ack = that command's seq), and unprompted on
-    boot, watchdog expiry, or fault (ack = null). session is null after boot.
+    It echoes the command's session and seq, even when that session is not
+    the firmware's current one.
     """
 
-    session: str | None
+    type: str
+    session: str
+    seq: int
     armed: bool
-    ack: int | None
-    fault: str | None
 
     def __post_init__(self) -> None:
-        if self.session is not None:
-            _require_session(self.session)
-        if not isinstance(self.armed, bool):
-            raise ProtocolError("bad_state", f"armed={self.armed!r}")
-        if self.ack is not None:
-            _require_seq(self.ack, "ack")
-        if self.fault is not None and (not isinstance(self.fault, str) or len(self.fault) > 32):
-            raise ProtocolError("bad_state", f"fault={self.fault!r}")
+        if self.type not in ("arm_ack", "disarm_ack"):
+            raise ProtocolError("bad_type", repr(self.type))
+        _require_session(self.session)
+        _require_seq(self.seq)
+        _require_bool("armed", self.armed)
 
     def encode(self) -> bytes:
         return _encode(
-            {
-                "type": "state",
-                "session": self.session,
-                "armed": self.armed,
-                "ack": self.ack,
-                "fault": self.fault,
-            }
+            {"type": self.type, "session": self.session, "seq": self.seq, "armed": self.armed}
         )
 
 
 @dataclass(frozen=True)
+class FirmwareFault:
+    """Unprompted disarm report: malformed_packet, oversized_packet, or watchdog_expired.
+
+    Faults carry no session; the firmware is disarmed whenever it sends one.
+    """
+
+    reason: str
+    armed: bool = False
+
+    def __post_init__(self) -> None:
+        _require_reason(self.reason)
+        _require_bool("armed", self.armed)
+
+    def encode(self) -> bytes:
+        return _encode({"type": "fault", "reason": self.reason, "armed": self.armed})
+
+
+@dataclass(frozen=True)
 class ImuTelemetry:
-    """BNO055 telemetry. Never counts as a motor acknowledgment."""
+    """BNO055 telemetry at ~20 Hz. Never counts as a motor acknowledgment."""
 
-    data: Mapping[str, Any]
+    timestamp_ms: int
+    available: bool
+    heading: float | None = None
+    calibration: int | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.timestamp_ms, bool) or not isinstance(self.timestamp_ms, int) or self.timestamp_ms < 0:
+            raise ProtocolError("bad_field", f"timestamp_ms={self.timestamp_ms!r}")
+        _require_bool("available", self.available)
+        if self.heading is not None:
+            if isinstance(self.heading, bool) or not isinstance(self.heading, (int, float)) or not math.isfinite(self.heading):
+                raise ProtocolError("bad_field", f"heading={self.heading!r}")
+        if self.calibration is not None:
+            if isinstance(self.calibration, bool) or self.calibration not in (0, 1, 2, 3):
+                raise ProtocolError("bad_field", f"calibration={self.calibration!r}")
+
+    def encode(self) -> bytes:
+        data: dict[str, Any] = {
+            "type": "imu",
+            "timestamp_ms": self.timestamp_ms,
+            "available": self.available,
+        }
+        if self.available:
+            data["heading"] = self.heading
+            data["calibration"] = self.calibration
+        return _encode(data)
 
 
-def parse_inbound(line: bytes | str) -> DriveAck | FirmwareState | ImuTelemetry:
+InboundMessage = DriveAck | ControlAck | FirmwareFault | ImuTelemetry
+
+
+def parse_inbound(line: bytes | str) -> InboundMessage:
     """Parse an ESP32 -> Pi line."""
     data = decode_object(line)
     kind = data.get("type")
     if kind is None:
         _require_fields(data, ACK_FIELDS)
         return DriveAck(**data)
-    if kind == "state":
-        _require_fields(data, frozenset({"type", "session", "armed", "ack", "fault"}))
-        return FirmwareState(
-            session=data["session"],
-            armed=data["armed"],
-            ack=data["ack"],
-            fault=data["fault"],
-        )
+    if kind in ("arm_ack", "disarm_ack"):
+        _require_fields(data, frozenset({"type", "session", "seq", "armed"}))
+        return ControlAck(kind, data["session"], data["seq"], data["armed"])
+    if kind == "fault":
+        _require_fields(data, frozenset({"type", "reason", "armed"}))
+        return FirmwareFault(data["reason"], data["armed"])
     if kind == "imu":
-        return ImuTelemetry(data=data)
+        keys = set(data)
+        if not {"type", "timestamp_ms", "available"} <= keys <= {
+            "type", "timestamp_ms", "available", "heading", "calibration"
+        }:
+            raise ProtocolError("bad_fields", f"imu keys={sorted(keys)}")
+        return ImuTelemetry(
+            data["timestamp_ms"], data["available"], data.get("heading"), data.get("calibration")
+        )
     raise ProtocolError("bad_type", repr(kind))
 
 

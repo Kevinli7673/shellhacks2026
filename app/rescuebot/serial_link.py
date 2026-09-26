@@ -2,8 +2,10 @@
 
 This is transport-agnostic: methods return encoded lines to write and accept
 raw bytes read from the port. It never retransmits old movement packets and
-never arms on connect; arming requires request_arm() and a matching firmware
-state report.
+never arms on connect; arming requires request_arm() and a matching arm_ack.
+
+The firmware sends no boot message, so a reboot is detected by the IMU
+timestamp moving backwards or, at the latest, by the 250 ms ACK deadline.
 """
 
 from __future__ import annotations
@@ -12,10 +14,11 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .serial_protocol import (
+    ControlAck,
     ControlCommand,
     DriveAck,
     DriveCommand,
-    FirmwareState,
+    FirmwareFault,
     ImuTelemetry,
     LineDecoder,
     ProtocolError,
@@ -76,7 +79,7 @@ class MotorLink:
     # -- connection lifecycle ------------------------------------------------
 
     def connect(self) -> bytes:
-        """Start a fresh session, disarmed, and tell the firmware about it."""
+        """Start a fresh session, disarmed, and stop anything still running."""
         self._reset_session(self._session_factory())
         self.connected = True
         self.fault = None
@@ -97,6 +100,7 @@ class MotorLink:
         self.last_ack_seq = 0
         self._ack_deadline_from = None
         self.wheels = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
+        self.latest_imu = None
 
     def _take_seq(self) -> int:
         if self._next_seq > SEQ_MAX:
@@ -178,55 +182,70 @@ class MotorLink:
                 self.rejected_lines += 1
                 continue
             if isinstance(message, DriveAck):
-                self._on_ack(message, now)
-            elif isinstance(message, FirmwareState):
-                reply = self._on_state(message, now)
-                if reply is not None:
-                    replies.append(reply)
+                self._on_drive_ack(message, now)
+                reply = None
+            elif isinstance(message, ControlAck):
+                reply = self._on_control_ack(message, now)
+            elif isinstance(message, FirmwareFault):
+                reply = self._on_fault(message)
             else:
-                self.latest_imu = message
-                self.imu_messages += 1
+                reply = self._on_imu(message)
+            if reply is not None:
+                replies.append(reply)
         return replies
 
-    def _on_ack(self, ack: DriveAck, now: float) -> None:
+    def _fresh_seq(self, seq: int) -> bool:
+        """True for an ACK of a seq we sent that is newer than the last ACK."""
+        if seq <= self.last_ack_seq or seq > self.last_sent_seq:
+            self.stale_acks += 1
+            return False
+        self.last_ack_seq = seq
+        return True
+
+    def _on_drive_ack(self, ack: DriveAck, now: float) -> None:
         if not self.connected or ack.session != self.session:
             self.stale_acks += 1
             return
-        if ack.ack <= self.last_ack_seq or ack.ack > self.last_sent_seq:
-            self.stale_acks += 1
-            return
-        self.last_ack_seq = ack.ack
-        if self.armed:
+        if self._fresh_seq(ack.ack) and self.armed:
             self._ack_deadline_from = now
             self.wheels = ack.wheels()
 
-    def _on_state(self, state: FirmwareState, now: float) -> bytes | None:
+    def _on_control_ack(self, ack: ControlAck, now: float) -> bytes | None:
         if not self.connected:
             return None
-        if state.session != self.session:
-            # Firmware rebooted or holds another session: never keep driving.
-            # Re-announce our session with a disarm so it cannot stay armed.
-            if self.armed or self._arm_seq is not None:
-                return self.disarm("session_mismatch")
-            return self._control("disarm") if state.armed else None
-        if state.ack is not None:
-            if state.ack <= self.last_ack_seq or state.ack > self.last_sent_seq:
-                self.stale_acks += 1
-                return None
-            self.last_ack_seq = state.ack
-        if not state.armed:
-            if self.armed or self._arm_seq is not None:
-                self._disarm_locally(state.fault or "firmware_disarmed")
+        if ack.session != self.session:
+            self.stale_acks += 1
+            # The firmware armed under a session we are not using: stop it.
+            return self._control("disarm") if ack.armed else None
+        if not self._fresh_seq(ack.seq):
             return None
-        if self._arm_seq is not None and state.ack == self._arm_seq:
+        if ack.type == "disarm_ack" or not ack.armed:
+            if self.armed or self._arm_seq is not None:
+                self._disarm_locally("firmware_disarmed")
+            return None
+        if self._arm_seq is not None and ack.seq == self._arm_seq:
             self.armed = True
             self._arm_seq = None
             self._ack_deadline_from = now
             self.fault = None
             return None
-        if not self.armed:
-            # An unrequested armed report must not arm the Pi side.
-            return self.disarm("unexpected_arm")
+        # An arm_ack we did not request must not arm the Pi side.
+        return self.disarm("unexpected_arm")
+
+    def _on_fault(self, fault: FirmwareFault) -> bytes | None:
+        # Faults carry no session and always mean the firmware disarmed.
+        if self.connected and (self.armed or self._arm_seq is not None):
+            self._disarm_locally(fault.reason)
+        return None
+
+    def _on_imu(self, imu: ImuTelemetry) -> bytes | None:
+        previous = self.latest_imu
+        self.latest_imu = imu
+        self.imu_messages += 1
+        if previous is not None and imu.timestamp_ms < previous.timestamp_ms:
+            # millis() restarted: the firmware rebooted and lost its session.
+            if self.connected and (self.armed or self._arm_seq is not None):
+                self._disarm_locally("firmware_reset")
         return None
 
     def snapshot(self, now: float) -> LinkSnapshot:

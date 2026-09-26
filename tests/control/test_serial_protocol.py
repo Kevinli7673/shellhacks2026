@@ -5,10 +5,11 @@ import unittest
 from rescuebot.serial_link import MotorLink
 from rescuebot.serial_protocol import (
     MAX_LINE_BYTES,
+    ControlAck,
     ControlCommand,
     DriveAck,
     DriveCommand,
-    FirmwareState,
+    FirmwareFault,
     ImuTelemetry,
     LineDecoder,
     ProtocolError,
@@ -54,9 +55,7 @@ class ProtocolVectorTests(unittest.TestCase):
             for step in case["steps"]:
                 if step.get("tick"):
                     continue
-                expect_reject = any(
-                    message.get("fault") == "malformed" for message in step["emit"]
-                )
+                expect_reject = any(message.get("type") == "fault" for message in step["emit"])
                 with self.subTest(case=case["name"], line=step["send"][:60]):
                     if expect_reject:
                         with self.assertRaises(ProtocolError):
@@ -102,17 +101,38 @@ class CodecTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             ControlCommand("boost", "pi01", 1)
 
-    def test_inbound_messages_are_validated(self) -> None:
+    def test_firmware_replies_match_protocol_messages_h(self) -> None:
         self.assertEqual(
-            parse_inbound(b'{"type":"state","session":null,"armed":false,"ack":null,"fault":"boot"}'),
-            FirmwareState(None, False, None, "boot"),
+            parse_inbound(b'{"type":"arm_ack","session":"pi01","seq":2,"armed":true}'),
+            ControlAck("arm_ack", "pi01", 2, True),
         )
-        self.assertIsInstance(parse_inbound(b'{"type":"imu","heading":12.5}'), ImuTelemetry)
+        self.assertEqual(
+            parse_inbound(b'{"type":"disarm_ack","session":"pi01","seq":3,"armed":false}'),
+            ControlAck("disarm_ack", "pi01", 3, False),
+        )
+        self.assertEqual(
+            parse_inbound(b'{"type":"fault","reason":"watchdog_expired","armed":false}'),
+            FirmwareFault("watchdog_expired"),
+        )
+        self.assertEqual(
+            parse_inbound(b'{"type":"imu","timestamp_ms":1200,"available":true,"heading":12.5,"calibration":3}'),
+            ImuTelemetry(1200, True, 12.5, 3),
+        )
+        self.assertEqual(
+            parse_inbound(b'{"type":"imu","timestamp_ms":1250,"available":false}'),
+            ImuTelemetry(1250, False),
+        )
+
+    def test_inbound_messages_are_validated(self) -> None:
         for line in [
             b'{"session":"pi01","ack":3,"fl":256,"fr":0,"rl":0,"rr":0}',
             b'{"session":"pi01","ack":3,"fl":0.5,"fr":0,"rl":0,"rr":0}',
             b'{"session":"pi01","ack":3,"fl":0,"fr":0,"rl":0}',
-            b'{"type":"state","session":"pi01","armed":"yes","ack":null,"fault":null}',
+            b'{"type":"arm_ack","session":"pi01","seq":2,"armed":"yes"}',
+            b'{"type":"fault","armed":false}',
+            b'{"type":"imu","timestamp_ms":-1,"available":true}',
+            b'{"type":"imu","timestamp_ms":5,"available":true,"calibration":4}',
+            b'{"type":"imu","timestamp_ms":5,"available":true,"extra":1}',
             b'{"type":"unknown"}',
             b"[1, 2]",
             b"\xff\xfe",
@@ -248,21 +268,28 @@ class MotorLinkTests(unittest.TestCase):
         self.assertIsNotNone(self.h.link.check(self.h.now + 0.3))
         self.assertEqual(self.h.link.fault, "ack_timeout")
 
-    def test_firmware_reboot_mid_drive_disarms_and_requires_explicit_rearm(self) -> None:
+    def test_silent_firmware_reboot_trips_the_ack_deadline(self) -> None:
         self.h.connect_and_arm()
         self.h.drive()
-        self.h.to_pi([self.h.firmware.reboot()])
+        self.h.to_pi(self.h.firmware.reboot())  # the firmware announces nothing
+        for _ in range(6):
+            self.h.drive()  # ignored by the rebooted firmware: no ACKs; 0.30 s > 0.25 s
         self.assertFalse(self.h.link.armed)
-        self.assertEqual(self.h.link.fault, "session_mismatch")
+        self.assertEqual(self.h.link.fault, "ack_timeout")
         self.assertFalse(self.h.firmware.armed)
-        self.assertEqual(self.h.firmware.session, "pi01")  # re-announced by the disarm
-        self.h.drive()
-        self.assertFalse(self.h.firmware.armed)
-        self.assertEqual(self.h.firmware.outputs, {"fl": 0, "fr": 0, "rl": 0, "rr": 0})
         self.h.to_firmware(self.h.link.request_arm())
         self.h.drive()
         self.assertTrue(self.h.link.armed)
         self.assertEqual(self.h.firmware.outputs["fl"], 100)
+
+    def test_imu_clock_restart_detects_a_reboot_before_the_deadline(self) -> None:
+        self.h.connect_and_arm()
+        self.h.to_pi([self.h.firmware.imu(self.h.now + 10.0)])
+        self.h.drive()
+        self.h.to_pi(self.h.firmware.reboot())
+        self.h.to_pi([self.h.firmware.imu(0.02)])
+        self.assertFalse(self.h.link.armed)
+        self.assertEqual(self.h.link.fault, "firmware_reset")
 
     def test_reconnect_uses_a_fresh_session_and_old_packets_are_ignored(self) -> None:
         self.h.connect_and_arm()
@@ -279,13 +306,21 @@ class MotorLinkTests(unittest.TestCase):
         self.h.link.receive(DriveAck("pi01", 1, 5, 5, 5, 5).encode(), self.h.now)
         self.assertEqual(self.h.link.stale_acks, 1)
 
-    def test_unrequested_armed_report_is_answered_with_disarm(self) -> None:
+    def test_unrequested_arm_ack_is_answered_with_disarm(self) -> None:
         self.h.to_firmware(self.h.link.connect())
+        self.h.link.last_sent_seq = 5  # pretend seq 2 was sent but never as an arm
         self.h.drop_to_firmware = True
-        self.h.to_pi([FirmwareState("pi01", True, None, None).encode()])
+        self.h.to_pi([ControlAck("arm_ack", "pi01", 2, True).encode()])
         self.assertFalse(self.h.link.armed)
         self.assertEqual(self.h.link.fault, "unexpected_arm")
         self.assertEqual(self.h.sent[-1]["type"], "disarm")
+
+    def test_arm_ack_for_another_session_is_answered_with_disarm(self) -> None:
+        self.h.to_firmware(self.h.link.connect())
+        self.h.to_pi([ControlAck("arm_ack", "zz99", 7, True).encode()])
+        self.assertFalse(self.h.link.armed)
+        self.assertFalse(self.h.firmware.armed)
+        self.assertEqual(self.h.sent[-1], {"type": "disarm", "session": "pi01", "seq": 2})
 
     def test_firmware_fault_report_disarms_the_pi_side(self) -> None:
         self.h.connect_and_arm()
@@ -293,7 +328,7 @@ class MotorLinkTests(unittest.TestCase):
         self.h.to_firmware(b'{"type":"drive","session":"pi01","seq":99,"forward":2}\n')
         self.assertFalse(self.h.firmware.armed)
         self.assertFalse(self.h.link.armed)
-        self.assertEqual(self.h.link.fault, "malformed")
+        self.assertEqual(self.h.link.fault, "malformed_packet")
 
     def test_firmware_watchdog_stops_when_the_pi_goes_silent(self) -> None:
         self.h.connect_and_arm()
@@ -304,12 +339,12 @@ class MotorLinkTests(unittest.TestCase):
         self.h.now += 0.01
         self.h.to_pi(self.h.firmware.tick(self.h.now))
         self.assertFalse(self.h.firmware.armed)
-        self.assertEqual(self.h.link.fault, "watchdog")
+        self.assertEqual(self.h.link.fault, "watchdog_expired")
         self.assertFalse(self.h.link.armed)
 
     def test_garbled_and_oversized_inbound_lines_are_counted_not_fatal(self) -> None:
         self.h.connect_and_arm()
-        self.h.link.receive(b"\x00\xffgarbage\n" + b"z" * 400 + b"\n", self.h.now)
+        self.h.link.receive(b"\x00\xffgarbage\n" + b"z" * 300 + b"\n", self.h.now)
         self.assertEqual(self.h.link.rejected_lines, 2)
         self.assertTrue(self.h.link.armed)
 

@@ -179,6 +179,50 @@ Private details (username, network, device serial numbers) are omitted.
     with the ESP32 workstream; after agreement, add the motor-bridge
     process with a pyserial transport around MotorLink.
 
+### 2026-09-26 EDT - Align Pi-side serial link with ESP32 firmware messages
+
+- Commit: feature/serial-protocol; fix: align serial link with firmware
+  messages. Supersedes the "Proposed interface additions" in the previous
+  entry.
+- Changed files and interfaces:
+  - serial_protocol.py now parses the firmware's replies from
+    feature/esp32-controller 48ae9dd: arm_ack/disarm_ack
+    {type, session, seq, armed}, fault {type, reason, armed:false} with
+    reasons malformed_packet, oversized_packet, watchdog_expired, and imu
+    {type, timestamp_ms, available, heading?, calibration?}. The "state"
+    message is removed. MAX_LINE_BYTES is now 200 to match the firmware
+    LineReader.
+  - serial_link.py arms only on an arm_ack matching its pending arm seq,
+    answers unrequested or foreign-session arm_acks with a disarm, disarms
+    on any fault, and detects reboots from an IMU timestamp reset or,
+    at the latest, the 250 ms ACK deadline (the firmware sends no boot
+    message).
+  - serial_sim.py mirrors the firmware's current behavior, including arm
+    adopting any session and faults being sent even while disarmed.
+  - fixtures/serial_protocol_vectors.json regenerated: 26 cases in the
+    firmware format. Cases still under discussion (stale arm, extra or
+    duplicate fields, boot message, re-arm output reset) are omitted.
+  - Drive packet, drive ACK, and arm/disarm commands are unchanged.
+- Tests and results:
+  - PYTHONPATH=app ../shellhacks2026/.venv/bin/python -m unittest discover
+    -s tests: 67 passed.
+  - Mutation checks (link ignoring faults, unrequested or foreign arm,
+    IMU reset, ACK deadline, sim driving after malformed input, 256-byte
+    line limit) each made the suite fail.
+  - The firmware's own C++ tests had not yet been compiled or run.
+- Mock or physical coverage:
+  - Simulated firmware only. The firmware's C++ was not compiled here.
+- Known limitations:
+  - Parity with the firmware is by code reading until the firmware runs
+    these vectors in its native test suite.
+  - Change requests for the ESP32 workstream are pending (stale-arm
+    rejection, boot message, re-arm output reset, extra/duplicate field
+    policy).
+- Next action:
+  - After the firmware's native tests pass, have the firmware run
+    fixtures/serial_protocol_vectors.json, then record the agreed
+    messages as a changes.md decision during integration.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
