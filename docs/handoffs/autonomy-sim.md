@@ -38,13 +38,14 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `9be171f` | Clear-aisle default destination and completed browser acceptance | Real browser default goal succeeds; field editing/Enter submission/W takeover/Space/Stop/reload tested. Final Ubuntu regression: 156 passes, 2 optional skips. |
 | `08ca7e7` | Rotate toward the route, favor forward travel, retain strafe | Three clear-aisle goals, actual heading/travel checks, Stop/takeover/source expiry; 156 Python passes, two skips, seven ROS passes. |
 | `942ae00` | Nearby local path horizon, longer routes, continuous-pose acceptance, panel/cylinder stops | Final seven-goal route 8.23 m, independent 2.99 m divider detour, two inserted-obstacle stops, final safety regression; 156 Python passes/two skips on each OS and seven ROS passes. |
+| `784f08b` | Simulation form distance feedback, restart guidance, Select All shortcut | Native Chrome invalid/valid goals and two completed missions with Stop/re-enable between them; Cmd+A preserves autonomy, A takeover and Space Stop pass; 156 Python passes/two skips on each OS and JavaScript syntax passes. |
 
-Publication: code checkpoints `08ca7e7` and `942ae00` and this handoff are
+Publication: code through `784f08b` and this handoff are
 committed and pushed only to origin/feature/autonomy-sim, not integrated.
 The working tree is clean at handoff. Expected commit identity was verified
 before each commit; Git configuration and branch history were not rewritten.
-The simulation control tab is closed for automated acceptance; the robot is
-disarmed after each test.
+The simulation control tab is open with the updated form; the robot is
+disarmed and navigation is ready after browser acceptance.
 
 ## Current checkpoint
 
@@ -795,3 +796,73 @@ pause (including lifecycle/test overhead). All six nodes remained active
 after resume and the host did not automatically rearm. Evidence:
 /private/tmp/rescuebot-route-final-safety.log. The live final image is left
 running with navigation ready, driving disarmed, and the control tab closed.
+
+## 2026-09-26 — Goal retry and field-editing feedback (784f08b)
+
+The user reported that navigation worked once but not after Stop, re-enabling,
+and choosing a new goal. Read-only inspection preserved the live state and
+logs before changing anything. The current form had Forward 1.5 / Right 1.5,
+a combined distance of 2.121 m above the existing 2 m limit, and the generic
+validation message was visible. The logs showed the first goal succeeded but
+no second goal reached Nav2. This explains the inspected attempt; no generic
+backend restart failure was reproduced. Two valid browser goals, with Stop,
+Enable driving, and Start autonomy between them, completed before the UI fix.
+
+The same browser exercise exposed a separate real shortcut bug: Cmd+A in a
+simulation goal input was handled as manual A, preventing Select All and
+canceling an active mission. This could also leave old digits in an edited
+field. The simulation-input key guard now preserves Cmd+A / Ctrl+A; ordinary
+W/A/S/D and Space still reach takeover/Stop. The guard is conditional on the
+Gazebo-only autonomy panel and a focused goal input. Non-Gazebo keyboard
+behavior, host arbitration, ROS controller, IPC, and firmware are unchanged.
+
+The form now displays its computed combined distance while editing and
+explains invalid values before submission. Send is disabled for an empty,
+out-of-range, or invalid-step value. Editing clears old submission feedback.
+The status distinguishes driving enabled from autonomy started, and guidance
+explicitly repeats Enable driving → Start autonomy → Send goal after Stop.
+No distance limit was expanded and Stop never automatically resumes a mission.
+
+Validation on macOS ARM64 and the existing Ubuntu 24.04/Jazzy/Harmonic Docker
+setup, from /private/tmp/rescuebot-autonomy-sim:
+
+```bash
+git fetch origin --prune
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js'
+docker compose -f ros_ws/docker/compose.yaml up -d
+git diff --check
+```
+
+- Each Python run discovered 158 tests: 156 passed, two optional integration
+  skips. JavaScript syntax and diff checks passed. The image rebuilt all four
+  ROS packages. No ROS source/configuration changed, so the seven ROS tests
+  from the previous checkpoint were not rerun for this form-only fix.
+- Native Chrome localhost:18000 was hard-refreshed. Forward 1.5 / Right 1.5
+  visibly displayed 2.12 m and the 2 m maximum; Send stayed disabled even with
+  autonomy active. An empty field displayed the missing-distance explanation.
+- Cmd+A edits while autonomy was active retained the mission. Valid Forward 0 /
+  Right 0.5 cleared the warning and enabled Send. The goal completed at SLAM
+  approximately (0.0116, -0.4076) m, heading -1.5738 rad.
+- After Stop, Forward -0.5 / Right 0 was entered. Enable alone showed the
+  explicit Start autonomy instruction. Start then Send completed the second
+  goal at SLAM approximately (0.02, 0.00) m. Nav2 logs confirm both success
+  results; no simulation restart occurred between these two missions.
+- With a goal field focused, unmodified A canceled autonomy into manual mode;
+  Space then disarmed. Final API state: Gazebo backend, driving disarmed,
+  autonomy inactive, operator_stop, navigation ready. The updated control tab
+  is left open. No physical transport or dashboard was operated.
+
+Evidence: /private/tmp/rescuebot-restart-before.log,
+rescuebot-goal-form-browser.log, rescuebot-goal-form-build.log,
+rescuebot-goal-form-mac-tests.log, and rescuebot-goal-form-ubuntu-tests.log.
+Logs are not committed. Expected commit identity was checked before commits;
+Git configuration was unchanged. The simulation-only scope exception remains
+in force for the integrator to record. This checkpoint is committed and pushed
+only to feature/autonomy-sim, not integrated.
+
+Next: use the displayed combined distance and full restart sequence. If a
+valid accepted goal later stalls, capture the navigation status and destination
+before resetting; blocked-goal recovery, exploration, and physical acceptance
+remain the separate outstanding stages described above.
