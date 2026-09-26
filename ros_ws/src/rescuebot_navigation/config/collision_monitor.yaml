@@ -1,0 +1,25 @@
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel_nav
+    cmd_vel_out_topic: /cmd_vel_safe
+    transform_tolerance: 0.2
+    source_timeout: 0.5
+    base_shift_correction: true
+    stop_pub_timeout: 1.0
+    polygons: [FootprintStop]
+    FootprintStop:
+      type: polygon
+      action_type: stop
+      min_points: 4
+      visualize: true
+      polygon: "[[0.19, 0.16], [0.19, -0.16], [-0.19, -0.16], [-0.19, 0.16]]"
+    observation_sources: [scan]
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true
+      min_height: 0.0
+      max_height: 1.0

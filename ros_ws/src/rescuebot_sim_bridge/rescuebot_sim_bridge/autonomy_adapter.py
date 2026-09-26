@@ -8,6 +8,7 @@ wheels.  The host remains responsible for command priority and final output.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import time
@@ -15,6 +16,7 @@ import time
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 
 from rescuebot.autonomy import AUTONOMY_TIMEOUT_S, AutonomyIntent, AutonomyStatus
 from rescuebot.autonomy_ipc import decode_autonomy_status, encode_autonomy_intent, fresh_expiry
@@ -46,6 +48,7 @@ class SimulationAutonomyAdapter(Node):
         self._latest_twist: Twist | None = None
         self._received_at: float | None = None
         self._seq = 0
+        self._status_publisher = self.create_publisher(String, "/rescuebot/autonomy_status", 10)
         self.create_subscription(Twist, "/cmd_vel_safe", self._receive_twist, 10)
         self.create_timer(0.05, self._forward)
         self.get_logger().info("subscribing to /cmd_vel_safe; physical motor access is disabled")
@@ -63,6 +66,7 @@ class SimulationAutonomyAdapter(Node):
         for raw in self._status_receiver.drain():
             try:
                 self._status = decode_autonomy_status(raw)
+                self._publish_status()
             except ValueError as exc:
                 self.get_logger().warning(f"discarded autonomy status: {exc}")
 
@@ -91,6 +95,14 @@ class SimulationAutonomyAdapter(Node):
             turn=motion.turn,
         )
         self._command_sender.send(encode_autonomy_intent(intent))
+
+    def _publish_status(self) -> None:
+        message = String()
+        message.data = json.dumps(
+            {"active": self._status.active, "mission": self._status.mission, "reason": self._status.reason},
+            separators=(",", ":"),
+        )
+        self._status_publisher.publish(message)
 
 
 def main(argv: list[str] | None = None) -> None:

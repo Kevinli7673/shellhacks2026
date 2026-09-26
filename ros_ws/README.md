@@ -64,3 +64,28 @@ colcon test-result --verbose
 
 Gazebo must show the robot responding to browser inputs before moving on to
 SLAM or Nav2. Simulation success does not authorize physical autonomy.
+
+## Mapping and manually selected goals
+
+After the simulator is running, launch the navigation stack:
+
+```bash
+ros2 launch rescuebot_navigation navigation.launch.py
+```
+
+The full simulation flow is:
+
+```text
+Nav2 → /cmd_vel_nav → Collision Monitor → /cmd_vel_safe
+     → rescuebot_sim_autonomy_adapter → RobotControlService
+     → GazeboMotorBackend → /cmd_vel → Gazebo MecanumDrive
+```
+
+The operator must click **Enable driving**, then **Start autonomy**, before a
+goal can run. In RViz, use **2D Goal Pose** to publish `/goal_pose`; the
+mission manager owns the corresponding Nav2 action. Any manual movement
+cancels the mission, and releasing the key does not resume it.
+
+Before attempting frontier exploration, verify that SLAM Toolbox supplies the
+`map → odom` transform, the simulation bridge supplies `odom → base_link`, and
+Collision Monitor stops motion when a simulated obstacle enters the footprint.

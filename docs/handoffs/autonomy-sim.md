@@ -2,8 +2,8 @@
 
 Workstream: simulation autonomy
 Branch: feature/autonomy-sim
-Base: test/integration at 4ab13fa
-Status: Milestone A foundation implemented; awaiting Ubuntu Jazzy/Harmonic validation.
+Base: test/integration at 4af9098
+Status: Milestones A and B are configured; awaiting Ubuntu Jazzy/Harmonic validation.
 
 ## Current checkpoint
 
@@ -19,6 +19,10 @@ Status: Milestone A foundation implemented; awaiting Ubuntu Jazzy/Harmonic valid
 - `ros_ws/` contains a parameterized Xacro model, Harmonic SDF model/world,
   `ros_gz_bridge` topic map, simulated LiDAR/IMU/odometry, and `odom →
   base_link` TF bridge.
+- `rescuebot_navigation` starts SLAM Toolbox, Nav2 with a holonomic DWB
+  controller, Collision Monitor, and a mission manager that owns RViz
+  `/goal_pose` actions. Nav2 output is remapped to `/cmd_vel_nav`; only
+  Collision Monitor publishes `/cmd_vel_safe` for the autonomy adapter.
 
 ## Interfaces
 
@@ -51,7 +55,9 @@ ROS 2 Jazzy and Gazebo Harmonic.
 1. Replace estimated chassis dimensions in the Xacro/SDF with measured values.
 2. Run Milestone A launch validation: browser manual motion, `/scan`,
    `/imu/data`, `/odom`, and TF.
-3. Add SLAM Toolbox, Nav2, Collision Monitor, and manual goal handling on this
-   branch without bypassing the host simulator backend.
-4. Keep physical autonomy work separate until the integration candidate passes
+3. Run Milestone B validation: mapping, goal navigation, Collision Monitor,
+   host expiry, and manual override while a goal is active.
+4. Evaluate the Jazzy-compatible frontier package in the simulator before
+   writing a local frontier explorer. Do not let that block Milestone B.
+5. Keep physical autonomy work separate until the integration candidate passes
    combined manual physical acceptance and is tagged.

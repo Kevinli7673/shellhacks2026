@@ -1,0 +1,1 @@
+"""Rescuebot simulation navigation nodes."""
