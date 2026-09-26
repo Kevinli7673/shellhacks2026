@@ -87,3 +87,27 @@ During concurrent work:
 Each handoff entry records commit, changed interfaces, exact test commands,
 mock versus physical coverage, known limitations, and the next action.
 Use small commits. Preserve passing commits and do not rewrite shared history.
+
+## Request routing
+
+Cross-workstream requests (see AGENTS.md) run only between these two
+workstreams:
+
+| Workstream | Branch | Handoff file | ID prefix |
+|---|---|---|---|
+| Dashboard and control | feature/dashboard-control | docs/handoffs/dashboard-control.md | DC |
+| ESP32 controller | feature/esp32-controller | docs/handoffs/esp32-controller.md | FW |
+
+Each of these handoff files keeps two tables near the top:
+
+    ## Requests
+
+    | ID | To | Request | Status |
+    |---|---|---|---|
+
+    ## Responses
+
+    | Request | Response |
+    |---|---|
+
+Status is open, done (with commit), or withdrawn. IDs are never reused.
