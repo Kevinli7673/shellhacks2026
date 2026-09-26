@@ -273,6 +273,7 @@ class MissionManager(Node):
         self._goal_state = "idle"
         self._search.update(phase="exploring", found=False, home=dict(pose), target=None,
                             visited=1, reason="Searching mapped free space")
+        self.get_logger().info(f"search started; home=({pose['x']:.3f}, {pose['y']:.3f}, {pose['yaw']:.3f})")
         return True
 
     def _search_destination(self, x, y, yaw, now):
@@ -286,6 +287,7 @@ class MissionManager(Node):
         self._goal(goal, search=True)
 
     def _begin_return(self, now, reason, *, found=False):
+        self.get_logger().info(f"search ending after {self._goal_count} goals: {reason}")
         self._search.update(phase="notifying" if found else "return_pending", reason=reason)
         self._transition_started = now
         if self._plan is not None:
@@ -354,7 +356,8 @@ class MissionManager(Node):
             heading = abs(math.atan2(math.sin(pose["yaw"]-home["yaw"]), math.cos(pose["yaw"]-home["yaw"])))
             if self._goal_state == "succeeded" and error <= .20 and heading <= .30:
                 self._search.update(phase="complete", reason=("Target found; returned to start" if self._search["found"]
-                                                              else "Target not found; returned to start"))
+                                                              else "Returned to start. " + self._search["reason"]))
+                self.get_logger().info(self._search["reason"])
             else:
                 self._fail_search("Return route failed; stopped away from start")
             return
@@ -369,9 +372,8 @@ class MissionManager(Node):
             self._begin_return(now, "Three search routes failed; returning without target")
             return
         if self._plan is None:
-            home = self._search["home"]
             self._plan = self._planner.submit(next_viewpoint, self._grid,
-                (pose["x"], pose["y"], pose["yaw"]), (home["x"], home["y"]),
+                (pose["x"], pose["y"], pose["yaw"]),
                 tuple(self._visited), tuple(self._rejected))
         elif self._plan.done():
             try:
@@ -384,7 +386,7 @@ class MissionManager(Node):
             if self._search["phase"] != "exploring":
                 return
             if point is None:
-                self._begin_return(now, "Reachable search area covered; target not found")
+                self._begin_return(now, "No more reachable viewpoints; target not found")
                 return
             self._viewpoint = point
             self._goal_count += 1

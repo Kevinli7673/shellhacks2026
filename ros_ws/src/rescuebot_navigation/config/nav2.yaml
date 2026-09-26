@@ -96,7 +96,9 @@ planner_server:
     GridBased:
       plugin: nav2_navfn_planner::NavfnPlanner
       tolerance: 0.30
-      use_astar: true
+      # A* potential extraction failed repeatedly on the mapped northern
+      # return route; Dijkstra finds that same route on the same costmap.
+      use_astar: false
       allow_unknown: true
 
 behavior_server:

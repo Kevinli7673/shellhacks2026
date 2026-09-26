@@ -38,15 +38,67 @@ def test_unknown_and_occupied_cells_occlude_target():
 def test_viewpoints_are_reachable_unvisited_and_have_clearance():
     g = grid(True)
     home = (-1, 0)
-    p = next_viewpoint(g, (*home, 0), home, (home,), ())
+    p = next_viewpoint(g, (*home, 0), (home,), ())
     assert p is not None and p[0] < -.4
     assert math.dist(p, home) >= .7
-    other = next_viewpoint(g, (*home, 0), home, (home,), (p,))
+    other = next_viewpoint(g, (*home, 0), (home,), (p,))
     assert math.dist(other, p) >= .6
 
 
 def test_empty_or_unknown_area_has_no_goal():
-    assert next_viewpoint(Grid(10, 10, .05, 0, 0, (-1,)*100), (0, 0, 0), (0, 0), (), ()) is None
+    assert next_viewpoint(Grid(10, 10, .05, 0, 0, (-1,)*100), (0, 0, 0), (), ()) is None
+
+
+@pytest.mark.parametrize("opening", [True, False])
+def test_offset_passage_connects_rooms_only_when_observed_free(opening):
+    # A 0.85 m doorway has clearance at y=0.575, but a 25 cm lattice
+    # skips it: y=0.5 and y=0.75 are both too close to a wall. Unknown
+    # space in that same doorway must still keep the rooms disconnected.
+    data = []
+    for row in range(80):
+        for col in range(80):
+            x, y = -2+(col+.5)*.05, -2+(row+.5)*.05
+            data.append((0 if opening else -1) if abs(x) < .15 and .15 < y < 1.
+                        else 100 if abs(x) < .15 else 0)
+    g = Grid(80, 80, .05, -2, -2, tuple(data))
+    visited = tuple((-1.8+x*.2, -1.8+y*.2) for x in range(8) for y in range(19))
+    point = next_viewpoint(g, (-1., 0., 0.), visited, ())
+    if opening:
+        assert point is not None and point[0] > .15
+        # Traverse the doorway, but finish beyond it with room for the stop
+        # polygon to rotate even when Nav2 accepts a pose 10 cm short.
+        assert min(math.dist(point, corner) for corner in ((.15, .15), (.15, 1.))) >= .55
+    else:
+        assert point is None
+
+
+def test_north_start_does_not_crop_the_southern_detour():
+    # A divider and an L-shaped detour require exploring below y=-1.95.
+    # A home-centred +/-4 m window at y=2.22 excludes that route entirely.
+    data = []
+    for row in range(120):
+        for col in range(120):
+            x, y = -3+(col+.5)*.05, -3+(row+.5)*.05
+            wall = (abs(x) > 2.9 or abs(y) > 2.9
+                    or (.625 <= x <= .775 and -.8 <= y <= 2.2)
+                    or (-1.35 <= x <= .25 and -1.575 <= y <= -1.425))
+            data.append(100 if wall else 0)
+    g = Grid(120, 120, .05, -3, -3, tuple(data))
+    home = (-.54, 2.22)
+    # The left/north area has already been covered. An unseen southern
+    # viewpoint must remain available instead of reporting search complete.
+    visited = tuple((-2.5+x*.2, -1+y*.2) for x in range(17) for y in range(18))
+    pose = (*home, math.pi/2)
+    destinations = []
+    for _ in range(48):
+        p = next_viewpoint(g, pose, visited, ())
+        if p is None:
+            break
+        destinations.append(p)
+        visited += (p,)
+        pose = (*p, 0.)
+    assert any(p[1] < -1.95 for p in destinations), destinations
+    assert any(p[0] > 1.1 for p in destinations), destinations
 
 
 def test_detection_stops_then_returns_only_after_action_terminal_result(manager):
@@ -101,6 +153,18 @@ def test_search_limit_returns_without_claiming_target(manager):
     manager._action.send_goal_async.return_value = Future()
     manager._search_tick(now+2, pose)
     assert manager._search["phase"] == "returning"
+
+
+def test_return_without_target_retains_why_search_ended(manager):
+    pose = start(manager)
+    reason = "No more reachable viewpoints; target not found"
+    manager._begin_return(time.monotonic(), reason)
+    manager._search["phase"] = "returning"
+    manager._goal_state = "succeeded"
+    manager._search_tick(time.monotonic(), pose)
+    assert manager._search["phase"] == "complete"
+    assert manager._search["reason"] == "Returned to start. " + reason
+    assert not manager._search["found"]
 
 
 def test_return_failure_stops_and_cannot_report_success(manager):

@@ -6,6 +6,7 @@ range/occlusion, saved home, disarming, and a second start are checked.
 """
 
 import asyncio
+import argparse
 import json
 import math
 from pathlib import Path
@@ -34,7 +35,7 @@ def clearance(point, boxes):
                for x, y, sx, sy in boxes)
 
 
-async def run(pose):
+async def run(pose, north_start=False):
     current = await asyncio.to_thread(fetch_state)
     assert current["motor"]["backend"] == "gazebo"
     assert current["control"]["owner_session"] is None, "close simulation control tabs"
@@ -81,12 +82,15 @@ async def run(pose):
                     await send("keys", keys=[])
                     await asyncio.sleep(.05)
 
-            async def start():
+            async def enable_autonomy():
                 await send("enable")
                 await wait(lambda: state()["control"]["armed"], 3)
                 await send("start_autonomy")
                 await wait(lambda: state()["autonomy"]["active"] and
                            state()["autonomy"]["navigation"].get("mission") == state()["autonomy"]["mission"], 3)
+
+            async def start():
+                await enable_autonomy()
                 await send("start_search")
                 await wait(lambda: search().get("phase") == "exploring", 3)
 
@@ -95,6 +99,29 @@ async def run(pose):
             try:
                 await send("claim")
                 await asyncio.sleep(.2)
+                if north_start:
+                    # Reproduce the reported northern start using dashboard
+                    # goals, without teleporting the model or resetting SLAM.
+                    # Run near the normal spawn or after a spawn-start search.
+                    await enable_autonomy()
+                    for x, y in ((-.55, 1.), (-.55, 2.15)):
+                        nav = state()["autonomy"]["navigation"]
+                        p = nav["pose"]
+                        dx, dy = x-p["x"], y-p["y"]
+                        assert .1 < math.hypot(dx, dy) <= 2., "north-start setup requires a pose near spawn"
+                        previous_request = nav.get("request_id")
+                        await send("navigation_goal",
+                                   forward=math.cos(p["yaw"])*dx+math.sin(p["yaw"])*dy,
+                                   right=math.sin(p["yaw"])*dx-math.cos(p["yaw"])*dy)
+                        await wait(lambda: state()["autonomy"]["navigation"].get("request_id") not in
+                                   {None, previous_request}, 5)
+                        await wait(lambda: state()["autonomy"]["navigation"]["goal_state"] in
+                                   {"succeeded", "aborted", "failed", "canceled"}, 90)
+                        assert state()["autonomy"]["navigation"]["goal_state"] == "succeeded"
+                    await send("stop")
+                    await wait(lambda: not state()["control"]["armed"], 3)
+                    await asyncio.sleep(.5)
+                    print(json.dumps(dict(event="north_start_ready", pose=await pose())), flush=True)
                 await start()
                 await asyncio.sleep(2)
                 await send("stop")
@@ -178,10 +205,13 @@ async def run(pose):
         await asyncio.gather(poller, return_exceptions=True)
 
 
-async def main():
+async def main(north_start=False):
     async with pose_stream() as pose:
-        await run(pose)
+        await run(pose, north_start)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--north-start", action="store_true",
+                        help="Drive from near spawn to the reported northern start before testing search")
+    asyncio.run(main(parser.parse_args().north_start))

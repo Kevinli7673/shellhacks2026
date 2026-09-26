@@ -31,24 +31,46 @@ class Grid:
                    for i in range(steps+1))
 
 
-def next_viewpoint(grid, pose, home, visited, rejected):
-    """Cover known free space within 4 m of home, with 0.38 m wall clearance.
+def next_viewpoint(grid, pose, visited, rejected):
+    """Cover an 8 m map-centred window, with 0.38 m wall clearance.
 
-    A coarse connected grid bounds work independently of SLAM map size. The
+    A connected grid at map resolution preserves narrow mapped passages. The
     caller runs this computation off its command/status timer and discards
-    results when the mission changes. Rejected viewpoints are not retried.
+    results when the mission changes. The window bounds work independently
+    of map size. Rejected viewpoints are not retried.
     """
-    step, radius = .25, .38
-    offsets = [(x*grid.resolution, y*grid.resolution)
-               for x in range(-math.ceil(radius/grid.resolution), math.ceil(radius/grid.resolution)+1)
-               for y in range(-math.ceil(radius/grid.resolution), math.ceil(radius/grid.resolution)+1)
-               if math.hypot(x*grid.resolution, y*grid.resolution) <= radius]
+    step, radius = grid.resolution, .38
+    # Home is only a return destination. Centring coverage there can cut off
+    # an entire detour when a mission starts near a wall. Use the map centre
+    # and its own cells instead. A separate 25 cm lattice can disconnect
+    # a usable corridor depending on its alignment with the walls.
+    reach = math.ceil(radius/step + .5)
+    # Include every cell whose square touches the clearance disk, not just
+    # cells whose centres lie inside it. Unknown cells also block passage.
+    offsets = [y*grid.width+x
+               for x in range(-reach, reach+1)
+               for y in range(-reach, reach+1)
+               if math.hypot(max(0, abs(x)-.5)*step, max(0, abs(y)-.5)*step) <= radius]
+    # Waypoints need room to arrive and turn: the stop polygon's corner is
+    # 0.397 m from the centre, Nav2 can finish 0.10 m short, and the map has
+    # 0.05 m cells. Keep transit connectivity through narrower passages, but
+    # place destinations in space with this extra arrival margin.
+    arrival_radius = .55
+    arrival_reach = math.ceil(arrival_radius/step + .5)
+    arrival_offsets = [y*grid.width+x
+                       for x in range(-arrival_reach, arrival_reach+1)
+                       for y in range(-arrival_reach, arrival_reach+1)
+                       if math.hypot(max(0, abs(x)-.5)*step, max(0, abs(y)-.5)*step) <= arrival_radius]
+    columns = range(max(reach, math.ceil(grid.width/2-4/step-.5)),
+                    min(grid.width-reach, math.floor(grid.width/2+4/step-.5)+1))
+    rows = range(max(reach, math.ceil(grid.height/2-4/step-.5)),
+                 min(grid.height-reach, math.floor(grid.height/2+4/step-.5)+1))
     points = {}
-    for x in range(-16, 17):
-        for y in range(-16, 17):
-            p = (home[0]+x*step, home[1]+y*step)
-            if all(grid.free(p[0]+dx, p[1]+dy) for dx, dy in offsets):
-                points[(x, y)] = p
+    for x in columns:
+        for y in rows:
+            index = y*grid.width+x
+            if all(0 <= grid.data[index+offset] < 50 for offset in offsets):
+                points[(x, y)] = (grid.x+(x+.5)*step, grid.y+(y+.5)*step)
     if not points:
         return None
     start = min(points, key=lambda k: math.dist(points[k], pose[:2]))
@@ -70,6 +92,13 @@ def next_viewpoint(grid, pose, home, visited, rejected):
         if any(math.dist(p, q) < .6 for q in rejected):
             continue
         if any(math.dist(p, q) < .70 and grid.visible(p, q) for q in visited):
+            continue
+        x, y = key
+        if not (arrival_reach <= x < grid.width-arrival_reach
+                and arrival_reach <= y < grid.height-arrival_reach):
+            continue
+        index = y*grid.width+x
+        if not all(0 <= grid.data[index+offset] < 50 for offset in arrival_offsets):
             continue
         # Prefer a nearby viewpoint with less turning, without knowing where
         # the target is or assuming that unmapped space is empty.

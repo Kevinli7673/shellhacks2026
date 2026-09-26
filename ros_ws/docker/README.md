@@ -13,8 +13,10 @@ a map, Nav2 completes a selected goal, and Stop/manual override/source loss canc
 Forward-facing travel and a seven-goal route around the divider have also
 passed ground-truth pose checks. The controller uses a 0.60 m local path
 horizon so goals across a wall follow the planned detour instead of stalling.
+NavFn uses Dijkstra expansion: A* repeatedly failed to extract the northern
+return path from a reachable potential in this house's SLAM costmap.
 The Ubuntu suite reports 168 tests (166 pass, 2 environment-gated skips), and
-all 23 ROS tests pass. This is simulation coverage only.
+all 27 ROS tests pass. This is simulation coverage only.
 
 ## Build and start
 
@@ -251,13 +253,24 @@ browser loss, or source expiry cancels every mission phase and never resumes
 it. Start a new mission explicitly after interruption. A fresh mission clears
 the previous notification and saves a new home.
 
-Search viewpoint selection is bounded to 4 m per axis around home, 48 destinations, and 10 minutes
-of wall-clock time. Known unreachable viewpoints are skipped; three consecutive
+Search viewpoint selection uses an 8 m square centred on the SLAM map and
+checks connectivity at the map's cell resolution (5 cm in this demo). Occupied
+and unknown cells keep a 0.38 m centre clearance along the connectivity graph.
+Destinations require 0.55 m so the robot can arrive and turn: this covers the
+stop polygon's 0.397 m corner radius, 0.10 m Nav2 arrival tolerance, and 0.05 m
+map resolution. The planner checks each intersecting cell, including its area.
+Home remains the position/heading saved when this mission starts; it does not
+limit coverage. Starting near a wall therefore does not crop the detour through
+the opposite side of this 6 m house. Work remains
+bounded to 48 destinations and 10 minutes of wall-clock time.
+Known unreachable viewpoints are skipped; three consecutive
 failed destinations or exhausted coverage triggers a return without claiming a
 detection. A search leg has a 90-second deadline, return has 240 seconds, and
 failed cancellation, stale map/pose, or failed return stops/disarms with a
-failure message. Sudden localization jumps also stop the mission; restart the
-simulation before searching again. SLAM's loop search is restricted to nearby
+failure message. If no target is found, the completion message retains why the
+search ended (no reachable viewpoints, search limit, timeout, or route failures)
+after returning home. Sudden localization jumps also stop the mission; restart
+the simulation before searching again. SLAM's loop search is restricted to nearby
 poses for this small, repetitive layout. This demo is map coverage, not a guarantee of complete search
 in arbitrary buildings. Narrow passages and moving obstacles need separate
 acceptance. Viewpoints must be connected through known free cells, but Nav2
@@ -271,10 +284,18 @@ docker compose -f ros_ws/docker/compose.yaml restart sim
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
 ```
 
-The validator checks Stop/restart, SLAM error against Gazebo truth, a found notification within physical sensor
+The validator checks Stop/restart, SLAM error against Gazebo truth, a found notification within the synthetic sensor
 range and without an obstacle crossing, actual Gazebo clearance and forward
 travel, return position/heading, automatic disarming, and a new explicit start.
-It always sends Stop. Restore the original world using
+To reproduce the northern-start case after a spawn-start test, run:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py --north-start
+```
+
+This drives through the dashboard to approximately (-0.55, 2.15) m, then checks
+the same search, return, and stop sequence. Both variants always send Stop.
+Restore the original world using
 `RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d`.
 
 The healthcheck tests dashboard HTTP availability only. It does not establish
