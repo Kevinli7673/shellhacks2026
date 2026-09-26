@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Milestones A and B are configured; local regression checks pass after the integration merge. Awaiting access to the selected teammate's Ubuntu machine for Jazzy/Harmonic validation.
+Status: Milestones A and B are configured; local regression checks pass after the integration merge. Docker on the Mac is now the selected Jazzy/Harmonic validation environment; setup and runtime validation are in progress.
 
 ## User-authorized scope exception
 
@@ -145,3 +145,38 @@ Jazzy/Harmonic tools, then build and run the commands in ros_ws/README.md.
 Ask before any system-wide installation. Validate dashboard W/S, A/D, arrows,
 release, and Space with `--motor-backend gazebo` before proceeding to SLAM
 and Nav2. Keep dashboard and ROS IPC endpoints on that same Ubuntu host.
+
+## 2026-09-26 - Switch to Docker on macOS
+
+The user changed the validation target from a teammate's Ubuntu machine to
+Docker on this Apple Silicon Mac, then explicitly approved installing and
+starting Docker Desktop. Ubuntu 24.04 remains inside the container; macOS
+remains the host OS. The simulation-only scope exception and physical-output
+prohibition remain in force.
+
+Container setup is under ros_ws/docker/. The dashboard, ROS IPC endpoints,
+Gazebo, and navigation run in the same container. Only localhost dashboard
+and browser desktop ports are published; no host devices or directories are
+mounted. Runtime validation results will be recorded here after the build.
+
+Initial container checkpoint:
+
+- Docker Desktop 4.92.0 / Engine 29.8.0 is installed and running as
+  linux/arm64. macOS has 24 GiB RAM; Docker reports 15 CPUs and approximately
+  8 GiB RAM. No macOS ROS or Gazebo packages were installed.
+- `docker compose -f ros_ws/docker/compose.yaml config --quiet`: passed.
+- `docker compose -f ros_ws/docker/compose.yaml --progress plain build`:
+  passed. `colcon build --symlink-install --event-handlers console_direct+`
+  inside the image built all four packages.
+- `docker compose -f ros_ws/docker/compose.yaml up -d`: started the dashboard,
+  browser desktop, and Gazebo; the robot entity was created successfully.
+- `docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 -m unittest discover -s tests -v`:
+  151 discovered, 149 passed, 2 skipped in Ubuntu/Python 3.12. The README now
+  uses a disposable `run --rm --no-deps` test container to keep test runtime
+  sockets separate from the running simulator.
+- `docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh glxinfo -B`:
+  Mesa llvmpipe 25.2.8, OpenGL 4.5, software rendering.
+- Runtime failures found: both custom adapters reject launch-added
+  `--ros-args`; Gazebo subscribes to `/cmd_vel` while ros_gz publishes to
+  `/model/rescuebot/cmd_vel`; odometry and scan bridge endpoints also mismatch
+  actual Gazebo publishers. IMU does not publish. Fixes are in progress.

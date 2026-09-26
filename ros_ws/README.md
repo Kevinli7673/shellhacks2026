@@ -3,6 +3,9 @@
 This workspace is the simulation track. It has no ESP32 serial support and
 cannot command the physical motor shield.
 
+For the macOS container setup and its validation status, see
+[Docker simulation](docker/README.md).
+
 Use Ubuntu 24.04 with ROS 2 Jazzy and Gazebo Harmonic. Install the dashboard
 project into the same Python environment so the simulation command bridge can
 parse the host's bounded IPC records:
