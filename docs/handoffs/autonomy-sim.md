@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Search optimization #1–#4 implementations integrated into feature/autonomy-sim at 0639500; not merged into test/integration or main. Application (166 pass/two skips) and ROS (56 pass) suites pass. Fresh/northern search-and-return improved in runtime tests; broader acceptance is ongoing. A western-room clearance exclusion and upper-east return-envelope failure are documented below. Physical autonomy remains unvalidated.
+Status: Search optimization #1–#4 implementations and diagnostics integrated into feature/autonomy-sim at f1f39f9; not merged into test/integration or main. Application (166 pass/two skips) and ROS (58 pass) suites pass. Fresh/northern search-and-return improved in runtime tests. A western-room clearance exclusion, upper-east return-envelope failure, and one unclassified cancellation are documented below. Physical autonomy remains unvalidated.
 
 ## User-authorized scope exception
 
@@ -35,7 +35,7 @@ ros_ws/, simulation-specific application behavior and tests, and this handoff.
 No direct firmware edits, other workstream handoff edits, or merges into
 test/integration or main are authorized. Push only feature/autonomy-sim.
 
-## Search optimization work in progress (2026-09-26)
+## Search optimization #1–#4 (2026-09-26)
 
 The user authorized only movement/goal handling (#1 and #4) and search
 coverage/scoring (#2 and #3), with multiple subagents working in parallel.
@@ -53,7 +53,7 @@ coordinating agent before edits:
 |---|---|---|---|
 | Search movement | feature/autonomy-search-motion / /private/tmp/rescuebot-search-motion | mission manager, search-specific Nav2 goal/controller/BT configuration, focused manager tests, autonomy-search-motion handoff | Integrated sequentially; also supplied cancellation diagnostics |
 | Coverage and scoring | feature/autonomy-search-coverage / /private/tmp/rescuebot-search-coverage | search.py, planner tests, autonomy-search-coverage handoff | Integrated sequentially; independently diagnosed western-map reachability |
-| Simulation integration | feature/autonomy-sim / /private/tmp/rescuebot-autonomy-sim | runtime validators, sequential integration, simulator acceptance, this handoff | Active; sole operator of shared simulator |
+| Simulation integration | feature/autonomy-sim / /private/tmp/rescuebot-autonomy-sim | runtime validators, sequential integration, simulator acceptance, this handoff | Complete; sole operator of shared simulator; broader limitations retained below |
 
 Coverage must reflect the 0.9 m synthetic detector's actual capture-time range
 and free line of sight, not lidar map visibility. Predicted future coverage
@@ -151,7 +151,63 @@ These are Ubuntu 24.04 ARM64/Jazzy/Harmonic simulation checks on Docker Desktop
 with software rendering. Application optional integration tests remain skipped;
 no serial, ESP32, or physical motion validation is claimed.
 
+Final source/image checkpoint: `f1f39f9`, image config
+`sha256:129587a6e6daf1a41bbcc625433028eb0eeceadf923f4f051e46ee35205ee498`.
+The final build overlays all app/tests/ROS source and Docker scripts onto the
+retained passing dependency image, then rebuilds all four ROS packages with
+`colcon build --symlink-install --event-handlers console_direct+`. The canonical
+`docker compose -f ros_ws/docker/compose.yaml --progress plain build` remains
+the clean-build route; no dependency or canonical Dockerfile changes were
+needed. Final full suites: 168 application tests (166 passed, two optional
+skips), 58 ROS tests passed (56 navigation, two bridge), JavaScript syntax
+passed. Evidence: `/private/tmp/rescuebot-opt-diagnostic-build.log` and
+`/private/tmp/rescuebot-opt-final-tests.log`. Later handoff-only commits do not
+change the tested implementation.
+
+The final rebuilt image repeated the full untouched-spawn mission successfully
+with `validate_search.py --skip-stop-probe`: detected at 196.257 simulation
+seconds / 12.521 m, completed return and disarm at 258.500 simulation seconds /
+15.416 m (116.107 wall seconds). Home errors were 0.0552 m / 0.1376 rad,
+minimum clearance 0.1364 m, maximum SLAM error 0.0392 m, and forward share
+93.18%. Hold and repeat-start/cancellation checks also passed. Both this run
+and the previous instrumented repeat had zero recorded command/status gaps
+over 150 ms while searching/returning; the earlier cancellation below remains
+unclassified. Evidence: `/private/tmp/rescuebot-opt-final-spawn.log`,
+`-final-spawn-runtime.log`, and `-final-spawn-timing.log`.
+
+Implementation and handoffs are committed on feature/autonomy-sim only;
+no shared protocol, firmware mixing, physical control, or dependency version
+changed. New startup-only detector fixture settings and installed Nav2 BTs
+are documented in the Docker README. The simulator is restored to a fresh
+default search house at requested 3x playback, navigation ready, disarmed,
+zero wheel output, and no control owner. Next action: exercise the optimized
+default Search / Return flow; investigate a recurrence using the retained
+fault/timing diagnostics before resetting. Western passage clearance and
+upper-east return geometry require separate scoped decisions and acceptance.
+
 ### Broader route limitations exposed during acceptance
+
+- An initial untouched-spawn run (`validate_search.py --skip-stop-probe`)
+  canceled unexpectedly in open space after 179.773 simulation seconds /
+  11.025 m, before detection. Its generic cancellation message did not retain
+  the initiating host fault; cleanup subsequently changed that fault. No
+  collision, recovery, exception, or process exit identifies a cause. A nearby
+  costmap resize is only a temporal correlation. This remains **unclassified**,
+  not a diagnosed planner failure and not fixed by adding logs. New manager
+  logs distinguish stale-host status (including measured age) from an incoming
+  host cancellation reason; the validator now records terminal host state
+  before cleanup. The instrumented repeat passed from exact spawn: detection
+  at 226.952 simulation seconds / 14.029 m, completed return/disarm at 287.923
+  simulation seconds / 16.901 m (129.549 wall seconds), home errors 0.0840 m /
+  0.0965 rad, minimum clearance 0.1440 m. A separate read-only ROS subscriber
+  saw no command/status gaps over 150 ms during that mission. Complete 20-second
+  mission windows measured maxima of 55.5 ms host status, 72.7 ms navigation
+  status, 126.6 ms navigation velocity, and 81.0 ms safe velocity; startup gaps
+  before the mission are excluded. The 250 ms expiry remains unchanged.
+  Evidence: `/private/tmp/rescuebot-opt-spawn.log`, `-spawn-runtime.log`,
+  `-spawn-instrumented.log`, `-spawn-instrumented-runtime.log`, and
+  `-spawn-timing.log`. If it recurs, retain those new diagnostics before reset;
+  do not infer that an eventual pass proves the fault is eliminated.
 
 - Western fixture (-2.2, 1.7): failed detection acceptance. The robot exhausted
   19 useful reachable goals, returned/disarmed safely after 571.996 simulation
