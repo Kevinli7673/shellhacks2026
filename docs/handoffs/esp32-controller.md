@@ -2,7 +2,7 @@
 
 Workstream: ESP32 controller
 Branch: feature/esp32-controller (pushed to origin)
-Status: in progress, committed locally
+Status: in progress; native tests pass 52/52 (no board build or hardware test yet)
 
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
@@ -23,12 +23,12 @@ Do not edit shared project documents while parallel work is active.
   changed and why.
 - Native (host, no board) Unity test suites exist for the pure-logic
   modules — mixing, session/watchdog, protocol parsing/building — plus a
-  new suite that replays the shared `fixtures/serial_protocol_vectors.json`
-  (26 cases) against the firmware's actual logic via the new `Controller`
-  class.
-- **Still not compiled or run.** No C++ toolchain (no PlatformIO, no
-  g++/clang++) is available in this sandbox. See "Tests" below for exactly
-  what was and was not verified.
+  suite that replays the shared `fixtures/serial_protocol_vectors.json`
+  (30 cases + `boot_emit`) against the firmware's actual logic via
+  `Controller`.
+- **Native tests compiled and run: 52/52 pass** (PlatformIO 6.2.0, GCC
+  15.2.0 on Windows). The esp32-s2 board build has not been attempted; no
+  flashing or hardware testing has happened. See "Tests" below.
 - Hardware adapters (`motor_shield.cpp`, `imu_bno055.cpp`) and `main.cpp`
   are guarded with `#ifdef ARDUINO` so native test builds compile them to
   empty translation units; they still need a real board to validate at all.
@@ -64,13 +64,13 @@ Do not edit shared project documents while parallel work is active.
   boundaries, zero-limit, full-PWM-ceiling). Values were computed and
   cross-checked in Python (executable in this sandbox) and the generator's
   output was diffed against the committed file to confirm they match.
-- `firmware/test/fixtures/serial_protocol_vectors.json` (new) — vendored
-  verbatim from `fixtures/serial_protocol_vectors.json` @ b23d95e on
-  `feature/serial-protocol` (26 cases), so `test_protocol_fixtures` is
-  self-contained rather than depending on cross-branch relative paths that
-  can't be verified without running PlatformIO. This is a working copy for
-  testing, not a fork of ownership — `fixtures/` at repo root stays
-  dashboard/control's path; the integrator should dedupe these at merge.
+- `firmware/test/fixtures/serial_protocol_vectors.json` — vendored
+  verbatim (byte-identical) from `fixtures/serial_protocol_vectors.json` @
+  e101f82 on `feature/dashboard-control` (30 cases + top-level
+  `boot_emit`), so `test_protocol_fixtures` is self-contained. This is a
+  working copy for testing, not a fork of ownership — `fixtures/` at repo
+  root stays dashboard/control's path; do not edit the cases here, and the
+  integrator should dedupe these at merge.
 - `.gitignore` (repo root) — ignores `firmware/.pio/` and `.idea/`, scoped
   to this workstream's build output and local IDE state.
 
@@ -111,15 +111,14 @@ Requested a decision on this; here it is:
   (a field either side adds later doesn't require both sides to deploy
   atomically). If you'd rather reject them for stricter unwanted-field
   detection, that's a small change on this end — just say so.
-- **Duplicate keys**: not explicitly validated on this end at all; this
-  falls through to whatever ArduinoJson v6's `deserializeJson` does with a
-  repeated key, which I believe (unverified — no compiler here) is
-  first-occurrence-wins on lookup (`doc["seq"]` returns the first `"seq"`
-  entry parsed, with later duplicates parsed but never read). I'm not
-  planning to add explicit duplicate-key rejection on top of that unless
-  you'd rather have it — a legitimate sender producing duplicate keys is a
-  sender bug to catch on your side, not something this parser needs to
-  defend against as an attacker input.
+- **Duplicate keys**: not explicitly rejected. Measured with ArduinoJson
+  6.21.6: the **last** occurrence wins — `{"seq":3,"seq":9,...,"forward":1.0,
+  ...,"forward":-1.0}` parses as not malformed with `seq=9`,
+  `forward=-1.0`. (An earlier version of this doc guessed first-occurrence;
+  that was wrong.) The duplicated value still goes through the same range
+  and type validation, so this can't bypass the malformed-packet checks.
+  No legitimate sender produces duplicate keys; if you want them rejected
+  outright, that needs explicit detection on this end.
 
 ## Changes since 48ae9dd
 
@@ -151,16 +150,10 @@ test. This was to make "run our shared protocol fixtures" possible at all
 without either duplicating that logic into the test (risking drift) or
 needing a real board.
 
-**Known stale expectation in the shared fixture:** applying change 3 makes
-one already-committed case in `fixtures/serial_protocol_vectors.json`,
-`rearm_with_new_session_rejects_old_session`, expect wrong `outputs` for
-two of its steps — it still expects `100/100/100/100` to persist through
-the arm to session `pi02`, since it was written against pre-fix behavior.
-Post-fix, those steps' `outputs` should be `0/0/0/0` instead (everything
-else in that case — the acks, `armed`, the final drive's outputs — still
-matches). Flagging rather than editing, since `fixtures/` is your path;
-`test_protocol_fixtures` in this branch is expected to report exactly this
-one mismatch once it actually compiles and runs.
+The shared fixture's `rearm_with_new_session_rejects_old_session` case
+originally expected pre-fix outputs (100/100/100/100 kept through the
+re-arm). The 30-case version at e101f82 updates it to 0/0/0/0 and adds
+cases for the other changes; all pass against this firmware.
 
 ## Hardware facts still required
 
@@ -180,70 +173,55 @@ driving, not mock/native development:
 
 ## Tests
 
-- **Not run: any C++ compilation or execution.** The sandbox that wrote
-  this code had no PlatformIO, no `arduino-cli`, and no `g++`/`clang++`/
-  `cmake` available, so none of the C++ (native test suites or the
-  esp32-s2 build) has been compiled even once, including the new
-  `Controller` refactor and `test_protocol_fixtures`. Do not treat any C++
-  file here as verified until `pio test -e native` actually passes.
-- Verified: the mixing fixture values themselves (unchanged from before —
-  `python firmware/test/fixtures/generate_mixing_fixtures.py`, diffed
-  byte-for-byte against the committed file after the directory rename).
-  Also traced `test_protocol_fixtures`'s expected behavior by hand against
-  all 26 vendored cases (watchdog boundary timing at 500ms, stale/wrong-
-  session/duplicate-seq rejection, hardware-ceiling override, oversized-
-  line handling) — all should pass except the one known mismatch noted
-  above. This is manual trace verification, not execution.
-- Not performed: any physical/hardware test.
+Run from `firmware/` (PlatformIO needs a host C/C++ compiler on `PATH` for
+the `native` env; it does not bundle one):
+
+    pio test -e native
+
+- Native: **52/52 pass** — test_mixing 15, test_protocol_codec 21,
+  test_session_guard 15, test_protocol_fixtures 1 (replays all 30 shared
+  cases plus `boot_emit`). Environment: Windows 11, PlatformIO Core 6.2.0,
+  GCC 15.2.0 (MinGW-w64), ArduinoJson 6.21.6, Unity 2.6.1. This matches the
+  dashboard/control cross-check (macOS arm64, Apple clang).
+- Mixing fixture values are also reproducible from
+  `python firmware/test/fixtures/generate_mixing_fixtures.py`.
+- Not performed: `pio run -e esp32-s2` (board build), flashing, or any
+  physical/hardware test.
 
 ## Known limitations
 
-- `protocol_codec.cpp` and `test_protocol_fixtures.cpp` are written against
-  the ArduinoJson v6.21 API from memory and are the highest-risk files here
-  for an API mismatch (object/array iteration, `containsKey`, the
-  `variant | default` idiom); verify these first.
 - **Fixed, previously a real bug:** `protocol_codec.cpp`'s
-  `StaticJsonDocument` capacity was 256 bytes, too small to parse a full
-  drive packet — `deserializeJson` would return `NoMemory` and every valid
-  drive packet would be treated as malformed (fault + disarm). Raised to
-  512; see the 2026-09-26 "Verified via isolated PlatformIO install" log
-  entry below for how this was found.
-- `SessionGuard`/`protocol_codec` sequence numbers are validated as
-  `long`/`long long` via `is<int>()`; very large `seq` values (beyond
-  int32 range) are untested and may need widening once checked against
-  real ArduinoJson integer-type behavior.
-- `motor_shield.cpp` / `imu_bno055.cpp` are written against the Adafruit
-  Motor Shield V2 / Adafruit BNO055 library APIs from memory; unverified
-  against real headers or hardware.
+  `StaticJsonDocument` capacity was 256 bytes. A typical drive packet needs
+  288 bytes on a 64-bit host, so `deserializeJson` returned `NoMemory` and
+  every valid drive packet was treated as malformed (fault + disarm) —
+  3cbea5f could never have driven. Raised to 512 in 0332bd9.
+- Parser headroom at 512 (measured on the 64-bit host): a conformant drive
+  packet with a maximum-length session uses 321 bytes; a 195-byte line
+  padded with unknown extra fields uses 496. A pathological ≤200-byte line
+  packed with more tiny extra fields could still exceed 512; that fails
+  safe (`NoMemory` → malformed → fault + disarm), and no conformant sender
+  produces it. The ESP32-S2 (32-bit) needs less memory per field than the
+  host, so this is the conservative case.
+- `SessionGuard`/`protocol_codec` sequence numbers are validated via
+  `is<int>()`; `seq` values beyond int32 range are untested.
+- `motor_shield.cpp` / `imu_bno055.cpp` / `main.cpp` compile only for the
+  esp32-s2 env (behind `#ifdef ARDUINO`) and have not been built against the
+  real Adafruit/Arduino headers yet.
 - `test_protocol_fixtures.cpp` tries several candidate relative paths to
-  find the vendored fixture file since PlatformIO's native test working
-  directory isn't verified in this sandbox; set `RESCUEBOT_FIXTURE_DIR` if
-  none of them hit.
-- `platformio.ini`'s `[env:native]` was missing `test_build_src = yes` and
-  `-D UNITY_INCLUDE_DOUBLE`; both added (see log below). Without the
-  former, every native suite fails to link; without the latter,
-  double-precision assertions silently no-op instead of comparing.
-- No firmware compilation, flashing, or physical test has occurred. This
-  machine specifically has no C/C++ compiler at all (verified directly —
-  no gcc/g++/clang/clang++/cl anywhere), so `pio test -e native` cannot be
-  compiled here regardless of source correctness; see the log entry below.
+  find the vendored fixture file; set `RESCUEBOT_FIXTURE_DIR` if none hit.
+  Its failure messages are sometimes truncated in PlatformIO's summary
+  (text after a `:` is dropped); use `pio test -v` to see full text.
+- No board build, flashing, or physical test has occurred.
 
 ## Next action
 
-1. Install PlatformIO; run `pio test -e native` from `firmware/` and fix
-   any compile errors (expect the ArduinoJson usage, especially in
-   `test_protocol_fixtures.cpp`, to need the closest look).
-2. Confirm `test_protocol_fixtures` reports exactly the one known mismatch
-   in `rearm_with_new_session_rejects_old_session` and nothing else; update
-   that case's expected `outputs` on the `feature/serial-protocol` side.
-3. Once native tests pass, attempt `pio run -e esp32-s2` to check the
-   Arduino-side code compiles against the real libraries; update
-   `platformio.ini`'s `board` once the exact ESP32-S2 board is confirmed.
-4. Let us know if you'd rather extra/duplicate JSON fields be handled
-   differently than described above.
-5. Resolve the "Hardware facts still required" list, then set
+1. Run `pio run -e esp32-s2` (build only, do not flash) to check the
+   Arduino-side code compiles against the real Arduino/Adafruit headers;
+   update `platformio.ini`'s `board` once the exact ESP32-S2 board is
+   confirmed.
+2. Resolve the "Hardware facts still required" list, then set
    `chassis_config.h` from validated values before any real motor output.
-6. Someone should reconcile WORKSTREAMS.md's `firmware/tests/` path with
+3. Someone should reconcile WORKSTREAMS.md's `firmware/tests/` path with
    the actual `firmware/test/` directory name.
 
 ## Handoff log
@@ -411,6 +389,75 @@ up anything beyond these four fixes.
 - Next action: get this running somewhere with an actual C/C++ toolchain
   (or retry the `esp32-s2` build-only path) to turn "should pass" into an
   observed result; locate/push the real 30-case fixture file.
+
+### 2026-09-26 EDT - Native tests compiled and run: all four observations reproduced, 52/52 pass
+
+Supersedes the "could not compile" parts of the previous entry. The fixes
+from that entry were committed as 0332bd9. A host compiler is now
+available (GCC 15.2.0 from the MinGW-w64 bundled with CLion, prepended to
+`PATH` for the test process only — no system PATH or git config change).
+
+Environment: Windows 11, PlatformIO Core 6.2.0 in an isolated venv with
+`PLATFORMIO_CORE_DIR` pointed at a scratch directory, ArduinoJson 6.21.6,
+Unity 2.6.1. Every run used a `git archive` export in scratch, not the
+worktree.
+
+Commands (from the exported `firmware/`):
+
+    PATH="<clion>/bin/mingw/bin:$PATH" PLATFORMIO_CORE_DIR=<scratch>/core \
+      <venv>/Scripts/pio.exe test -e native
+
+Results, isolating each observation on the unmodified 3cbea5f:
+
+| Build | Result |
+|---|---|
+| 3cbea5f as pushed | All 4 suites fail to link: `undefined reference to rescuebot::mix`, `SessionGuard::*`, `parseInbound`, `Controller::*`, `LineReader::*` (observation 1 reproduced) |
+| 3cbea5f + `test_build_src = yes` only | 48 pass, 4 fail: `test_valid_drive_packet_parses`, `test_drive_packet_tolerates_unknown_extra_fields` (parsed as malformed), `test_build_imu_telemetry_round_trips`, and the fixture replay with 91 mismatches — every valid drive packet produced `malformed_packet` + disarm (observations 3 and 4 reproduced) |
+| 3cbea5f + src + capacity fixes, no `UNITY_INCLUDE_DOUBLE` | 49 pass, 3 fail: two with `Unity Double Precision Disabled` (observation 2 reproduced; it is masked until 3/4 are fixed), plus the 2 known `rearm_with_new_session_rejects_old_session` mismatches |
+| 0332bd9 (all four fixes), 26-case vectors | 51 pass, 1 fail: only the 2 `rearm_with_new_session_rejects_old_session` mismatches predicted earlier (t=60, t=70 outputs) |
+| 0332bd9 + 30-case vectors + `boot_emit` check (this entry) | **52/52 pass** |
+
+`DeserializationError` confirmed with a scratch-only diagnostic (not
+committed): capacity 256 → `NoMemory` (memoryUsage 256, needs 288); 384 and
+512 → `Ok`. Kept 512 (matches the cross-check; headroom figures are under
+"Known limitations").
+
+Comparison with dashboard/control's 52/52 (macOS arm64, Apple clang): same
+count, same result. No differences.
+
+Changes in this entry:
+
+- `firmware/test/fixtures/serial_protocol_vectors.json`: replaced with the
+  30-case version from e101f82 on `feature/dashboard-control`,
+  byte-identical (verified with `diff`), cases not edited. This file was
+  not on origin when the previous entry was written; it was pushed later
+  as e101f82, which is why that entry reported it missing.
+- `firmware/test/test_protocol_fixtures/test_protocol_fixtures.cpp`: calls
+  `Controller::boot()` at the start of each case (mirrors `setup()`), and
+  checks the top-level `boot_emit` against `boot()`'s output once. A
+  scratch mutation of `boot_emit` confirmed the check fails when it should.
+  Removed the stale "never compiled / known expected failure" header text.
+- This handoff's current-state sections updated to match.
+
+All 30 shared cases agree with the firmware. One discrepancy to report,
+not edited because the vectors are a shared interface: the fixture file's
+`description` says duplicate keys resolve to "the first occurrence". Measured
+with ArduinoJson 6.21.6, the **last** occurrence wins (see "Extra/duplicate
+JSON field policy"). No case exercises duplicates, so no test is affected;
+the dashboard/control side should correct that sentence.
+
+- Commit: see the commit that adds this entry (fixture + harness + handoff).
+- Changed files and interfaces: vendored fixture (30 cases), fixture
+  harness (boot check), this handoff. No message shapes, mixing equations,
+  or `hardware_pwm_ceiling` changed.
+- Tests and results: native 52/52 pass, as above.
+- Mock or physical coverage: native host only.
+- Known limitations: `pio run -e esp32-s2` not attempted (declined earlier
+  this session); no flashing; no hardware. The Arduino-guarded files
+  (`main.cpp`, `motor_shield.cpp`, `imu_bno055.cpp`) have never been
+  compiled.
+- Next action: build-only `pio run -e esp32-s2`; dashboard/control to fix
+  the duplicate-key sentence in the shared fixture's description.
 
 ## Entry template
 
