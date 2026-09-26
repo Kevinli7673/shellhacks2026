@@ -70,7 +70,25 @@ function renderKeys() {
   }
 }
 
+function updateVideo(camera) {
+  // The live camera process serves annotated MJPEG video on its own port.
+  const video = element("camera-video");
+  const wanted = camera.video && camera.status !== "offline"
+    ? window.location.protocol + "//" + window.location.hostname + ":" + camera.video.port + camera.video.path
+    : null;
+  if (wanted && video.dataset.src !== wanted) {
+    video.dataset.src = wanted;
+    video.src = wanted;
+  } else if (!wanted && video.dataset.src) {
+    delete video.dataset.src;
+    video.removeAttribute("src");  // closes the stream connection
+  }
+  video.hidden = !wanted;
+  return Boolean(wanted);
+}
+
 function updateCamera(camera) {
+  const showingVideo = updateVideo(camera);
   document.body.dataset.camera = camera.status;
   setText("camera-source", "Cam 1 · " + titleCase(camera.backend));
   element("camera-source").dataset.source = camera.backend;
@@ -86,7 +104,8 @@ function updateCamera(camera) {
 
   const overlay = element("detection-overlay");
   overlay.replaceChildren();
-  if (camera.status !== "online") return;
+  // Live video already has boxes drawn on the matching frame by the camera process.
+  if (camera.status !== "online" || showingVideo) return;
   for (const detection of camera.detections) {
     const box = document.createElement("div");
     box.className = "detection-box";

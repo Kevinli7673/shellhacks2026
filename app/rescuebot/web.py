@@ -15,6 +15,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .bridge_backend import BridgeMotorBackend
+from .live_camera import (
+    DEFAULT_DETECTOR,
+    DEFAULT_VIDEO_PORT,
+    LiveCameraBackend,
+    detector_args_from_env,
+)
 from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .service import RobotControlService
@@ -33,7 +39,7 @@ async def _control_loop(service: RobotControlService) -> None:
 def _dashboard_state(
     service: RobotControlService,
     session: str | None,
-    camera: MockCameraBackend | ReplayCameraBackend,
+    camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend,
 ) -> dict[str, object]:
     state = service.state()
     state["camera"] = camera.status()
@@ -51,7 +57,10 @@ def create_app(
     *,
     camera_backend: str = "mock",
     replay_path: str | Path | None = None,
-    camera: MockCameraBackend | ReplayCameraBackend | None = None,
+    camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend | None = None,
+    camera_detector: str | Path = DEFAULT_DETECTOR,
+    camera_args: str | None = None,
+    video_port: int = DEFAULT_VIDEO_PORT,
     motor_backend: str = "mock",
     bridge_command_socket: str | Path | None = None,
     bridge_status_socket: str | Path | None = None,
@@ -81,8 +90,14 @@ def create_app(
         if replay_path is None:
             raise ValueError("replay_path is required when camera_backend is replay")
         camera_service = ReplayCameraBackend(replay_path)
+    elif camera_backend == "live":
+        camera_service = LiveCameraBackend(
+            camera_detector,
+            detector_args_from_env() if camera_args is None else camera_args,
+            video_port=video_port,
+        )
     else:
-        raise ValueError("camera_backend must be mock or replay")
+        raise ValueError("camera_backend must be mock, replay, or live")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -172,8 +187,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Rescuebot dashboard.")
     parser.add_argument(
         "--camera-backend",
-        choices=("mock", "replay"),
+        choices=("mock", "replay", "live"),
         default=os.environ.get("RESCUEBOT_CAMERA_BACKEND", "mock"),
+        help="live: run ai_camera_detect.py on the AI Camera in a separate process.",
+    )
+    parser.add_argument(
+        "--camera-args",
+        default=detector_args_from_env(),
+        help='Extra ai_camera_detect.py options for --camera-backend live (default: "%(default)s").',
+    )
+    parser.add_argument(
+        "--video-port",
+        type=int,
+        default=int(os.environ.get("RESCUEBOT_VIDEO_PORT", DEFAULT_VIDEO_PORT)),
+        help="Port for the live camera's MJPEG video; 0 turns video off (default: %(default)s).",
     )
     parser.add_argument(
         "--replay-path",
@@ -194,6 +221,8 @@ def main() -> None:
         create_app(
             camera_backend=args.camera_backend,
             replay_path=args.replay_path,
+            camera_args=args.camera_args,
+            video_port=args.video_port,
             motor_backend=args.motor_backend,
         ),
         host="0.0.0.0",

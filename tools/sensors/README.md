@@ -40,6 +40,9 @@ Run folders contain video and photos. Do not commit them.
 
 ## Known limitations
 
+- Only one program can use the AI Camera at a time. Stop the dashboard's live camera
+  (`--camera-backend live`) before running `rescue_sensors.py`, and the reverse.
+
 - Lidar distances are wrong until `--lidar-offset` is calibrated with `find_offset.py`.
 - Snapshots come from the webcam, not the AI Camera.
 - Tested with fake sensors and on the Pi without calibration; no physical acceptance.

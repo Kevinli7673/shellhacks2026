@@ -264,6 +264,17 @@ body[data-camera="stale"] .slate-title { color: var(--tally-amber); }
 }
 body:not([data-camera="online"]) .lower-third { display: none; }
 
+.camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill; /* the stream is 4:3 like the screen, so boxes keep their positions */
+  z-index: 0; /* below the slate, so "Signal stale" still covers old video */
+  background: var(--screen);
+}
+.camera-video[hidden] { display: none; }
+
 .detection-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .detection-box {
   position: absolute;

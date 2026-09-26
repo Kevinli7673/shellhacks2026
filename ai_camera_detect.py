@@ -23,9 +23,11 @@ Run on the Pi (from a desktop terminal so the preview window can open):
     python3 ai_camera_detect.py --hazards
     python3 ai_camera_detect.py --only person --hits 4 --window 6
     python3 ai_camera_detect.py --headless --json   # over SSH, JSON lines to stdout
+    python3 ai_camera_detect.py --headless --json --stream-port 8081   # + annotated MJPEG video
 """
 
 import argparse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import queue
@@ -100,6 +102,9 @@ def get_args(argv=None):
     p.add_argument("--headless", action="store_true", help="no preview window (use over SSH)")
     p.add_argument("--json", action="store_true", help="print one JSON detection event per inference result")
     p.add_argument("--camera-id", default="front", help="camera_id written into events (default: %(default)s)")
+    p.add_argument("--stream-port", type=int, default=0,
+                   help="serve the annotated preview as MJPEG at http://<pi>:PORT/stream.mjpg; 0 = off (default)")
+    p.add_argument("--stream-fps", type=float, default=10.0, help="maximum streamed frames per second (default: %(default)s)")
     args = p.parse_args(argv)
     if args.hits < 1 or args.window < 1 or args.hits > args.window:
         p.error("--hits and --window must be at least 1, and --hits can't be larger than --window")
@@ -185,6 +190,103 @@ def make_event(frame_id, camera_id, width, height, sensor_timestamp_ns, found, n
     }
 
 
+class MjpegStreamer:
+    """Serve the newest annotated frame as an MJPEG stream at /stream.mjpg.
+
+    Frames are copied only while someone is watching and at most max_fps times a
+    second; JPEG encoding runs on its own thread, and slow viewers skip to the
+    newest frame instead of building a backlog.
+    """
+
+    def __init__(self, port, max_fps, encode_jpeg, host="0.0.0.0"):
+        self.min_interval = 1.0 / max_fps if max_fps > 0 else 0.0
+        self.encode_jpeg = encode_jpeg  # function(frame) -> JPEG bytes or None
+        self.cond = threading.Condition()
+        self.raw = None
+        self.jpeg = None
+        self.seq = 0
+        self.clients = 0
+        self.last_offer = float("-inf")
+        self.stopped = False
+        streamer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):  # keep the terminal quiet
+                pass
+
+            def do_GET(self):
+                if self.path.split("?")[0] == "/stream.mjpg":
+                    streamer._serve_stream(self)
+                elif self.path.split("?")[0] == "/snapshot.jpg" and streamer.jpeg:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/jpeg")
+                    self.send_header("Content-Length", str(len(streamer.jpeg)))
+                    self.end_headers()
+                    self.wfile.write(streamer.jpeg)
+                else:
+                    self.send_error(404)
+
+        self.server = ThreadingHTTPServer((host, port), Handler)
+        self.server.daemon_threads = True
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self._encode_loop, daemon=True).start()
+
+    def offer(self, frame):
+        """Called from the camera thread with the annotated image; returns immediately."""
+        now = time.monotonic()
+        if self.clients == 0 or now - self.last_offer < self.min_interval:
+            return
+        self.last_offer = now
+        with self.cond:
+            self.raw = frame[:, :, :3].copy()  # XRGB8888 memory is B, G, R, X
+            self.cond.notify_all()
+
+    def _encode_loop(self):
+        while not self.stopped:
+            with self.cond:
+                while self.raw is None and not self.stopped:
+                    self.cond.wait(0.5)
+                raw, self.raw = self.raw, None
+            if raw is None:
+                continue
+            data = self.encode_jpeg(raw)
+            if data:
+                with self.cond:
+                    self.jpeg, self.seq = data, self.seq + 1
+                    self.cond.notify_all()
+
+    def _serve_stream(self, handler):
+        handler.send_response(200)
+        handler.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        handler.send_header("Cache-Control", "no-cache, no-store")
+        handler.end_headers()
+        with self.cond:
+            self.clients += 1
+        sent = 0
+        try:
+            while not self.stopped:
+                with self.cond:
+                    self.cond.wait_for(lambda: self.seq != sent or self.stopped, timeout=1.0)
+                    if self.seq == sent:
+                        continue
+                    data, sent = self.jpeg, self.seq
+                handler.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                    + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            with self.cond:
+                self.clients -= 1
+
+    def close(self):
+        self.stopped = True
+        with self.cond:
+            self.cond.notify_all()
+        self.server.shutdown()
+        self.server.server_close()
+
+
 class Confirmer:
     """Only pass a label once it has appeared in `hits` of the last `window` inference results."""
 
@@ -240,6 +342,14 @@ def main():
         buffer_count=12,
     )
 
+    streamer = None
+    if args.stream_port:
+        def encode_jpeg(frame):
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            return buf.tobytes() if ok else None
+        streamer = MjpegStreamer(args.stream_port, args.stream_fps, encode_jpeg)
+        print(f"Video: http://<this-pi>:{streamer.port}/stream.mjpg", file=sys.stderr)
+
     events = queue.Queue(maxsize=30)  # bounded: drop events rather than build a backlog
     state = {"frame_id": 0, "dropped": 0, "boxes": [], "last_result": None}
     lock = threading.Lock()
@@ -290,6 +400,8 @@ def main():
                 cv2.rectangle(m.array, (x, y), (x + w, y + h), (0, 255, 0, 0), 2)
                 cv2.putText(m.array, f"{label} {conf:.2f}", (x + 4, max(y - 6, 14)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0, 0), 1, cv2.LINE_AA)
+            if streamer:
+                streamer.offer(m.array)
 
         if found is None:
             return
@@ -333,6 +445,8 @@ def main():
         pass
     finally:
         picam2.stop()
+        if streamer:
+            streamer.close()
         if state["dropped"]:
             print(f"Dropped {state['dropped']} events (output was too slow).", file=sys.stderr)
 
