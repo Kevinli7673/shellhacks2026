@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-26T07:22:02+00:00",
+  "generatedAt": "2026-09-26T07:33:16+00:00",
   "title": "Design System: Rescuebot",
   "extensions": {
     "colorMeta": {
@@ -283,7 +283,7 @@
       },
       "data": {
         "displayName": "Data",
-        "purpose": "Timecode, PWM, detents, telemetry (measurements only)."
+        "purpose": "PWM and telemetry values (measurements only)."
       }
     },
     "shadows": [
@@ -300,7 +300,7 @@
       {
         "name": "graphic-lift",
         "value": "0 6px 14px -6px oklch(0 0 0 / 0.6)",
-        "purpose": "Lower-third and fader cap."
+        "purpose": "Lower-third."
       }
     ],
     "motion": [
@@ -387,12 +387,12 @@
   ],
   "narrative": {
     "northStar": "The Tally Gallery",
-    "overview": "Rescuebot's dashboard is a broadcast control room with one camera. The robot's view is the program monitor, and drive state is its tally light: the monitor frame and the gallery bar go from dark, to pulsing amber while arming, to solid red when the robot is armed. An operator at arm's length and a judge across the room read the same state at once.\n\nThe desk is warm graphite. Monitors are near-black glass in darker bezels, and every label on screen follows the under-monitor-display (UMD) grammar: uppercase white on black, tightly tracked. Saturation belongs to state alone. Red means the robot is hot or Stop, amber means arming or replay, and green is a small healthy-link lamp. Nothing is decorative, and nothing imitates a physical material the page does not render.\n\nIt is an Operate surface: dense, consistent, and familiar where controls are concerned. Its character lives in the tally, the UMD strips, the lower-third, and the B612 readout lettering.",
+    "overview": "Rescuebot's dashboard is a broadcast control room with one camera. The robot's view is the program monitor, and drive state is its tally light: the monitor frame and the gallery bar go from dark, to pulsing amber while arming, to solid red when the robot is armed. An operator at arm's length and a judge across the room read the same state at once.\n\nThe desk is warm graphite. Monitors are near-black glass in darker bezels, and every label on screen follows the under-monitor-display (UMD) grammar: uppercase white on black, tightly tracked. Saturation belongs to state alone. Red means the robot is hot or Stop, amber means arming or replay, and green is a small healthy-link lamp. Nothing is decorative, and nothing imitates a physical material the page does not render.\n\nIt is an Operate surface: dense, consistent, and familiar where controls are concerned. Its character lives in the tally, the UMD tags, the lower-third, and the B612 readout lettering. Each fact appears once on the page.",
     "keyCharacteristics": [
       "Drive state is shown three ways at once: tally color, a large B612 word, and a reason line.",
       "Warm graphite neutrals; saturated color only for state.",
       "Flat materials: solid fills, 1px keylines, offset drop shadows only.",
-      "Broadcast grammar: program monitor, UMD tags, lower-third, timecode."
+      "Broadcast grammar: program monitor, UMD tags, lower-third."
     ],
     "rules": [
       {
@@ -432,7 +432,8 @@
       "**Don't** use tally red or amber for anything that is not drive state, arming, or replay.",
       "**Don't** add eyebrow labels above headings, card grids, gradient text, or glyph icons; icons are authored inline SVG with a 2px round stroke.",
       "**Don't** imitate materials with bevels, gloss, or scanlines.",
-      "**Don't** cover the camera with anything other than the source and camera tags, detections, and the lower-third."
+      "**Don't** cover the camera with anything other than the source and camera tags, detections, and the lower-third.",
+      "**Don't** repeat a fact in two places (connection, ownership, source, frame age); each has one home."
     ]
   }
 }

@@ -6,7 +6,6 @@ let socket;
 let connected = false;
 let canControl = false;
 let currentState;
-let sessionStartedAt = null;
 
 const element = (id) => document.getElementById(id);
 
@@ -74,13 +73,12 @@ function renderKeys() {
 function updateCamera(camera) {
   document.body.dataset.camera = camera.status;
   setText("camera-source", "Cam 1 · " + titleCase(camera.backend));
+  element("camera-source").dataset.source = camera.backend;
   setText("camera-status", titleCase(camera.status));
   setLamp(document.querySelector('[data-lamp="camera"]'),
     camera.status === "online" ? "ok" : camera.status === "stale" ? "warn" : "off");
   setText("camera-slate-title", camera.status === "stale" ? "Signal stale" : "No signal");
   setText("camera-message", camera.message);
-  setText("camera-age", camera.age_ms === null || camera.age_ms === undefined ? "No frames" : "Frame " + formatAge(camera.age_ms));
-  element("replay-label").hidden = camera.backend !== "replay";
 
   const count = camera.status === "online" ? camera.detection_count : 0;
   setText("detection-count", count === 0 ? "No people detected" : count + (count === 1 ? " person detected" : " people detected"));
@@ -167,9 +165,6 @@ function updateDashboard(data) {
   document.body.dataset.fault = control.fault ? "true" : "false";
   document.body.dataset.control = canControl ? "owner" : "viewer";
 
-  setLamp(document.querySelector('[data-lamp="link"]'), connected ? "ok" : "fault");
-  setText("connection-status", connected ? "Connected" : "Disconnected");
-  setText("ownership-status", canControl ? "You have control" : "Read-only");
   setText("driving-status", drive === "arming" ? "Arming…" : drive === "armed" ? "Armed · driving" : "Disabled");
 
   const reason = reasonText(control, drive);
@@ -183,11 +178,6 @@ function updateDashboard(data) {
 
   setText("speed-value", control.speed_percent + "%");
   setText("speed-limit", control.speed_limit + " / 255 PWM");
-  element("fader-fill").style.width = control.speed_percent + "%";
-  element("speed-fader").setAttribute("aria-valuenow", control.speed_percent);
-  for (const detent of document.querySelectorAll(".fader-detents span")) {
-    detent.classList.toggle("active", Number(detent.textContent) === control.speed_percent);
-  }
 
   updateCamera(camera);
   updateChain(data);
@@ -200,26 +190,13 @@ function updateDashboard(data) {
   }
   setText(
     "wheel-caption",
-    motor.backend === "bridge"
-      ? "Motor bridge " + (motor.healthy ? "connected" : "unavailable") +
-          "; values are firmware-acknowledged PWM before wheel mapping."
-      : "Mock backend; values are signed PWM requests before wheel mapping."
+    motor.backend === "bridge" ? "Wheel PWM · acknowledged by firmware" : "Wheel PWM · requested (mock)"
   );
 
   element("enable-button").disabled = !connected || !canControl || heldKeys.size > 0 || drive !== "disabled";
   element("enable-button").textContent = !canControl ? "Read-only"
     : drive === "armed" ? "Driving enabled" : drive === "arming" ? "Arming…" : "Enable driving";
   element("stop-button").disabled = !connected;
-}
-
-function renderTimecode() {
-  if (!connected || sessionStartedAt === null) {
-    setText("timecode", "--:--:--");
-    return;
-  }
-  const total = Math.floor((Date.now() - sessionStartedAt) / 1000);
-  const parts = [Math.floor(total / 3600), Math.floor(total / 60) % 60, total % 60];
-  setText("timecode", parts.map((part) => String(part).padStart(2, "0")).join(":"));
 }
 
 async function refreshCameraState() {
@@ -239,7 +216,6 @@ function connect() {
 
   socket.addEventListener("open", () => {
     connected = true;
-    sessionStartedAt = Date.now();
     send({ type: "claim" });
   });
 
@@ -308,6 +284,5 @@ window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
 }, 50);
 window.setInterval(refreshCameraState, 100);
-window.setInterval(renderTimecode, 1000);
 
 connect();

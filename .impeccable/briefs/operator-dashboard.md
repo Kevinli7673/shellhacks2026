@@ -59,6 +59,13 @@ keycaps light while keys are held so the audience sees the operator's input.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
+## Revisions
+
+- 2026-09-26 distill (user request): removed the speed fader (speed is now a
+  one-line readout), the session timecode, the monitor UMD strip, the key-map
+  list, and the gallery bar's connection/ownership readouts. Each fact now
+  appears once. FIRST VIEWPORT is otherwise unchanged.
+
 ## Unresolved
 
 - Live video is not integrated; the monitor shows a NO SIGNAL slate or replay

@@ -112,13 +112,13 @@ Rescuebot's dashboard is a broadcast control room with one camera. The robot's v
 
 The desk is warm graphite. Monitors are near-black glass in darker bezels, and every label on screen follows the under-monitor-display (UMD) grammar: uppercase white on black, tightly tracked. Saturation belongs to state alone. Red means the robot is hot or Stop, amber means arming or replay, and green is a small healthy-link lamp. Nothing is decorative, and nothing imitates a physical material the page does not render.
 
-It is an Operate surface: dense, consistent, and familiar where controls are concerned. Its character lives in the tally, the UMD strips, the lower-third, and the B612 readout lettering.
+It is an Operate surface: dense, consistent, and familiar where controls are concerned. Its character lives in the tally, the UMD tags, the lower-third, and the B612 readout lettering. Each fact appears once on the page.
 
 **Key Characteristics:**
 - Drive state is shown three ways at once: tally color, a large B612 word, and a reason line.
 - Warm graphite neutrals; saturated color only for state.
 - Flat materials: solid fills, 1px keylines, offset drop shadows only.
-- Broadcast grammar: program monitor, UMD tags, lower-third, timecode.
+- Broadcast grammar: program monitor, UMD tags, lower-third.
 
 ## Colors
 
@@ -129,7 +129,7 @@ A restrained palette of warm graphite and cool monitor black, where every satura
 - **Stop Red** (stop, stop-hover, stop-press): Only the Stop button. It is slightly deeper than tally red, so the control and the state never read as one element.
 
 ### Secondary
-- **Tally Amber** (tally-amber): Arming (a pulsing frame and blinking lamp), a stale camera, replay flags, focus rings, and text selection.
+- **Tally Amber** (tally-amber): Arming (a pulsing frame and blinking lamp), a stale camera, the replay source tag, focus rings, and text selection.
 
 ### Tertiary
 - **Lamp Green** (lamp-green): Small round lamps for a healthy link (browser, motor bridge, firmware armed, camera online). It is never used on larger surfaces.
@@ -138,7 +138,7 @@ A restrained palette of warm graphite and cool monitor black, where every satura
 - **Gallery Desk** (gallery-desk): The page ground.
 - **Raised Desk** (desk-raised): The drive-desk panel.
 - **Desk Line** (desk-line): Panel borders, dividers, keycap keylines, and the idle tally.
-- **Bezel** (bezel): The monitor surround and the fader track.
+- **Bezel** (bezel): The monitor surround.
 - **Monitor Screen** (screen): The camera field. It is the one cool neutral and marks the video area.
 - **UMD Black** (umd-black): The gallery bar, UMD tags and strips, and the signal-chain strip.
 - **Lamp Off** (lamp-off): Unlit lamps and the idle tally.
@@ -153,7 +153,7 @@ A restrained palette of warm graphite and cool monitor black, where every satura
 
 **Display Font:** B612 Bold, the Airbus cockpit display face, self-hosted from `app/rescuebot/static/fonts/` (SIL OFL 1.1), falling back to the system sans.
 **Body Font:** The platform system sans stack.
-**Label/Mono Font:** The platform monospace, used only for timecode, PWM, ages, and other measurements.
+**Label/Mono Font:** The platform monospace, used only for PWM, ages, and other measurements.
 
 **Character:** Cockpit lettering for the few words that must be read under stress, and a quiet workhorse sans for everything else.
 
@@ -162,8 +162,8 @@ A restrained palette of warm graphite and cool monitor black, where every satura
 - **Headline** (B612 700, 1.728rem): The Stop label and speed value.
 - **Title** (system 800, 1.2rem): The wordmark (B612) and the lower-third detection count.
 - **Body** (system 400, 1rem, 1.4, tabular figures): Reason lines, key-map descriptions, and slate messages. Max 52ch on the reason line.
-- **Label** (system 700, 0.875rem, 0.1em, uppercase): UMD tags, gallery-bar items, desk labels, and signal-chain names (0.75rem).
-- **Data** (mono 500, 0.75–1rem): Timecode, PWM, fader detents, and telemetry values.
+- **Label** (system 700, 0.875rem, 0.1em, uppercase): UMD tags, the DRIVING tag, desk labels, and signal-chain names (0.75rem).
+- **Data** (mono 500, 0.75–1rem): PWM and telemetry values.
 
 ### Named Rules
 **The Stress Words Rule.** B612 is only for words an operator must read in under a second: drive state, Stop, the speed value, the slate, and the wordmark.
@@ -181,14 +181,14 @@ The world is flat. Depth comes from tonal layering (desk, raised desk, bezel, sc
 ### Shadow Vocabulary
 - **Monitor lift** (`0 14px 30px -12px oklch(0 0 0 / 0.7)`): The program monitor bezel.
 - **Stop lift** (`0 10px 22px -12px oklch(0.4 0.18 27 / 0.9)`): The Stop button. It is removed while pressed.
-- **Graphic lift** (`0 6px 14px -6px oklch(0 0 0 / 0.6)`): The lower-third and the fader cap.
+- **Graphic lift** (`0 6px 14px -6px oklch(0 0 0 / 0.6)`): The lower-third.
 
 ### Named Rules
 **The No Imitation Rule.** No bevels, specular highlights, gradients faking plastic or metal, or scanline textures. Lamps are flat discs with a dark 1px ring, and keycaps are flat fills with a keyline.
 
 ## Shapes
 
-Corners are small and square-shouldered: 2px on UMD tags, lower-thirds, and screens; 4px on panels and buttons; 5px on keycaps. Round shapes are lamps, the tally, and the fader track. The tally is a 6px outline ring around the monitor bezel, not a border inside it, so the frame reads from a distance.
+Corners are small and square-shouldered: 2px on UMD tags, lower-thirds, and screens; 4px on panels and buttons; 5px on keycaps. Round shapes are lamps and the tally. The tally is a 6px outline ring around the monitor bezel, not a border inside it, so the frame reads from a distance.
 
 ## Components
 
@@ -197,19 +197,19 @@ Corners are small and square-shouldered: 2px on UMD tags, lower-thirds, and scre
 - **Enable driving:** A 2px outlined ghost button in Label Warm. It relabels itself as "Arming…", "Driving enabled", or "Read-only", and it is disabled whenever it cannot act.
 
 ### Program monitor (signature)
-A 4:3 screen in a 12px bezel, with the tally ring outside. It carries a source UMD tag top-left (`Cam 1 · Mock/Replay/Live`), a camera lamp tag top-right, a white lower-third bottom-left, and a UMD strip beneath it (program label, REPLAY flag, frame age). Detections are 2px white boxes with a black keyline and white label chips, drawn above the tags. Offline and stale states show a centered B612 slate.
+A 4:3 screen in a 12px bezel, with the tally ring outside. It carries a source UMD tag top-left (`Cam 1 · Mock/Replay/Live`, amber when the source is replay), a camera lamp tag top-right, and a white lower-third bottom-left. There is nothing beneath the monitor; frame age lives in the telemetry. Detections are 2px white boxes with a black keyline and white label chips, drawn above the tags. Offline and stale states show a centered B612 slate.
 
 ### Drive readout
 A 24px lamp and a B612 state word, colored by state, above a reason line. Faults append their machine code in small mono.
 
-### Speed fader
-A 12px track with a flat ink fill, a flat cap with an index line, and 10 detents labeled in mono. The active detent is highlighted. It is display only and driven by Up/Down.
+### Speed readout
+A single line: a "Motor speed" label, the percentage in B612, and the mono PWM value beside it. It is adjusted only with Up/Down. There is no slider.
 
 ### Keycap panel
-WASD and arrow clusters as 40px flat keycaps. Held keys light (ink, or tally red for movement keys while armed), so the audience sees the operator's input.
+WASD and arrow clusters as 40px flat keycaps, with short legends (Move · strafe, Rotate · speed) instead of a separate key list. Held keys light (ink, or tally red for movement keys while armed), so the audience sees the operator's input.
 
 ### Signal chain
-A UMD-black strip of four links (Browser, Control, Motor bridge or backend, Firmware), each with a lamp, an uppercase name, and a value, joined by thin arrows. Beside or below it, telemetry shows wheel PWM at the chassis corners and a two-column readings list.
+A UMD-black strip of four links (Browser, Control, Motor bridge or backend, Firmware), each with a lamp, an uppercase name, and a value, joined by thin arrows. It is the only place connection and ownership appear. Below it, telemetry shows a 2×2 wheel PWM grid and a readings list three to a row (two on phones).
 
 ## Do's and Don'ts
 
@@ -225,3 +225,4 @@ A UMD-black strip of four links (Browser, Control, Motor bridge or backend, Firm
 - **Don't** add eyebrow labels above headings, card grids, gradient text, or glyph icons; icons are authored inline SVG with a 2px round stroke.
 - **Don't** imitate materials with bevels, gloss, or scanlines.
 - **Don't** cover the camera with anything other than the source and camera tags, detections, and the lower-third.
+- **Don't** repeat a fact in two places (connection, ownership, source, frame age); each has one home.

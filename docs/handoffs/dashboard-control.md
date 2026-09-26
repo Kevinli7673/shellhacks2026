@@ -542,6 +542,37 @@ Private details (username, network, device serial numbers) are omitted.
   - The user opens the dashboard (mock or --motor-backend bridge) and
     checks it on a projector or large screen.
 
+### 2026-09-26 EDT - Dashboard distill: remove speed slider and repetition
+
+- Commit: feature/dashboard-control; refactor: distill operator dashboard.
+- Changed files and interfaces:
+  - Removed the speed fader. Speed is now one line ("Motor speed", the B612
+    percentage, and PWM), still adjusted with Up/Down.
+  - Removed the session timecode, the UMD strip under the monitor (replay
+    is now an amber source tag; frame age lives only in the telemetry), the
+    key-map list (keycap legends carry the meaning), the gallery bar's
+    connection and ownership readouts (shown once, in the signal chain),
+    and the chassis box around the wheel values. The wheel caption and
+    readings are shorter, with readings three to a row (two on phones).
+  - dashboard.js: key handling, heartbeat, blur/hidden stop, and reconnect
+    are unchanged (diffed; only the timecode timer was removed). Every
+    element ID it uses exists.
+  - DESIGN.md, .impeccable/design.json, and the surface brief now match
+    the distilled page. Net -141 lines.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 102 passed.
+  - node --check passed; a live uvicorn server served the page, CSS, JS,
+    and font (all 200).
+  - Headless Chrome with device emulation at 1440, 1280, and 390 px: one
+    inspection round (telemetry spread and the mobile speed-line wrap
+    fixed) and one confirmation round, both clean.
+- Mock or physical coverage:
+  - Scripted preview states and the mock server only.
+- Known limitations:
+  - Not yet viewed by a person in a real browser or on a projector.
+- Next action:
+  - The user reviews the page; an Impeccable polish pass is optional.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
