@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared mecanum mixing behavioral fixtures. Values computed from the exact equations in IMPLEMENTATION_PLAN.md section 4 via tests/fixtures/generate_mixing_fixtures.py and cross-checked by hand. firmware/tests/test_mixing/test_mixing.cpp asserts these same values against mix(). The dashboard/control workstream should reproduce identical values from its Python mock mixing implementation to keep parity (IMPLEMENTATION_PLAN.md section 4: 'Use shared fixtures to verify Python/C++ output parity').",
+  "_comment": "Shared mecanum mixing behavioral fixtures. Values computed from the exact equations in IMPLEMENTATION_PLAN.md section 4 via test/fixtures/generate_mixing_fixtures.py and cross-checked by hand. firmware/test/test_mixing/test_mixing.cpp asserts these same values against mix(). The dashboard/control workstream should reproduce identical values from its Python mock mixing implementation to keep parity (IMPLEMENTATION_PLAN.md section 4: 'Use shared fixtures to verify Python/C++ output parity').",
   "fixtures": [
     {
       "name": "zero_limit",

@@ -1,9 +1,9 @@
 // Native host test for the pure mecanum mixing calculation. Run with:
 //   pio test -e native -f test_mixing
 //
-// Expected values mirror firmware/tests/fixtures/mixing_fixtures.json
+// Expected values mirror firmware/test/fixtures/mixing_fixtures.json
 // exactly (generated/verified via
-// firmware/tests/fixtures/generate_mixing_fixtures.py); keep both in sync
+// firmware/test/fixtures/generate_mixing_fixtures.py); keep both in sync
 // if the fixtures change.
 #include <unity.h>
 

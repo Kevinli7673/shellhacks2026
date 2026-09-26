@@ -81,6 +81,43 @@ void test_rearm_establishes_a_fresh_session_baseline(void) {
     TEST_ASSERT_EQUAL(DriveRejection::ACCEPTED, guard.tryDrive("s2", 2, 2010));
 }
 
+void test_stale_arm_same_session_equal_seq_is_ignored(void) {
+    SessionGuard guard(500);
+    TEST_ASSERT_TRUE(guard.arm("s1", 10, 1000));
+    // Same session, seq not higher than the last one seen: ignored.
+    TEST_ASSERT_FALSE(guard.arm("s1", 10, 2000));
+    TEST_ASSERT_TRUE(guard.armed());
+}
+
+void test_stale_arm_same_session_lower_seq_is_ignored(void) {
+    SessionGuard guard(500);
+    guard.arm("s1", 10, 1000);
+    guard.tryDrive("s1", 20, 1010);
+    TEST_ASSERT_FALSE(guard.arm("s1", 15, 2000));
+    TEST_ASSERT_TRUE(guard.armed());
+}
+
+void test_rearm_same_session_higher_seq_is_accepted(void) {
+    SessionGuard guard(500);
+    guard.arm("s1", 10, 1000);
+    guard.tryDrive("s1", 11, 1010);
+    TEST_ASSERT_TRUE(guard.arm("s1", 12, 2000));
+    TEST_ASSERT_TRUE(guard.armed());
+    // The new baseline is 12, not 11.
+    TEST_ASSERT_EQUAL(DriveRejection::STALE_SEQUENCE, guard.tryDrive("s1", 12, 2010));
+    TEST_ASSERT_EQUAL(DriveRejection::ACCEPTED, guard.tryDrive("s1", 13, 2020));
+}
+
+void test_arm_new_session_is_always_accepted_even_with_a_lower_seq(void) {
+    // A genuine reconnect starts a fresh session; it must never be blocked
+    // by the previous session's higher sequence numbers.
+    SessionGuard guard(500);
+    guard.arm("s1", 1000, 1000);
+    TEST_ASSERT_TRUE(guard.arm("s2", 1, 2000));
+    TEST_ASSERT_TRUE(guard.armed());
+    TEST_ASSERT_EQUAL(DriveRejection::ACCEPTED, guard.tryDrive("s2", 2, 2010));
+}
+
 void test_watchdog_expires_and_disarms(void) {
     SessionGuard guard(500);
     guard.arm("s1", 10, 1000);
@@ -115,6 +152,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_fault_disarm_disarms_immediately);
     RUN_TEST(test_reset_clears_session_and_arm_state);
     RUN_TEST(test_rearm_establishes_a_fresh_session_baseline);
+    RUN_TEST(test_stale_arm_same_session_equal_seq_is_ignored);
+    RUN_TEST(test_stale_arm_same_session_lower_seq_is_ignored);
+    RUN_TEST(test_rearm_same_session_higher_seq_is_accepted);
+    RUN_TEST(test_arm_new_session_is_always_accepted_even_with_a_lower_seq);
     RUN_TEST(test_watchdog_expires_and_disarms);
     RUN_TEST(test_watchdog_is_refreshed_by_accepted_drive_commands);
     RUN_TEST(test_watchdog_check_on_already_disarmed_guard_is_a_no_op);

@@ -2,41 +2,38 @@
 // compile this to an empty translation unit (Unity's own main() runs
 // instead). Not yet compiled or flashed (no board or toolchain available in
 // the sandbox that wrote this). See docs/handoffs/esp32-controller.md.
+//
+// The protocol/safety decision logic itself lives in controller.h/.cpp,
+// shared verbatim with the native test that replays
+// firmware/test/fixtures/serial_protocol_vectors.json, so this file is
+// just I/O plumbing: reading Serial, writing Serial, and turning
+// Controller's outputs() into real motor commands via wiring.h.
 #ifdef ARDUINO
 
 #include <Arduino.h>
 
 #include "chassis_config.h"
+#include "controller.h"
 #include "imu_bno055.h"
 #include "line_reader.h"
-#include "mixing.h"
 #include "motor_shield.h"
-#include "protocol_messages.h"
-#include "session_guard.h"
 #include "wiring.h"
 
 namespace {
 
-using rescuebot::ChassisConfig;
-using rescuebot::DriveRejection;
+using rescuebot::Controller;
 using rescuebot::ImuReading;
 using rescuebot::ImuSensor;
-using rescuebot::InboundDrive;
-using rescuebot::InboundMessage;
-using rescuebot::InboundType;
 using rescuebot::LineReader;
-using rescuebot::MotorCommands;
 using rescuebot::MotorShield;
-using rescuebot::SessionGuard;
-using rescuebot::WheelOutputs;
 
-constexpr uint32_t kWatchdogTimeoutMs = 500;   // IMPLEMENTATION_PLAN.md section 7 default
-constexpr uint32_t kImuIntervalMs = 50;        // ~20 Hz telemetry cadence
+constexpr uint32_t kWatchdogTimeoutMs = 500;    // IMPLEMENTATION_PLAN.md section 7 default
+constexpr uint32_t kImuIntervalMs = 50;         // ~20 Hz telemetry cadence
 constexpr uint32_t kImuRetryIntervalMs = 1000;  // bounded, non-blocking re-init cadence
 
 LineReader g_line_reader;
-SessionGuard g_guard(kWatchdogTimeoutMs);
-ChassisConfig g_chassis;  // TODO: set validated wheel mapping/ceiling before Stage G
+rescuebot::ChassisConfig g_chassis;  // TODO: set validated wheel mapping/ceiling before Stage G
+Controller g_controller(kWatchdogTimeoutMs, g_chassis.hardware_pwm_ceiling);
 MotorShield g_motors;
 ImuSensor g_imu;
 
@@ -53,72 +50,15 @@ void sendLine(const char* text, size_t len) {
     Serial.write('\n');
 }
 
-void handleDrive(const InboundDrive& drive, uint32_t now_ms) {
-    DriveRejection result = g_guard.tryDrive(drive.session, drive.seq, now_ms);
-    if (result != DriveRejection::ACCEPTED) {
-        // Stale/duplicate/out-of-order/wrong-session/not-armed: ignore
-        // silently. Do not drive motors, do not refresh the watchdog, do
-        // not disarm (IMPLEMENTATION_PLAN.md section 6).
-        return;
-    }
-
-    int limit = drive.speed_limit;
-    if (limit > g_chassis.hardware_pwm_ceiling) {
-        limit = g_chassis.hardware_pwm_ceiling;
-    }
-
-    WheelOutputs outputs = rescuebot::mix(drive.forward, drive.sideways, drive.turn, limit);
-    MotorCommands commands = rescuebot::applyChassisConfig(outputs, g_chassis);
-    g_motors.write(commands);
-
-    size_t n = rescuebot::buildDriveAck(g_out_buf, sizeof(g_out_buf), drive.session, drive.seq,
-                                         outputs.front_left, outputs.front_right,
-                                         outputs.rear_left, outputs.rear_right);
-    sendLine(g_out_buf, n);
-}
-
-void handleLine(const char* text, size_t len, uint32_t now_ms) {
-    if (g_line_reader.overflowed()) {
+// Applies wiring to the controller's current outputs and writes them, or
+// forces everything off when disarmed. Called once per processed line and
+// once per watchdog tick, matching how often outputs() can actually change.
+void applyControllerOutputs() {
+    if (!g_controller.armed()) {
         g_motors.allOff();
-        g_guard.faultDisarm();
-        size_t n = rescuebot::buildFault(g_out_buf, sizeof(g_out_buf), "oversized_packet");
-        sendLine(g_out_buf, n);
         return;
     }
-
-    InboundMessage msg = rescuebot::parseInbound(text, len);
-    if (msg.malformed) {
-        g_motors.allOff();
-        g_guard.faultDisarm();
-        size_t n = rescuebot::buildFault(g_out_buf, sizeof(g_out_buf), "malformed_packet");
-        sendLine(g_out_buf, n);
-        return;
-    }
-
-    switch (msg.type) {
-        case InboundType::DRIVE:
-            handleDrive(msg.drive, now_ms);
-            break;
-        case InboundType::ARM: {
-            g_guard.arm(msg.arm_disarm.session, msg.arm_disarm.seq, now_ms);
-            size_t n = rescuebot::buildArmAck(g_out_buf, sizeof(g_out_buf),
-                                               msg.arm_disarm.session, msg.arm_disarm.seq, true);
-            sendLine(g_out_buf, n);
-            break;
-        }
-        case InboundType::DISARM: {
-            g_motors.allOff();
-            g_guard.disarm();
-            size_t n = rescuebot::buildDisarmAck(g_out_buf, sizeof(g_out_buf),
-                                                  msg.arm_disarm.session, msg.arm_disarm.seq);
-            sendLine(g_out_buf, n);
-            break;
-        }
-        case InboundType::UNKNOWN:
-            // parseInbound flags genuinely unrecognized "type" values as
-            // malformed above, so this case is unreachable in practice.
-            break;
-    }
+    g_motors.write(rescuebot::applyChassisConfig(g_controller.outputs(), g_chassis));
 }
 
 }  // namespace
@@ -126,7 +66,13 @@ void handleLine(const char* text, size_t len, uint32_t now_ms) {
 void setup() {
     Serial.begin(115200);
     g_motors.allOff();  // outputs off before sensor init (section 7)
-    g_guard.reset();
+    g_controller.setHardwarePwmCeiling(g_chassis.hardware_pwm_ceiling);
+
+    // Lets the Pi notice a reboot immediately instead of only inferring it
+    // once acks stop arriving (up to 250 ms later).
+    size_t n = g_controller.boot(g_out_buf, sizeof(g_out_buf));
+    sendLine(g_out_buf, n);
+
     g_imu_ready = g_imu.begin();
     g_last_imu_attempt_ms = millis();
 }
@@ -137,15 +83,21 @@ void loop() {
     while (Serial.available() > 0) {
         char c = static_cast<char>(Serial.read());
         if (g_line_reader.feed(c)) {
-            handleLine(g_line_reader.line(), g_line_reader.length(), now_ms);
+            size_t n = g_controller.handleLine(g_line_reader.line(), g_line_reader.length(),
+                                                g_line_reader.overflowed(), now_ms, g_out_buf,
+                                                sizeof(g_out_buf));
+            sendLine(g_out_buf, n);
+            applyControllerOutputs();
             g_line_reader.reset();
         }
     }
 
-    if (g_guard.checkWatchdog(now_ms)) {
-        g_motors.allOff();
-        size_t n = rescuebot::buildFault(g_out_buf, sizeof(g_out_buf), "watchdog_expired");
-        sendLine(g_out_buf, n);
+    {
+        size_t n = g_controller.tick(now_ms, g_out_buf, sizeof(g_out_buf));
+        if (n > 0) {
+            sendLine(g_out_buf, n);
+            applyControllerOutputs();
+        }
     }
 
     if (!g_imu_ready && now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {

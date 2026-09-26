@@ -3,7 +3,7 @@ IMPLEMENTATION_PLAN.md section 4. Run this after any accepted change to the
 mixing algorithm so the fixture stays derived from a single source rather
 than hand-edited. It is not part of the firmware build.
 
-    python firmware/tests/fixtures/generate_mixing_fixtures.py
+    python firmware/test/fixtures/generate_mixing_fixtures.py
 """
 import json
 import math
@@ -98,8 +98,8 @@ def main():
         "_comment": (
             "Shared mecanum mixing behavioral fixtures. Values computed from "
             "the exact equations in IMPLEMENTATION_PLAN.md section 4 via "
-            "tests/fixtures/generate_mixing_fixtures.py and cross-checked by "
-            "hand. firmware/tests/test_mixing/test_mixing.cpp asserts these "
+            "test/fixtures/generate_mixing_fixtures.py and cross-checked by "
+            "hand. firmware/test/test_mixing/test_mixing.cpp asserts these "
             "same values against mix(). The dashboard/control workstream "
             "should reproduce identical values from its Python mock mixing "
             "implementation to keep parity (IMPLEMENTATION_PLAN.md section 4: "

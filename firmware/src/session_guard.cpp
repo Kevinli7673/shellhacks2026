@@ -20,7 +20,10 @@ bool SessionGuard::sessionMatches(const char* session) const {
     return has_session_ && std::strncmp(session_, session, kMaxSessionLength) == 0;
 }
 
-void SessionGuard::arm(const char* session, uint64_t seq, uint32_t now_ms) {
+bool SessionGuard::arm(const char* session, uint64_t seq, uint32_t now_ms) {
+    if (sessionMatches(session) && has_last_seq_ && seq <= last_seq_) {
+        return false;  // stale/replayed arm: ignored, no state change
+    }
     std::strncpy(session_, session, kMaxSessionLength - 1);
     session_[kMaxSessionLength - 1] = '\0';
     has_session_ = true;
@@ -28,6 +31,7 @@ void SessionGuard::arm(const char* session, uint64_t seq, uint32_t now_ms) {
     has_last_seq_ = true;
     armed_ = true;
     last_valid_drive_ms_ = now_ms;
+    return true;
 }
 
 void SessionGuard::disarm() {

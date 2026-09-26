@@ -11,7 +11,7 @@ struct WheelOutputs {
 
 // Pure mecanum mixing, exactly per IMPLEMENTATION_PLAN.md section 4. No
 // Arduino or hardware dependency, so it can be exercised by native host
-// tests (see firmware/tests/test_mixing).
+// tests (see firmware/test/test_mixing).
 //
 // forward/sideways/turn are the commanded axes; callers must already have
 // validated them as finite and within [-1, 1] before calling. speed_limit

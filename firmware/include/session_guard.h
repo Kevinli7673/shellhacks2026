@@ -16,7 +16,7 @@ enum class DriveRejection {
 
 // Tracks arm/disarm state, the active session, and the motion watchdog.
 // Pure logic: no I/O, no Arduino dependency, fully host-testable (see
-// firmware/tests/test_session_guard).
+// firmware/test/test_session_guard).
 //
 // Safety invariants (IMPLEMENTATION_PLAN.md sections 5-7):
 // - Boot, faults, watchdog expiry, and disarm leave driving disabled.
@@ -26,6 +26,9 @@ enum class DriveRejection {
 //   session are accepted; stale/duplicate/out-of-order/wrong-session drive
 //   commands are ignored without disarming and without refreshing the
 //   watchdog.
+// - A stale arm (same session, seq not higher than the last one seen) is
+//   ignored the same way; an arm for a different session is always
+//   accepted, since a genuine reconnect starts a fresh session.
 // - A malformed packet always disarms immediately; call faultDisarm() from
 //   the caller once the protocol layer flags a packet malformed.
 class SessionGuard {
@@ -35,9 +38,15 @@ public:
     // Boot state: disarmed, no session, watchdog clock idle.
     void reset();
 
-    // Explicit arm request. Always establishes/refreshes the session,
-    // accepts seq as the new baseline, and resets the watchdog clock.
-    void arm(const char* session, uint64_t seq, uint32_t now_ms);
+    // Explicit arm request. Ignored (returns false, no state change) when
+    // session matches the currently remembered session and seq is not
+    // higher than the last one seen for it — a stale/replayed arm. Any
+    // other arm (a new session, or a higher seq within the same session)
+    // is accepted: establishes/refreshes the session, accepts seq as the
+    // new baseline, resets the watchdog clock, and returns true. The
+    // caller is responsible for zeroing motor outputs on an accepted arm
+    // so nothing moves until the first new drive packet.
+    bool arm(const char* session, uint64_t seq, uint32_t now_ms);
 
     // Explicit disarm/stop request. Always disarms immediately regardless
     // of session ("Stop overrides everything").
