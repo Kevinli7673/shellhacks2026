@@ -2,7 +2,7 @@
 
 Workstream: ESP32 controller
 Branch: feature/esp32-controller (pushed to origin)
-Status: in progress; native tests 52/52; esp32-s2 build succeeds; not flashed, no hardware test
+Status: in progress; native tests 53/53; esp32-s2 build succeeds; not flashed, no hardware test
 
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
@@ -24,6 +24,7 @@ Responses from ESP32-controller to dashboard/control requests (DC-#).
 | DC-1 | Done. Merged origin/main (b37213e) into feature/esp32-controller as 1988d5a; this Requests/Responses section was added in the commit that introduced it. |
 | DC-2 | Done in f6213f3. `firmware/test/fixtures/serial_protocol_vectors.json` is byte-identical to origin/feature/dashboard-control (checked against e101f82 and again at 585d499). `pio test -e native` on 0332bd9 plus that file: 52/52 pass on Windows 11, GCC 15.2.0 (MinGW-w64), PlatformIO 6.2.0, ArduinoJson 6.21.6. Details in the handoff log below. |
 | DC-3 | Done. `pio run -e esp32-s2` (build only, nothing flashed) on 1988d5a: SUCCESS, 0 compiler warnings, RAM 4.8% (15620/327680 B), flash 20.6% (269566/1310720 B). Board is still the placeholder esp32-s2-saola-1. Toolchain came from PlatformIO's registry into an isolated core dir. |
+| DC-4 | Done in 017de3a. `front_left` is M1 with inversion enabled, based on the 2026-09-26 all-ports-FORWARD bench finding. Added a native regression test for M1 -100 and M2–M4 +100 on pure forward at limit 100. Added the guarded raised-chassis port-test sketch at `firmware/tools/motor_shield_port_test/`; M1–M4 remains provisional until its recorded results are supplied. Native 53/53 and a clean ESP32-S2 build passed. |
 
 ## Current state
 
@@ -43,10 +44,12 @@ Responses from ESP32-controller to dashboard/control requests (DC-#).
   modules — mixing, session/watchdog, protocol parsing/building — plus a
   suite that replays the shared `fixtures/serial_protocol_vectors.json`
   (30 cases + `boot_emit`) against the firmware's actual logic via
-  `Controller`.
-- **Native tests compiled and run: 52/52 pass** (PlatformIO 6.2.0, GCC
-  15.2.0 on Windows). `pio run -e esp32-s2` also builds (0 warnings). No
-  flashing or hardware testing has happened. See "Tests" below.
+  `Controller`, and a wiring suite that applies `ChassisConfig` after
+  mixing.
+- **Native tests compiled and run: 53/53 pass** (PlatformIO 6.2.0, macOS
+  arm64 clang in the current run). `pio run -e esp32-s2` also builds (0
+  warnings). No flashing or hardware testing has happened. See "Tests"
+  below.
 - Hardware adapters (`motor_shield.cpp`, `imu_bno055.cpp`) and `main.cpp`
   are guarded with `#ifdef ARDUINO` so native test builds compile them to
   empty translation units; they still need a real board to validate at all.
@@ -181,8 +184,10 @@ driving, not mock/native development:
 - Exact ESP32-S2 board and I2C pins (`platformio.ini` uses a placeholder
   board id).
 - Confirmed motor-shield revision/address.
-- Wheel-channel mapping and direction inversions (`chassis_config.h` has
-  placeholder, unvalidated defaults).
+- Wheel-channel mapping. `front_left` is currently provisionally M1 and
+  inverted because the 2026-09-26 all-ports-FORWARD bench test found its
+  leads reversed; the one-port-at-a-time raised-chassis test must still
+  confirm which wheel is on M1 through M4 before relying on the mapping.
 - Validated motor-output ceiling — `ChassisConfig::hardware_pwm_ceiling`
   defaults to **0**, so the firmware cannot command any real motor output
   until this is set from physical validation
@@ -196,11 +201,12 @@ the `native` env; it does not bundle one):
 
     pio test -e native
 
-- Native: **52/52 pass** — test_mixing 15, test_protocol_codec 21,
+- Native: **53/53 pass** — test_mixing 15, test_protocol_codec 21,
   test_session_guard 15, test_protocol_fixtures 1 (replays all 30 shared
-  cases plus `boot_emit`). Environment: Windows 11, PlatformIO Core 6.2.0,
-  GCC 15.2.0 (MinGW-w64), ArduinoJson 6.21.6, Unity 2.6.1. This matches the
-  dashboard/control cross-check (macOS arm64, Apple clang).
+  cases plus `boot_emit`), and test_wiring 1. Current environment: macOS
+  arm64, PlatformIO Core 6.2.0 in an isolated temporary Python environment,
+  ArduinoJson 6.21.6, Unity 2.6.1. This matches the earlier dashboard/control
+  cross-check in result and adds the wiring assertion.
 - Mixing fixture values are also reproducible from
   `python firmware/test/fixtures/generate_mixing_fixtures.py`.
 - Board build: `pio run -e esp32-s2` → SUCCESS, 0 warnings, RAM 4.8%,
@@ -243,6 +249,50 @@ the `native` env; it does not bundle one):
    the actual `firmware/test/` directory name.
 
 ## Handoff log
+
+### 2026-09-26 EDT - DC-4 front-left wiring correction and port-test fixture
+
+- Commit: 017de3a, `fix: invert front-left motor wiring`.
+- Changed files and interfaces: `chassis_config.h` sets the front-left
+  inversion only; `test_wiring` asserts a pure-forward logical mix at PWM
+  100 becomes M1 -100 and M2–M4 +100 after wiring. No mixing equation,
+  message shape, or watchdog value changed. Added
+  `firmware/tools/motor_shield_port_test/motor_shield_port_test.ino`, an
+  Arduino IDE sketch that refuses to run until confirmed I2C SDA/SCL pins
+  and shield address are supplied, then drives one port at a time FORWARD
+  at PWM 60 for two seconds and prints the port number.
+- Tests and results:
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio test -e native
+
+  Result: 53/53 pass, including `test_wiring`.
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2 -t clean
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2
+
+  Result: clean and build succeed with 0 compiler warnings; RAM 4.8%
+  (15628/327680 B), flash 20.6% (269502/1310720 B).
+
+  `firmware/test/fixtures/serial_protocol_vectors.json` exactly matches
+  `origin/feature/dashboard-control:fixtures/serial_protocol_vectors.json`
+  (SHA-256 `9fe196796055615ea0f0dff5600232ec01d596c9e4b532c10ec891da801dff70`).
+  The isolated firmware branch does not contain the dashboard-owned root
+  `fixtures/` file, so `git diff origin/feature/dashboard-control --
+  fixtures/serial_protocol_vectors.json` reports that absence rather than
+  a content mismatch. No dashboard-owned file was copied into this branch.
+- Mock or physical coverage: native and target compilation only. The
+  front-left lead reversal is the pre-existing 2026-09-26 bench observation;
+  no new physical test or flashing occurred.
+- Confirmed hardware facts: none in this task. Board remains placeholder
+  `esp32-s2-saola-1`; I2C pins and shield address are unconfirmed; the
+  hardware PWM ceiling remains 0; port-to-wheel mapping remains provisional.
+- Next action: provide the exact board, I2C SDA/SCL pins, motor-shield
+  address, and raised-chassis M1–M4 observations. Only then update the board
+  configuration, wiring channels/inversions, or the PWM ceiling. Flash only
+  after the ESP32-S2 is connected and the chassis is raised.
 
 ### 2026-09-26 EDT - Stage E/F firmware skeleton
 
