@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .bridge_backend import BridgeMotorBackend
+from .autonomy_ipc import AutonomyHostEndpoint
+from .gazebo_backend import GazeboMotorBackend
 from .live_camera import (
     DEFAULT_DETECTOR,
     DEFAULT_VIDEO_PORT,
@@ -64,6 +66,9 @@ def create_app(
     motor_backend: str = "mock",
     bridge_command_socket: str | Path | None = None,
     bridge_status_socket: str | Path | None = None,
+    sim_command_socket: str | Path | None = None,
+    autonomy_command_socket: str | Path | None = None,
+    autonomy_status_socket: str | Path | None = None,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -80,8 +85,19 @@ def create_app(
                 bridge_status_socket or run_dir / "bridge-status.sock",
             )
         )
+    elif motor_backend == "gazebo":
+        run_dir = default_run_dir()
+        run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        control_service = RobotControlService(
+            backend=GazeboMotorBackend(sim_command_socket),
+            allow_autonomy=True,
+            autonomy_endpoint=AutonomyHostEndpoint(
+                autonomy_command_socket or run_dir / "autonomy-command.sock",
+                autonomy_status_socket or run_dir / "autonomy-status.sock",
+            ),
+        )
     else:
-        raise ValueError("motor_backend must be mock or bridge")
+        raise ValueError("motor_backend must be mock, bridge, or gazebo")
     if camera is not None:
         camera_service = camera
     elif camera_backend == "mock":
@@ -161,6 +177,9 @@ def create_app(
                     delta = message.get("delta")
                     accepted = control_service.adjust_speed(session, delta)
                     response = {"type": "speed", "accepted": accepted}
+                elif message_type == "start_autonomy":
+                    mission = control_service.start_autonomy(session)
+                    response = {"type": "start_autonomy", "accepted": mission is not None}
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}
@@ -192,6 +211,16 @@ def main() -> None:
         help="live: run ai_camera_detect.py on the AI Camera in a separate process.",
     )
     parser.add_argument(
+        "--autonomy-command-socket",
+        default=os.environ.get("RESCUEBOT_AUTONOMY_COMMAND_SOCKET"),
+        help="Simulation ROS adapter command socket (gazebo backend only).",
+    )
+    parser.add_argument(
+        "--autonomy-status-socket",
+        default=os.environ.get("RESCUEBOT_AUTONOMY_STATUS_SOCKET"),
+        help="Simulation ROS adapter status socket (gazebo backend only).",
+    )
+    parser.add_argument(
         "--camera-args",
         default=detector_args_from_env(),
         help='Extra ai_camera_detect.py options for --camera-backend live (default: "%(default)s").',
@@ -209,9 +238,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--motor-backend",
-        choices=("mock", "bridge"),
+        choices=("mock", "bridge", "gazebo"),
         default=os.environ.get("RESCUEBOT_MOTOR_BACKEND", "mock"),
-        help="bridge: send commands to a separately started rescuebot.motor_bridge process.",
+        help="bridge: physical bridge; gazebo: simulation-only Unix-datagram backend.",
+    )
+    parser.add_argument(
+        "--sim-command-socket",
+        default=os.environ.get("RESCUEBOT_SIM_COMMAND_SOCKET"),
+        help="Unix socket read by rescuebot_sim_bridge when --motor-backend gazebo is selected.",
     )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
@@ -224,6 +258,9 @@ def main() -> None:
             camera_args=args.camera_args,
             video_port=args.video_port,
             motor_backend=args.motor_backend,
+            sim_command_socket=args.sim_command_socket,
+            autonomy_command_socket=args.autonomy_command_socket,
+            autonomy_status_socket=args.autonomy_status_socket,
         ),
         host="0.0.0.0",
         port=8000,

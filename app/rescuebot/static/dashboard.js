@@ -142,6 +142,7 @@ function reasonText(control, drive) {
 
 function updateChain(data) {
   const { control, motor } = data;
+  const autonomy = data.autonomy || { available: false, active: false };
   const bridge = motor.backend === "bridge";
 
   setLamp(document.querySelector('[data-node="browser"] .lamp'), connected ? "ok" : "fault");
@@ -151,7 +152,7 @@ function updateChain(data) {
     control.armed ? (control.arming ? "warn" : "ok") : control.owner_session ? "off" : "off");
   setText("node-control", !control.owner_session ? "No owner" : canControl ? "You · " + (control.armed ? "armed" : "disarmed") : "Other browser");
 
-  setText("node-motor-name", bridge ? "Motor bridge" : "Motor backend");
+  setText("node-motor-name", bridge ? "Motor bridge" : motor.backend === "gazebo" ? "Gazebo bridge" : "Motor backend");
   if (bridge) {
     setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
     setText("node-motor", motor.healthy ? "Connected · " + formatAge(motor.status_age_ms) : "Unavailable");
@@ -160,9 +161,9 @@ function updateChain(data) {
     setText("node-firmware", !motor.transport_connected ? "No link" : motor.firmware_armed ? "Armed" : "Disarmed");
   } else {
     setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
-    setText("node-motor", "Mock · in-process");
+    setText("node-motor", motor.backend === "gazebo" ? "Simulation · local IPC" : "Mock · in-process");
     setLamp(document.querySelector('[data-node="firmware"] .lamp'), "off");
-    setText("node-firmware", "Not connected (mock)");
+    setText("node-firmware", motor.backend === "gazebo" ? "Not used (simulation)" : "Not connected (mock)");
   }
 
   setText("t-ack", bridge ? formatAge(motor.ack_age_ms) : "—");
@@ -176,6 +177,7 @@ function updateChain(data) {
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
+  const autonomy = data.autonomy || { available: false, active: false };
   canControl = data.can_control;
   const drive = driveState(control);
 
@@ -216,6 +218,10 @@ function updateDashboard(data) {
   element("enable-button").textContent = !canControl ? "Read-only"
     : drive === "armed" ? "Driving enabled" : drive === "arming" ? "Arming…" : "Enable driving";
   element("stop-button").disabled = !connected;
+  const autonomyButton = element("autonomy-button");
+  autonomyButton.hidden = !autonomy.available;
+  autonomyButton.disabled = !connected || !canControl || drive !== "armed" || heldKeys.size > 0 || autonomy.active;
+  autonomyButton.textContent = autonomy.active ? "Autonomy active" : "Start autonomy";
 }
 
 async function refreshCameraState() {
@@ -297,6 +303,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
+element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("stop-button").addEventListener("click", clearAndStop);
 
 window.setInterval(() => {

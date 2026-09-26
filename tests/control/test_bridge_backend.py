@@ -185,6 +185,14 @@ class WebMotorBackendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_app(motor_backend="serial")
 
+    def test_create_app_selects_the_simulation_only_gazebo_backend(self) -> None:
+        directory = Path(tempfile.mkdtemp(prefix="rb", dir="/tmp"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        app = create_app(motor_backend="gazebo", sim_command_socket=directory / "sim.sock")
+        service = app.state.control_service
+        self.addCleanup(service.close)
+        self.assertEqual(service.state()["motor"]["backend"], "gazebo")
+
 
 if __name__ == "__main__":
     unittest.main()

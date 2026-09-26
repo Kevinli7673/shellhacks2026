@@ -8,6 +8,9 @@ import time
 
 from .mecanum import WheelOutputs
 
+if False:  # pragma: no cover - import only for static type checkers
+    from .control import ControlSnapshot
+
 
 @dataclass(frozen=True)
 class MockMotorEvent:
@@ -32,6 +35,10 @@ class MockMotorBackend:
         self.wheels = wheels
         self.last_reason = reason
         self.events.append(MockMotorEvent(time.monotonic(), wheels, reason))
+
+    def apply_snapshot(self, snapshot: "ControlSnapshot", reason: str, now: float | None = None) -> None:
+        """Match simulation backends without changing mock behavior."""
+        self.apply(snapshot.wheels, reason)
 
     def as_dict(self) -> dict[str, object]:
         return {

@@ -44,6 +44,7 @@ class ControlSnapshot:
     intent: DriveIntent
     wheels: WheelOutputs
     browser_age_ms: int | None
+    source: str = "manual"
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -59,6 +60,7 @@ class ControlSnapshot:
             },
             "wheels": self.wheels.as_dict(),
             "browser_age_ms": self.browser_age_ms,
+            "source": self.source,
         }
 
 
@@ -89,6 +91,10 @@ class ManualControl:
     @property
     def speed_limit(self) -> int:
         return round(self.pwm_ceiling * self.speed_percent / 100)
+
+    @property
+    def has_movement(self) -> bool:
+        return bool(self._keys)
 
     def claim(self, session: str) -> bool:
         if self.owner_session in (None, session):

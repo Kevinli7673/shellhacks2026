@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rescuebot">
+  <!-- Estimated dimensions live here only until the assembled chassis is measured. -->
+  <xacro:arg name="body_length" default="0.300"/>
+  <xacro:arg name="body_width" default="0.250"/>
+  <xacro:arg name="body_height" default="0.100"/>
+  <xacro:arg name="wheel_radius" default="0.050"/>
+  <xacro:arg name="wheel_width" default="0.030"/>
+  <xacro:arg name="wheelbase" default="0.220"/>
+  <xacro:arg name="track_width" default="0.200"/>
+  <xacro:arg name="lidar_height" default="0.160"/>
+  <xacro:arg name="ai_camera_height" default="0.180"/>
+  <xacro:arg name="logitech_camera_height" default="0.190"/>
+
+  <xacro:property name="body_length" value="$(arg body_length)"/>
+  <xacro:property name="body_width" value="$(arg body_width)"/>
+  <xacro:property name="body_height" value="$(arg body_height)"/>
+  <xacro:property name="wheel_radius" value="$(arg wheel_radius)"/>
+  <xacro:property name="wheel_width" value="$(arg wheel_width)"/>
+  <xacro:property name="wheelbase" value="$(arg wheelbase)"/>
+  <xacro:property name="track_width" value="$(arg track_width)"/>
+
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/><child link="base_link"/>
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual><geometry><box size="${body_length} ${body_width} ${body_height}"/></geometry><material name="orange"><color rgba="0.9 0.25 0.05 1"/></material></visual>
+    <collision><geometry><box size="${body_length} ${body_width} ${body_height}"/></geometry></collision>
+    <inertial><mass value="3.0"/><origin xyz="0 0 0"/><inertia ixx="0.03" ixy="0" ixz="0" iyy="0.04" iyz="0" izz="0.06"/></inertial>
+  </link>
+
+  <xacro:macro name="wheel" params="name x y">
+    <link name="${name}_wheel_link">
+      <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry><material name="black"><color rgba="0.08 0.08 0.08 1"/></material></visual>
+      <collision><origin rpy="1.5708 0 0"/><geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry></collision>
+      <inertial><mass value="0.15"/><inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0002"/></inertial>
+    </link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="base_link"/><child link="${name}_wheel_link"/>
+      <origin xyz="${x} ${y} 0" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel name="front_left" x="${wheelbase / 2}" y="${track_width / 2}"/>
+  <xacro:wheel name="front_right" x="${wheelbase / 2}" y="${-track_width / 2}"/>
+  <xacro:wheel name="rear_left" x="${-wheelbase / 2}" y="${track_width / 2}"/>
+  <xacro:wheel name="rear_right" x="${-wheelbase / 2}" y="${-track_width / 2}"/>
+
+  <xacro:macro name="sensor_frame" params="name xyz">
+    <link name="${name}_link"><visual><geometry><box size="0.035 0.035 0.025"/></geometry><material name="sensor"><color rgba="0.15 0.75 0.85 1"/></material></visual></link>
+    <joint name="${name}_joint" type="fixed"><parent link="base_link"/><child link="${name}_link"/><origin xyz="${xyz}" rpy="0 0 0"/></joint>
+  </xacro:macro>
+  <xacro:sensor_frame name="lidar" xyz="0 0 $(arg lidar_height)"/>
+  <xacro:sensor_frame name="imu" xyz="0 0 0.03"/>
+  <xacro:sensor_frame name="ai_camera" xyz="${body_length / 2} 0 $(arg ai_camera_height)"/>
+  <xacro:sensor_frame name="logitech_camera" xyz="${body_length / 2} 0 $(arg logitech_camera_height)"/>
+</robot>
