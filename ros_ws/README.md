@@ -71,7 +71,8 @@ SLAM or Nav2. Simulation success does not authorize physical autonomy.
 
 ## Mapping and manually selected goals
 
-After the simulator is running, launch the navigation stack:
+Docker starts navigation automatically. For a native Ubuntu launch, after the
+simulator is running, launch the navigation stack:
 
 ```bash
 ros2 launch rescuebot_navigation navigation.launch.py
@@ -87,8 +88,12 @@ Nav2 → /cmd_vel_nav → velocity smoother → /cmd_vel_smoothed
 ```
 
 The operator must click **Enable driving**, then **Start autonomy**, before a
-goal can run. In RViz, use **2D Goal Pose** to publish `/goal_pose`; the
-mission manager owns the corresponding Nav2 action. Any manual movement
+goal can run. The simulation dashboard accepts nearby relative goals (0.1–2 m)
+and reports readiness, execution, completion, and SLAM position. Positive
+Forward/Right means forward/right at send time; negative means backward/left.
+It preserves the starting heading. See [the Docker guide](docker/README.md)
+for the browser workflow. RViz **2D Goal Pose** can also publish `/goal_pose`;
+the mission manager owns the corresponding Nav2 action. Any manual movement
 cancels the mission, and releasing the key does not resume it. Stop the current
 goal before selecting another. With no goal, the mission manager sends only
 zero velocity through the same safety filter. It stops doing so during a goal;

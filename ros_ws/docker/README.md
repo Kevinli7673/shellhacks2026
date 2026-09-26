@@ -10,8 +10,8 @@ dashboard keys, speed adjustment, release, Space, and input expiry have been
 validated against the actual model pose. A newly inserted Gazebo obstacle
 also triggers Collision Monitor and leaves measured clearance. SLAM publishes
 a map, Nav2 completes a selected goal, and Stop/manual override/source loss cancel or disarm safely.
-The Ubuntu suite reports 154 tests (152 pass, 2 environment-gated skips), and
-all five ROS tests pass. This is simulation coverage only.
+The Ubuntu suite reports 158 tests (156 pass, 2 environment-gated skips), and
+all seven ROS tests pass. This is simulation coverage only.
 
 ## Build and start
 
@@ -63,11 +63,31 @@ With other dashboard tabs closed, run the motion/Stop/expiry acceptance check:
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_manual.py
 ```
 
-After manual driving and bridge validation, start SLAM/Nav2 in another terminal:
+SLAM/Nav2 now starts with the container. Do not launch a second copy. After
+checking manual driving, use the **Simulation autonomy** panel on the dashboard:
 
-```bash
-docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 launch rescuebot_navigation navigation.launch.py
-```
+1. Wait for **Ready**, then click **Enable driving** and **Start autonomy**.
+2. Enter a nearby destination in metres: positive **Forward** moves forward,
+   positive **Right** moves right; negative values move backward or left.
+   The combined distance must be 0.1–2 m. Try Forward `0.5`, Right `0` first
+   from the initial spawn. The offset uses the robot's heading when sent.
+3. Click **Send goal**. The panel reports sending, navigating, and goal reached.
+   Nav2 chooses the path and keeps the starting heading. You can send another
+   destination after the previous goal finishes.
+4. **Stop** or **Space** cancels the mission and disarms. W/A/S/D takes manual
+   control immediately; releasing the key does not restart autonomy.
+
+This is operator-selected goal navigation, not automatic exploration. The
+panel shows SLAM position; the separate Gazebo desktop remains the live view.
+Keep the dashboard focused while watching in another window. Arrow keys edit
+the numeric fields while those fields have focus; W/A/S/D and Space retain
+their takeover/Stop behavior. With a field unfocused, arrows retain normal
+driving/speed behavior.
+
+If readiness does not appear, inspect `docker compose -f
+ros_ws/docker/compose.yaml logs --tail 150 sim`. Readiness requires the Nav2
+action server, a fresh map pose, Collision Monitor output, and host status.
+Stopping or reconnecting never automatically rearms.
 
 Open RViz on the browser desktop from another terminal:
 
@@ -75,22 +95,26 @@ Open RViz on the browser desktop from another terminal:
 docker compose -f ros_ws/docker/compose.yaml exec sim bash ros_ws/docker/entrypoint.sh ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 ```
 
-Verify map, scan, odometry, and TF before selecting goals. The dashboard must
-have driving enabled and Start autonomy selected. The existing mission manager
-accepts RViz `/goal_pose` goals. Stop the current goal before choosing another.
+The existing mission manager also accepts RViz `/goal_pose` goals. The dashboard
+must have driving enabled and Start autonomy selected. Switching focus from
+the dashboard to RViz stops the mission, so the dashboard form is the supported
+single-operator browser workflow. Stop an executing goal before choosing another.
 Manual movement or Space
 cancels the mission. The fixed autonomy speed limit is 20%, independent of the
 manual speed selector. See [the workspace guide](../README.md) for velocity
 limits and the idle mission timeout.
 
 For repeatable goal, Stop, override, and safe-source-loss validation, close
-other dashboard tabs, use a fresh simulation, start navigation, then run:
+other dashboard tabs, use a fresh simulation, then run:
 
 ```bash
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py
+# The same acceptance checks through the dashboard destination API:
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
 ```
 
-This publishes `/goal_pose` through the mission manager, checks Nav2 success
+The default publishes `/goal_pose`; `--dashboard-goals` sends the new WebSocket
+destination message. Both use the mission manager, check Nav2 success
 and actual Gazebo model travel, and temporarily pauses/resumes Nav2 through
 its lifecycle manager to test source expiry and restoration without automatic
 rearming. The script always sends Stop.

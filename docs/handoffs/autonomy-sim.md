@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Milestone A manual driving and live bridges pass. Milestone B SLAM map, Nav2 goal success, Stop/manual override, and safe-source expiry pass. One newly inserted rear-obstacle scenario now passes with positive measured clearance; varied approaches and long-mission validation remain.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Manual driving, SLAM/Nav2 short goals, Stop/manual takeover/source expiry, and one rear-obstacle scenario pass. A simulation dashboard destination form now builds and passes unit/ROS tests; its live acceptance is pending below. Varied obstacle approaches and long missions remain unvalidated.
 
 ## User-authorized scope exception
 
@@ -34,10 +34,12 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `95073de` | Gazebo model physics, sensors, bridges, and manual speed | Six actual-pose direction checks, browser keys/Space, speed, release, Stop and input expiry pass; 151 Python passes, 2 skips, one ROS pass. |
 | `aaf3f88` | Runtime SLAM/Nav2, mission cancellation, matching IPC/velocity limits | Map and goal success, Stop/manual override, safe-source expiry/no rearm; 152 Python passes, 2 skips on each OS, five ROS passes. |
 | `0dcfc75` | Wider simulation collision zone and reproducible obstacle/recovery checks | Rear obstacle: FootprintStop, zero filtered output and 0.0875 m clearance; goal/override/managed pause-resume pass; 152 Python passes, 2 skips, five ROS passes. |
+| `a824566` | Simulation dashboard destinations, readiness/status IPC, automatic Docker navigation startup | Image/colcon build, 156 Python passes and 2 skips on each OS, seven ROS passes. New dashboard flow still awaits live acceptance. |
 
-Publication: runtime code through `0dcfc75` is committed and pushed to
-origin/feature/autonomy-sim. The branch has not been integrated. This handoff
-checkpoint is committed on the same branch. Working tree is clean at handoff.
+Publication: code through `a824566` and this handoff are committed and pushed
+only to origin/feature/autonomy-sim. The branch has not been integrated.
+Working tree is clean at handoff. The live container remains on the previous
+validated runtime until the user releases browser ownership for the update.
 
 ## Current checkpoint
 
@@ -47,15 +49,16 @@ checkpoint is committed on the same branch. Working tree is clean at handoff.
 - The bridge converts the project convention (forward/right/clockwise) to ROS
   `Twist` convention (forward/left/counterclockwise) and publishes `/cmd_vel`.
 - The dashboard exposes Start autonomy only for the Gazebo backend. The normal
-  bridge backend cannot start autonomy.
+  bridge backend cannot start autonomy. The new simulation goal form and
+  readiness/status channel pass unit/ROS tests; live acceptance is pending.
 - Autonomous input is latest-only, expires after 250 ms, and disarms on
   expiry. Manual movement cancels the mission; key release does not restart it.
 - `ros_ws/` contains a parameterized Xacro model, Harmonic SDF model/world,
   `ros_gz_bridge` topic map, simulated LiDAR/IMU/odometry, and `odom →
   base_link` TF bridge.
 - `rescuebot_navigation` starts SLAM Toolbox, Nav2 with a holonomic DWB
-  controller, Collision Monitor, and a mission manager that owns RViz
-  `/goal_pose` actions. Nav2 output flows through `/cmd_vel_nav`, the velocity smoother, and
+  controller, Collision Monitor, and a mission manager that owns dashboard
+  destinations and RViz `/goal_pose` actions. Nav2 output flows through `/cmd_vel_nav`, the velocity smoother, and
   `/cmd_vel_smoothed`; only Collision Monitor publishes `/cmd_vel_safe`.
 
 ## Interfaces
@@ -92,8 +95,10 @@ ROS 2 Jazzy and Gazebo Harmonic.
 1. Replace estimated chassis dimensions in the Xacro/SDF with measured values.
 2. Extend the passing rear-obstacle check to front/side approaches and
    different speeds. Short goal, Stop, override, and source-expiry checks pass.
-3. Extend mapping/navigation to long routes, loop closure, and varied goals.
-   Verify RViz goal selection interactively; runtime goal tests use `/goal_pose`.
+3. Finish dashboard destination acceptance, then extend mapping/navigation to
+   long routes, loop closure, and varied goals. Interactive RViz selection is
+   still unvalidated; browser focus-loss Stop makes the dashboard form the
+   intended single-operator flow.
 4. Evaluate the Jazzy-compatible frontier package in the simulator before
    writing a local frontier explorer. Do not let that block Milestone B.
 5. Keep physical autonomy work separate until the integration candidate passes
@@ -451,3 +456,70 @@ Status: code and this handoff committed on feature/autonomy-sim, pushed only
 to that branch, not integrated. The user-authorized simulation scope exception
 still applies; the integrator owns shared plan/status updates. No app/ or
 firmware edits were made in this checkpoint, and no physical device was used.
+
+## 2026-09-26 - Dashboard goal navigation
+
+The user confirmed the movement keys work and requested the Start autonomy
+workflow. The existing simulation-only scope exception remains in force.
+Resumed the same separate worktree/branch and fetched origin; no new branch,
+history rewrite, firmware edits, or physical transport access. The routed
+dashboard/ESP32 request channel does not include this workstream.
+
+Changes and interfaces:
+
+- The simulation-only panel offers Enable / Start autonomy / Send goal with
+  forward/right offsets of 0.1–2 m total. Negative offsets mean backward/left.
+  The mission manager converts from the current map pose and keeps the current
+  heading. This is selected-goal navigation, not autonomous exploration.
+- Readiness, goal state, and SLAM position return to the dashboard. Readiness
+  requires a fresh host status, map-to-base transform, safe velocity stream,
+  and available NavigateToPose server. A start without readiness is rejected.
+- New Gazebo-only WebSocket message: `navigation_goal` with numeric `forward`
+  and `right`. It requires the owning browser, armed host, active mission,
+  fresh matching navigation status, and no goal already pending/executing.
+- New local sockets: `navigation-goal.sock` and `navigation-status.sock` in
+  the existing simulation runtime directory. Datagrams are bounded to 1024
+  bytes, nonblocking, and expire after 250 ms (goal) / 500 ms (status). Goals
+  carry a mission and request id; old, duplicate, stopped, or expired requests
+  cannot start a new mission. ROS stays outside the dashboard process.
+- Stop/Space still cancels and disarms; manual movement still cancels without
+  resuming on release. W/A/S/D and Space work while editing numeric fields;
+  arrows edit those fields while focused. Other keyboard handling is unchanged.
+- Docker now starts SLAM/Nav2 with the existing simulation/dashboard services.
+  Do not launch a second navigation stack in the same container.
+- app/ changes are confined to new simulation IPC, guarded Gazebo service/web
+  branches, and a hidden-by-default simulation panel. Bridge/mock state and
+  command paths, serial protocol, mixing, firmware, and deadlines are unchanged.
+  Integrator: reconcile this accepted setup/UI decision in shared README,
+  IMPLEMENTATION_PLAN.md, and changes.md when integrating this branch.
+
+Passing pre-runtime commands from /private/tmp/rescuebot-autonomy-sim:
+
+```bash
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+node --check app/rescuebot/static/dashboard.js
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+git diff --check
+```
+
+Environment remains macOS ARM64 / Docker / Ubuntu 24.04 / Jazzy / Harmonic.
+Mac: 158 discovered, 156 passed, 2 optional integration skips (final run 1.572 s).
+Ubuntu: 158 discovered, 156 passed, 2 optional integration skips.
+All four colcon packages built; seven ROS tests passed, no errors/failures/skips.
+Tests cover freshness, bounds, ownership, mission identity, non-Gazebo
+rejection, rotated right-axis conversion, duplicate suppression, and goals
+arriving after Stop or a mission change. The initial restricted Mac test
+attempt could not bind test sockets; the normal approved rerun passed.
+
+At this checkpoint the live container still runs the previous version while
+the user's simulation dashboard owns control. A request to close that tab is
+pending. Automatic approval review rejected an extra detached simulation
+container due to resource/duplicate-service risk; no extra instance was started.
+Next: update the existing container after release, verify automatic readiness,
+run `validate_navigation.py --dashboard-goals`, and exercise the form in the
+browser. This checkpoint does not claim live validation of the new goal form.
+Code checkpoint: `a824566`; the final image was rebuilt and the Ubuntu/ROS
+suite rerun successfully after the final input-boundary and stale-request
+cleanup fixes. The simulator remains stopped/disarmed on the prior runtime.
+No physical tests ran. Only feature/autonomy-sim is published.
