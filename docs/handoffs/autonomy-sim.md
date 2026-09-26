@@ -37,9 +37,12 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `a824566` | Simulation dashboard destinations, readiness/status IPC, automatic Docker navigation startup | Image/colcon build, 156 Python passes and 2 skips on each OS, seven ROS passes; live dashboard API goal/Stop/takeover/source-loss checks now pass. |
 | `9be171f` | Clear-aisle default destination and completed browser acceptance | Real browser default goal succeeds; field editing/Enter submission/W takeover/Space/Stop/reload tested. Final Ubuntu regression: 156 passes, 2 optional skips. |
 | `08ca7e7` | Rotate toward the route, favor forward travel, retain strafe | Three clear-aisle goals, actual heading/travel checks, Stop/takeover/source expiry; 156 Python passes, two skips, seven ROS passes. |
+| `942ae00` | Nearby local path horizon, longer routes, continuous-pose acceptance, panel/cylinder stops | Final seven-goal route 8.23 m, independent 2.99 m divider detour, two inserted-obstacle stops, final safety regression; 156 Python passes/two skips on each OS and seven ROS passes. |
 
-Publication: heading checkpoint `08ca7e7` is on origin/feature/autonomy-sim.
-The local-horizon fix and expanded acceptance are recorded with this checkpoint, not integrated.
+Publication: code checkpoints `08ca7e7` and `942ae00` and this handoff are
+committed and pushed only to origin/feature/autonomy-sim, not integrated.
+The working tree is clean at handoff. Expected commit identity was verified
+before each commit; Git configuration and branch history were not rewritten.
 The simulation control tab is closed for automated acceptance; the robot is
 disarmed after each test.
 
