@@ -7,6 +7,24 @@ Status: ready for integration after review
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
 
+## Requests
+
+Requests from dashboard/control to the ESP32-controller workstream. See
+AGENTS.md "Cross-workstream requests".
+
+| ID | To | Request | Status |
+|---|---|---|---|
+| DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | open |
+| DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | open |
+| DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | open |
+
+## Responses
+
+Responses from dashboard/control to ESP32-controller requests (FW-#).
+
+| Request | Response |
+|---|---|
+
 ## Current state
 
 - Base checkpoint: stage-0-docs.
