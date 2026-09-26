@@ -5,6 +5,7 @@ browser owner. Always sends Stop. No serial or physical backend is accepted.
 """
 
 import asyncio
+import argparse
 import json
 import math
 import time
@@ -22,10 +23,11 @@ import websockets
 from validate_manual import state as fetch_state, pose, displacement
 
 
-async def main():
+async def main(dashboard_goals=False):
     latest_state = fetch_state()
     state_received = time.monotonic()
     assert latest_state["motor"]["backend"] == "gazebo"
+    assert latest_state["control"]["owner_session"] is None, "close the simulation dashboard tab first"
 
     def state():
         assert time.monotonic() - state_received < .5, "dashboard state polling stalled"
@@ -91,6 +93,7 @@ async def main():
             ticker = asyncio.create_task(heartbeat())
             try:
                 async def start():
+                    await wait_for(lambda: state()["autonomy"].get("navigation", {}).get("ready"), 30)
                     await send("enable")
                     await asyncio.sleep(0.15)
                     await send("start_autonomy")
@@ -106,7 +109,12 @@ async def main():
                     p.pose.position.y = transform.transform.translation.y + dy
                     p.pose.orientation.w = 1.0
                     statuses.clear()
-                    goal_publisher.publish(p)
+                    if dashboard_goals:
+                        q = transform.transform.rotation
+                        yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
+                        await send("navigation_goal", forward=math.sin(yaw)*dy, right=-math.cos(yaw)*dy)
+                    else:
+                        goal_publisher.publish(p)
                     await wait_for(lambda: any(s["goal_state"] == "executing" for s in statuses), 5)
                     print(f"GOAL x={p.pose.position.x:.3f}, y={p.pose.position.y:.3f}", flush=True)
 
@@ -118,6 +126,8 @@ async def main():
                 delta = displacement(before, await pose())
                 assert delta[1] < -0.4, delta
                 assert state()["autonomy"]["active"]
+                if dashboard_goals:
+                    await wait_for(lambda: state()["autonomy"]["navigation"]["goal_state"] == "succeeded")
                 print(f"PASS goal succeeded; actual model displacement={delta}", flush=True)
 
                 await goal(0.5)
@@ -201,4 +211,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dashboard-goals", action="store_true", help="Send destinations through the browser WebSocket API instead of /goal_pose")
+    asyncio.run(main(parser.parse_args().dashboard_goals))

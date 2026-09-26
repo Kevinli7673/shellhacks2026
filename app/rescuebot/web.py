@@ -24,6 +24,7 @@ from .live_camera import (
     detector_args_from_env,
 )
 from .motor_bridge import default_run_dir
+from .navigation_ipc import NavigationHostEndpoint
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .service import RobotControlService
 
@@ -94,6 +95,9 @@ def create_app(
             autonomy_endpoint=AutonomyHostEndpoint(
                 autonomy_command_socket or run_dir / "autonomy-command.sock",
                 autonomy_status_socket or run_dir / "autonomy-status.sock",
+            ),
+            navigation_endpoint=NavigationHostEndpoint(
+                run_dir / "navigation-goal.sock", run_dir / "navigation-status.sock",
             ),
         )
     else:
@@ -180,6 +184,9 @@ def create_app(
                 elif message_type == "start_autonomy":
                     mission = control_service.start_autonomy(session)
                     response = {"type": "start_autonomy", "accepted": mission is not None}
+                elif message_type == "navigation_goal" and isinstance(control_service.backend, GazeboMotorBackend):
+                    accepted = control_service.navigation_goal(session, message.get("forward"), message.get("right"))
+                    response = {"type": "navigation_goal", "accepted": accepted}
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}

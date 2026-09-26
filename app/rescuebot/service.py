@@ -12,6 +12,7 @@ from .control import ControlSnapshot, ManualControl
 from .gazebo_backend import GazeboMotorBackend
 from .mecanum import mix_mecanum
 from .mock import MockMotorBackend
+from .navigation_ipc import NavigationHostEndpoint
 
 
 ARM_CONFIRM_TIMEOUT_S = 1.0
@@ -35,6 +36,7 @@ class RobotControlService:
         *,
         allow_autonomy: bool = False,
         autonomy_endpoint: AutonomyHostEndpoint | None = None,
+        navigation_endpoint: NavigationHostEndpoint | None = None,
         autonomy_timeout_s: float = AUTONOMY_TIMEOUT_S,
         autonomy_speed_percent: int = DEFAULT_AUTONOMY_SPEED_PERCENT,
     ) -> None:
@@ -44,6 +46,7 @@ class RobotControlService:
         self.allow_autonomy = allow_autonomy
         self.autonomy = AutonomyControl(autonomy_timeout_s)
         self.autonomy_endpoint = autonomy_endpoint
+        self.navigation_endpoint = navigation_endpoint
         self.autonomy_speed_percent = max(10, min(100, int(autonomy_speed_percent)))
         self._arming_since: float | None = None
         self._last_snapshot: ControlSnapshot | None = None
@@ -192,11 +195,25 @@ class RobotControlService:
             or not self.control.armed
             or self.control.has_movement
             or self.autonomy.active
+            or (self.navigation_endpoint is not None and not self.navigation_endpoint.state()["ready"])
         ):
             return None
         mission = self.autonomy.start(now=time.monotonic())
         self._publish_autonomy_status()
         return mission
+
+    def navigation_goal(self, session: str, forward: object, right: object) -> bool:
+        """A destination may only enter the current, explicitly started sim mission."""
+        self.tick()
+        if (not self.allow_autonomy or not isinstance(self.backend, GazeboMotorBackend)
+                or self.navigation_endpoint is None or session != self.control.owner_session
+                or not self.control.armed or self.control.has_movement
+                or not self.autonomy.active or self.autonomy.mission is None):
+            return False
+        try:
+            return self.navigation_endpoint.send_goal(self.autonomy.mission, forward, right)
+        except ValueError:
+            return False
 
     def close(self) -> None:
         bridge = self._bridge
@@ -206,6 +223,8 @@ class RobotControlService:
             self.backend.close()
         if self.autonomy_endpoint is not None:
             self.autonomy_endpoint.close()
+        if self.navigation_endpoint is not None:
+            self.navigation_endpoint.close()
 
     def state(self, now: float | None = None) -> dict[str, object]:
         now = time.monotonic() if now is None else now
@@ -215,7 +234,7 @@ class RobotControlService:
         control = snapshot.as_dict()
         control["arming"] = self.arming
         autonomy = self.autonomy.status()
-        return {
+        state = {
             "control": control,
             "autonomy": {
                 "available": self.allow_autonomy and isinstance(self.backend, GazeboMotorBackend),
@@ -231,3 +250,6 @@ class RobotControlService:
                 "message": "Camera service has not been integrated.",
             },
         }
+        if self.allow_autonomy and isinstance(self.backend, GazeboMotorBackend) and self.navigation_endpoint is not None:
+            state["autonomy"]["navigation"] = self.navigation_endpoint.state(now)
+        return state

@@ -47,7 +47,6 @@
 
         <div class="actions">
           <button id="enable-button" class="enable" type="button">Enable driving</button>
-          <button id="autonomy-button" class="enable" type="button" hidden>Start autonomy</button>
           <button id="stop-button" class="stop" type="button">
             <span>Stop</span>
             <kbd>Space</kbd>
@@ -59,6 +58,26 @@
           <strong id="speed-value">30%</strong>
           <span class="speed-pwm" id="speed-limit">0 / 255 PWM</span>
         </p>
+
+        <section id="simulation-navigation" class="simulation-navigation" aria-labelledby="navigation-title" hidden>
+          <div>
+            <h2 id="navigation-title">Simulation autonomy</h2>
+            <p id="navigation-status" role="status">Waiting for navigation</p>
+          </div>
+          <p>Enable driving, start autonomy, then send a nearby goal. Nav2 plans the route and keeps the current heading.</p>
+          <button id="autonomy-button" class="enable" type="button" hidden>Start autonomy</button>
+          <form id="navigation-form">
+            <div class="navigation-fields">
+              <label>Forward (m)<input id="goal-forward" type="number" min="-2" max="2" step="0.1" value="0.5" required></label>
+              <label>Right (m)<input id="goal-right" type="number" min="-2" max="2" step="0.1" value="0" required></label>
+            </div>
+            <p>Relative to the robot when sent. Negative values go backward or left. Total distance: 0.1–2 m.</p>
+            <button id="send-goal-button" class="enable" type="submit" disabled>Send goal</button>
+          </form>
+          <p id="navigation-feedback" role="status"></p>
+          <p id="navigation-pose">Map position unavailable</p>
+          <p>W/A/S/D take over. Stop or Space cancels and disarms. Leaving this window also stops. Autonomy speed is fixed at 20%.</p>
+        </section>
 
         <div class="keypanel" aria-label="Keyboard controls">
           <div class="keycluster keycluster-move">

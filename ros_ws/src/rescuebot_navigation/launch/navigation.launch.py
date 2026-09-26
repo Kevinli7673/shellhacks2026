@@ -44,5 +44,6 @@ def generate_launch_description():
             parameters=[{"use_sim_time": True, "autostart": True,
                          "node_names": [name for _, name, _ in nodes]}],
         ),
-        Node(package="rescuebot_navigation", executable="rescuebot_mission_manager", output="screen"),
+        Node(package="rescuebot_navigation", executable="rescuebot_mission_manager", output="screen",
+             parameters=[{"use_sim_time": True}]),
     ])

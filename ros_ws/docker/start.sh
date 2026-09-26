@@ -34,6 +34,8 @@ pids+=("$!")
 rescuebot-dashboard --motor-backend gazebo --camera-backend replay \
     --replay-path /workspace/fixtures/detections/person_appears_disappears.jsonl &
 pids+=("$!")
+ros2 launch rescuebot_navigation navigation.launch.py &
+pids+=("$!")
 
 # A failed service ends the container. Docker init reaps child processes;
 # Stop/expiry handling remains in the existing host arbiter and ROS bridge.

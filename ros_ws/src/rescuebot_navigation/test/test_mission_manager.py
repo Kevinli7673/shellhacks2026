@@ -2,6 +2,8 @@
 
 from concurrent.futures import Future
 import json
+import math
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -11,13 +13,15 @@ import rclpy
 from std_msgs.msg import String
 
 from rescuebot_navigation.mission_manager import MissionManager
+from rescuebot.navigation_ipc import encode_navigation
+from rescuebot.bridge_ipc import DatagramSender
 
 
 @pytest.fixture
-def manager():
+def manager(tmp_path):
     rclpy.init()
     with patch("rescuebot_navigation.mission_manager.ActionClient"):
-        node = MissionManager()
+        node = MissionManager(tmp_path / "goals.sock", tmp_path / "status.sock")
     node._idle_velocity = Mock()
     node._goal_status = Mock()
     node._action.server_is_ready.return_value = True
@@ -85,3 +89,45 @@ def test_idle_zeros_do_not_mask_controller_loss(manager):
     manager._tick()
     assert not manager._active
     manager._idle_velocity.publish.assert_not_called()
+
+
+def test_dashboard_goal_uses_current_pose_and_right_axis_once(manager):
+    status(manager)
+    manager._action.send_goal_async.return_value = Future()
+    now = time.monotonic()
+    record = {"mission": "test", "request_id": "one", "expires_at": now + 0.25, "forward": 0.5, "right": 0.2}
+    sender = DatagramSender(manager._goal_receiver.path)
+    try:
+        sender.send(encode_navigation(record))
+        manager._dashboard_goals(now, {"x": 1.0, "y": 2.0, "yaw": math.pi/2}, True)
+        goal = manager._action.send_goal_async.call_args.args[0].pose
+        assert goal.header.frame_id == "map"
+        assert goal.pose.position.x == pytest.approx(1.2)
+        assert goal.pose.position.y == pytest.approx(2.5)
+        sender.send(encode_navigation(record))
+        manager._dashboard_goals(now, {"x": 1.0, "y": 2.0, "yaw": 0}, True)
+        manager._action.send_goal_async.assert_called_once()
+    finally:
+        sender.close()
+
+
+def test_dashboard_goal_cannot_survive_stop_mission_change_or_expiry(manager):
+    status(manager)
+    now = time.monotonic()
+    sender = DatagramSender(manager._goal_receiver.path)
+    pose = {"x": 0, "y": 0, "yaw": 0}
+    record = {"mission": "test", "request_id": "one", "expires_at": now + 0.25, "forward": 0.5, "right": 0}
+    try:
+        status(manager, False, None)
+        sender.send(encode_navigation(record))
+        manager._dashboard_goals(now, pose, True)
+        status(manager, True, "next")
+        sender.send(encode_navigation(record))
+        manager._dashboard_goals(now, pose, True)
+        sender.send(encode_navigation({**record, "mission": "next", "expires_at": now}))
+        manager._dashboard_goals(now, pose, True)
+        sender.send(encode_navigation({**record, "mission": "next"}))
+        manager._dashboard_goals(now, pose, False)
+        manager._action.send_goal_async.assert_not_called()
+    finally:
+        sender.close()

@@ -28,6 +28,7 @@ const reasons = {
   invalid_browser_message: "Stopped: the browser sent an invalid message.",
   dashboard_shutdown: "Stopped: the dashboard is shutting down.",
   motor_disarmed: "Stopped: the motors disarmed.",
+  autonomy_timeout: "Stopped: the simulation navigation source timed out. Wait for readiness, then enable again.",
 };
 
 function send(message) {
@@ -189,6 +190,9 @@ function updateDashboard(data) {
   setText("driving-status", drive === "arming" ? "Arming…" : drive === "armed" ? "Armed · driving" : "Disabled");
 
   const reason = reasonText(control, drive);
+  if (autonomy.active && connected && canControl && drive === "armed") {
+    reason.text = "Autonomy enabled. Send a goal below. W/A/S/D take over; Space stops.";
+  }
   const message = element("fault-message");
   message.textContent = reason.text;
   if (reason.code) {
@@ -222,6 +226,34 @@ function updateDashboard(data) {
   autonomyButton.hidden = !autonomy.available;
   autonomyButton.disabled = !connected || !canControl || drive !== "armed" || heldKeys.size > 0 || autonomy.active;
   autonomyButton.textContent = autonomy.active ? "Autonomy active" : "Start autonomy";
+  updateNavigation(autonomy, drive);
+}
+
+function updateNavigation(autonomy, drive) {
+  element("simulation-navigation").hidden = !autonomy.available;
+  if (!autonomy.available) return;
+  const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
+  const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
+  const busy = currentMission && (nav.pending || ["pending", "executing"].includes(nav.goal_state));
+  const labels = {
+    idle: "Ready for a goal", pending: "Sending goal…", executing: "Navigating to goal",
+    succeeded: "Goal reached — choose another", canceled: "Goal canceled",
+    aborted: "Goal could not be reached — choose another", failed: "Navigation failed — choose another",
+    rejected: "Goal rejected — choose another",
+  };
+  const status = !connected ? "Dashboard disconnected" : !nav.ready ? nav.reason
+    : currentMission ? (nav.pending ? labels.pending : labels[nav.goal_state])
+    : autonomy.active ? "Starting mission…" : "Ready — enable driving, then start autonomy";
+  setText("navigation-status", status);
+  element("autonomy-button").disabled ||= !nav.ready;
+  element("send-goal-button").disabled = !connected || !canControl || drive !== "armed"
+    || heldKeys.size > 0 || !nav.ready || !currentMission || busy;
+  for (const id of ["goal-forward", "goal-right"]) element(id).disabled = busy || !canControl;
+  const pose = nav.pose;
+  setText("navigation-pose", pose
+    ? `SLAM position: x ${pose.x.toFixed(2)} m · y ${pose.y.toFixed(2)} m`
+    : "Map position unavailable");
+  if (nav.request_error && currentMission) setText("navigation-feedback", nav.request_error);
 }
 
 async function refreshState() {
@@ -264,10 +296,20 @@ function connect() {
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") updateDashboard(message.data);
+    if (message.type === "navigation_goal") {
+      setText("navigation-feedback", message.accepted ? "" : "Goal not accepted. Check readiness and wait for the current goal to finish.");
+    }
+    if (message.type === "start_autonomy" && currentState?.autonomy.available) {
+      setText("navigation-feedback", message.accepted ? "" : "Start was not accepted. Release keys, enable driving, and wait for navigation readiness.");
+    }
   });
 }
 
 window.addEventListener("keydown", (event) => {
+  // Only simulation goal inputs use arrow keys for editing numbers/cursors.
+  // W/A/S/D still take over immediately, and Space always reaches Stop.
+  if (currentState?.autonomy.available && event.target.closest?.("#navigation-form input")
+      && event.code.startsWith("Arrow")) return;
   if (displayKeys.has(event.code)) {
     litKeys.add(event.code);
     renderKeys();
@@ -312,6 +354,20 @@ document.addEventListener("visibilitychange", () => {
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("stop-button").addEventListener("click", clearAndStop);
+element("navigation-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (element("send-goal-button").disabled) return;
+  const forward = Number(element("goal-forward").value);
+  const right = Number(element("goal-right").value);
+  const distance = Math.hypot(forward, right);
+  if (!Number.isFinite(distance) || distance < 0.1 || distance > 2) {
+    setText("navigation-feedback", "Choose a total distance between 0.1 and 2 metres.");
+    return;
+  }
+  setText("navigation-feedback", "Sending goal…");
+  element("send-goal-button").disabled = true;
+  send({ type: "navigation_goal", forward, right });
+});
 
 window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
