@@ -1,0 +1,5 @@
+{"type":"detection_frame","timestamp":4000.0,"frame_id":0,"camera_id":"front","image":{"width":640,"height":480},"detections":[{"label":"person","confidence":0.87,"bbox":{"x":0.2,"y":0.15,"width":0.3,"height":0.6}}]}
+{"type":"detection_frame","timestamp":4000.1,"frame_id":1,"camera_id":"front","image":{"width":640,"height":480},"detections":[{"label":"person","confidence":0.87,"bbox":{"x":0.2,"y":0.15,"width":0.3,"height":0.6}}]}
+{"type":"detection_frame","timestamp":4000.2,"frame_id":2,"camera_id":"front","image":{"width":640,"height":480},"detections":[{"label":"person","confidence":0.87,"bbox":{"x":0.2,"y":0.15,"width":0.3,"height":0.6}}]}
+{"type":"detection_frame","timestamp":4001.8,"frame_id":3,"camera_id":"front","image":{"width":640,"height":480},"detections":[]}
+{"type":"detection_frame","timestamp":4001.9,"frame_id":4,"camera_id":"front","image":{"width":640,"height":480},"detections":[]}

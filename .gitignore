@@ -1,5 +1,13 @@
-# ESP32-controller workstream build artifacts (PlatformIO). Scoped to
-# firmware/ only; the dashboard/control workstream owns its own ignores.
+# Python / dashboard-control
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+recordings/
+
+# ESP32-controller workstream build artifacts (PlatformIO).
 firmware/.pio/
 
 # Local IDE state, not part of the project.

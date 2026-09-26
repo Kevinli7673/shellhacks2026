@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Rescuebot · Operator gallery</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body data-drive="disabled" data-link="offline" data-camera="offline" data-control="none">
+    <header class="gallery-bar">
+      <div class="station">
+        <span class="wordmark">Rescuebot</span>
+        <span class="station-name">Operator gallery</span>
+      </div>
+      <span class="on-air" id="on-air" aria-hidden="true">Driving</span>
+    </header>
+
+    <main class="gallery">
+      <section class="program" aria-label="Robot camera">
+        <div class="monitor">
+          <div class="screen camera-viewport">
+            <img id="camera-video" class="camera-video" alt="Live annotated camera video" hidden>
+            <div id="detection-overlay" class="detection-overlay" aria-label="Person detections"></div>
+            <div class="slate" id="camera-slate">
+              <p class="slate-title" id="camera-slate-title">No signal</p>
+              <p class="slate-message" id="camera-message">Camera service has not been integrated.</p>
+            </div>
+            <span class="umd-tag source-tag" id="camera-source">Cam 1 · Mock</span>
+            <span class="umd-tag camera-tag">
+              <span class="lamp" data-lamp="camera" aria-hidden="true"></span>
+              <span id="camera-status">Offline</span>
+            </span>
+            <p class="lower-third" id="detection-count">No people detected</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="desk" aria-labelledby="drive-label">
+        <div class="readout">
+          <span class="tally" aria-hidden="true"></span>
+          <div class="readout-text">
+            <h1 class="readout-state"><span class="visually-hidden" id="drive-label">Drive state: </span><span id="driving-status">Disabled</span></h1>
+            <p class="reason" id="fault-message" role="status">Connect to claim control.</p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="enable-button" class="enable" type="button">Enable driving</button>
+          <button id="stop-button" class="stop" type="button">
+            <span>Stop</span>
+            <kbd>Space</kbd>
+          </button>
+        </div>
+
+        <p class="speed" aria-live="polite">
+          <span class="desk-label">Motor speed</span>
+          <strong id="speed-value">30%</strong>
+          <span class="speed-pwm" id="speed-limit">0 / 255 PWM</span>
+        </p>
+
+        <div class="keypanel" aria-label="Keyboard controls">
+          <div class="keycluster keycluster-move">
+            <span class="keycap" data-key="KeyW">W</span>
+            <span class="keycap" data-key="KeyA">A</span>
+            <span class="keycap" data-key="KeyS">S</span>
+            <span class="keycap" data-key="KeyD">D</span>
+            <p class="key-legend">Move · strafe</p>
+          </div>
+          <div class="keycluster keycluster-arrows">
+            <span class="keycap" data-key="ArrowUp" aria-label="Up arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3.5 7.5 8 3l4.5 4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowLeft" aria-label="Left arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowDown" aria-label="Down arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 8.5 8 13l4.5-4.5"/></svg></span>
+            <span class="keycap" data-key="ArrowRight" aria-label="Right arrow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5"/></svg></span>
+            <p class="key-legend">Rotate · speed</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="chain" aria-label="Signal chain and telemetry">
+        <ol class="chain-links">
+          <li class="chain-node" data-node="browser">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Browser</span>
+            <span class="node-value" id="node-browser">Disconnected</span>
+          </li>
+          <li class="chain-node" data-node="control">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Control</span>
+            <span class="node-value" id="node-control">No owner</span>
+          </li>
+          <li class="chain-node" data-node="motor">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name" id="node-motor-name">Motor backend</span>
+            <span class="node-value" id="node-motor">Unknown</span>
+          </li>
+          <li class="chain-node" data-node="firmware">
+            <span class="lamp" aria-hidden="true"></span>
+            <span class="node-name">Firmware</span>
+            <span class="node-value" id="node-firmware">Unknown</span>
+          </li>
+        </ol>
+
+        <div class="telemetry">
+          <div class="chassis" aria-label="Wheel outputs">
+            <span class="wheel wheel-fl"><span class="wheel-name">FL</span><strong id="wheel-fl">0</strong></span>
+            <span class="wheel wheel-fr"><span class="wheel-name">FR</span><strong id="wheel-fr">0</strong></span>
+            <span class="wheel wheel-rl"><span class="wheel-name">RL</span><strong id="wheel-rl">0</strong></span>
+            <span class="wheel wheel-rr"><span class="wheel-name">RR</span><strong id="wheel-rr">0</strong></span>
+          </div>
+          <p class="telemetry-caption" id="wheel-caption">Wheel PWM · requested</p>
+          <dl class="readings">
+            <div><dt>ACK age</dt><dd id="t-ack">—</dd></div>
+            <div><dt>Status age</dt><dd id="t-status">—</dd></div>
+            <div><dt>Input age</dt><dd id="t-browser">—</dd></div>
+            <div><dt>IMU</dt><dd id="t-imu">—</dd></div>
+            <div><dt>Dropped</dt><dd id="t-dropped">—</dd></div>
+            <div><dt>Frame age</dt><dd id="t-camera">—</dd></div>
+          </dl>
+        </div>
+      </section>
+    </main>
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>
