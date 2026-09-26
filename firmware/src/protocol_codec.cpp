@@ -14,7 +14,15 @@ namespace rescuebot {
 
 namespace {
 
-constexpr size_t kJsonCapacity = 256;
+// A flat drive packet (type/session/seq/forward/sideways/turn/speed_limit,
+// 7 fields, plus a session string) does not fit in 256 bytes of
+// ArduinoJson v6 StaticJsonDocument capacity once per-field node overhead
+// and string duplication are accounted for — deserializeJson returns
+// NoMemory and every valid drive packet gets rejected as malformed. 512
+// gives comfortable headroom; this is independent of the wire-level line
+// length bound (kMaxLineLength in line_reader.h caps input at 200 bytes
+// before it ever reaches here).
+constexpr size_t kJsonCapacity = 512;
 
 bool copySessionField(JsonVariantConst v, char* dest) {
     if (!v.is<const char*>()) {

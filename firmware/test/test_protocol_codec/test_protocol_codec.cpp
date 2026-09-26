@@ -178,7 +178,7 @@ void test_build_imu_telemetry_round_trips(void) {
     size_t n = buildImuTelemetry(buf, sizeof(buf), 123456, true, 90.0, 3);
     TEST_ASSERT_TRUE(n > 0);
 
-    StaticJsonDocument<128> doc;
+    StaticJsonDocument<256> doc;
     DeserializationError err = deserializeJson(doc, buf, n);
     TEST_ASSERT_FALSE(err);
     TEST_ASSERT_EQUAL_STRING("imu", doc["type"].as<const char*>());
@@ -193,7 +193,7 @@ void test_build_imu_telemetry_unavailable_omits_heading(void) {
     size_t n = buildImuTelemetry(buf, sizeof(buf), 1, false, 0.0, 0);
     TEST_ASSERT_TRUE(n > 0);
 
-    StaticJsonDocument<128> doc;
+    StaticJsonDocument<256> doc;
     DeserializationError err = deserializeJson(doc, buf, n);
     TEST_ASSERT_FALSE(err);
     TEST_ASSERT_FALSE(doc["available"].as<bool>());
