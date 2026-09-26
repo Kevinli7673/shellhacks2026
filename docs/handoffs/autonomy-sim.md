@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. The simulation dashboard now offers 1x/2x/3x world-clock playback with unchanged motor settings and an averaged actual-rate readout. At requested 3x, search/notification/return/disarm passed over 14.92 m in 155 s, with 6.6 cm return error and 12.2 cm minimum clearance. A goal receive-time deadline race was fixed in e653430. Existing goal, obstacle, Stop, takeover, and source-loss checks pass at accelerated playback. Varied targets, missing targets, blocked returns, and physical autonomy still need further runtime acceptance.
+Status: Search coverage repair validated on the final Docker image. Fresh-map and northern-start search/notification/return/disarm both pass at requested 3x playback. The repair uses map-cell connectivity, 0.55 m destination clearance, and NavFn Dijkstra expansion after a reproduced A* return-path failure. All 27 ROS tests and 166 application tests pass (two optional skips); ordinary dashboard goals, Stop, takeover, and source-loss regression also pass. Repair commit: 6afe288 on feature/autonomy-sim, not integrated. The simulator is left navigation-ready, disarmed, unowned, and at zero wheel output. Physical autonomy and varied/absent targets remain unvalidated.
 
 ## User-authorized scope exception
 
@@ -34,6 +34,240 @@ The existing non-Gazebo application paths must retain their behavior. Scope is
 ros_ws/, simulation-specific application behavior and tests, and this handoff.
 No direct firmware edits, other workstream handoff edits, or merges into
 test/integration or main are authorized. Push only feature/autonomy-sim.
+
+## Search coverage acceptance (2026-09-26)
+
+Tested code checkpoint: `6afe288` (parent `db6a468`). Resumed the interrupted
+repair in this same dedicated worktree. Fetched origin; no request routing applies to simulation autonomy.
+The existing container was disarmed and unowned. Its search/manager/validator
+sources matched the worktree by SHA-256. Restarting that single simulator
+restored navigation readiness and reset the house/map. No source-expiry,
+Stop, speed, collision polygon, serial, firmware, or IPC contract changed.
+The integrator still owns the simulation exception in the shared plan/log.
+
+The first fresh-map run passed in 165.31 s with 7.90 cm return error. Its
+following northern-start run found the target but failed during return:
+NavFn repeatedly logged a reachable potential that could not be extracted
+into a path from about (1.38, 0.15) m to home (-0.54, 2.06) m. Recovery entered
+Wait, safe output expired, and the host correctly disarmed. This is a failed
+acceptance run, retained as `rescuebot-search-resume-north.log` and
+`rescuebot-search-resume-runtime.log` under /private/tmp/.
+
+A stationary ComputePathToPose probe on the preserved costmap, with those
+same start/home poses, alternated A* / Dijkstra / A* / Dijkstra. Both A*
+requests returned action status 6, error 208, and no path; both Dijkstra
+requests returned status 4, error 0, and 162 poses in 2.2–3.2 ms. The probe
+sent no velocity or navigation movement goal and restored the original
+parameter. Its script, costmap/paths, and log are retained as
+`/private/tmp/rescuebot-plan-probe.py` and
+`/private/tmp/rescuebot-search-return-plan-probe.{json,log}`. This supports
+using the existing NavFn Dijkstra mode for this small map; it is not a
+claim to have fixed the upstream A* implementation. Nav2's supported setting
+is documented in its [NavFn guide](https://ros-navigation.github.io/mkdocs.nav2.org/rolling/configuration_and_development/configuration_guide/planners_plugins/configuring_navfn/).
+`config/nav2.yaml` now sets `GridBased.use_astar: false`. Costs, clearances,
+unknown-space policy, tolerances, and command deadlines are unchanged.
+
+The final image is
+`4eb258efb4d7c8ae31ecf25c536710218789fd96c95a8e876aac9a73eeb68435`.
+It rebuilds all four ROS packages and passes the Ubuntu application suite
+(168 discovered, 166 passed, two optional integration skips) and all 27 ROS
+tests with no errors/failures/skips. The earlier macOS suite covers unchanged
+application code; this resumed session reran Ubuntu tests, not macOS tests.
+Environment remains macOS ARM64 / Docker Ubuntu 24.04 / Jazzy / Harmonic,
+software rendering. No host installation or physical hardware testing occurred.
+
+Both complete missions below passed on that final image at requested 3x.
+The northern test used the fresh run's retained map and drove to the north
+through dashboard goals, without teleportation. Home was captured again after
+the validator's intentional initial Stop/restart. Results are wall time;
+requested playback is not a guarantee of sustained 3x.
+
+| Final-image scenario | Goals before detection | Time | Path | Forward travel | Home position / heading error | Minimum measured body clearance | Maximum SLAM error |
+|---|---:|---:|---:|---:|---|---:|---:|
+| Fresh map / near spawn | 22 | 161.343 s | 18.205 m | 98.74% | 0.0743 m / 0.0816 rad | 0.1496 m | 0.0454 m |
+| Northern start, saved home (-0.529, 2.067) m | 18 | 155.694 s | 18.183 m | 98.86% | 0.0707 m / 0.0930 rad | 0.1434 m | 0.0238 m |
+
+Both checked target range/occlusion, exploring/notifying/returning/complete
+phases, automatic disarming, stationary Stop and post-return hold, and a new
+explicit mission clearing the old detection. The `--north-start` variant is
+now executed and passing. After another fresh restart, dashboard-goal safety
+regression also passed: completed goal displacement (0.0098, -0.5257) m,
+Stop hold, manual takeover without resume, managed Nav2 pause disarming in
+0.305 s (including lifecycle/test overhead), six active nodes after resume,
+and no automatic rearm. No motion protection was relaxed for any failure.
+
+Exact resumed-session commands from /private/tmp/rescuebot-autonomy-sim
+(`docker` is /Users/shaderahman/.docker/bin/docker):
+
+```bash
+git fetch origin --prune
+docker build -f /private/tmp/rescuebot-search-fix.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py --north-start
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+git diff --check
+```
+
+The temporary Dockerfile and canonical clean-build command are described in
+the interrupted entry below. Final evidence under /private/tmp/:
+`rescuebot-search-dijkstra-{build,tests,rate,fresh,north,runtime,safety-rate,safety}.log`.
+Generated logs, probe, maps, and build artifacts stay outside Git.
+
+Affected files: this handoff, simulation README/validator, map coverage,
+mission status/reasons, navigation configuration, and ROS search regressions.
+Only the simulation planner's internal call signature changed; there are no
+application or external protocol changes. The existing passing checkpoint
+`db6a468` remains in history. Expected team Git identity was checked before
+committing; configuration and existing history were not rewritten. Publication
+is limited to feature/autonomy-sim; nothing is merged into test/integration or
+main. Next: use the simulation dashboard with explicit Enable driving → Start autonomy → Search
+for person & return. Varied targets, absent targets, blocked returns, and
+physical autonomy still require separate acceptance; this result does not
+establish exhaustive search of arbitrary buildings.
+
+Final state verification passed with navigation Ready, driving disarmed,
+autonomy inactive, no owner, zero wheel commands, and requested 3x playback.
+Snapshot: `/private/tmp/rescuebot-search-dijkstra-final-state.json`. The
+single live simulator remains available near map (0.028, -0.478) m after the
+safety test. Final cleanup with
+`docker buildx prune --builder desktop-linux --all --force` removed 1.193 GB
+of unused build cache. `docker system df` reports one active 5.615 GB image,
+one active container, zero volumes, and zero build cache. The active image
+and container were preserved. Evidence:
+`/private/tmp/rescuebot-search-dijkstra-cleanup.log`.
+
+## Search coverage repair (2026-09-26, interrupted; uncommitted)
+
+The user reported that search gives up around SLAM (-0.57, 2.16) m. The
+preserved dashboard state showed `complete`, `found: false`, and "Target not
+found; returned to start", with saved home (-0.537, 2.226) m. The reported
+position was approximately 7.5 cm from that home. Gazebo ground truth differed
+from SLAM by about 1 mm at inspection: this was premature search exhaustion
+followed by a normal return, not loss of localization.
+
+Two coverage defects were identified. The previous +/-4 m window followed the
+mission's home, clipping the southern detour when starting near the north wall.
+Also, a separate 25 cm lattice could disconnect a mapped passage depending on
+its alignment with the walls. Changing only the window centre did not solve
+the live case: it still exhausted eight destinations and returned without a
+target after 74 seconds. That failed intermediate experiment was not committed.
+
+Coverage now uses an 8 m window centred on the SLAM map and traverses the map's
+own cell grid (5 cm in this world). A 0.38 m centre clearance excludes occupied
+and unknown cells, including any cell area intersecting the clearance disk.
+The planner remains target-independent, runs in the existing bounded worker,
+and discards canceled mission results. Home is only the saved return pose.
+Destination clearance is 0.55 m to cover the stop polygon's 0.397 m corner
+radius, Nav2's 0.10 m arrival tolerance, and the 0.05 m map resolution. Transit
+connectivity retains 0.38 m so passages can connect rooms without placing a
+turning waypoint inside the passage. The 48-goal and 600-second wall-time limits
+are unchanged. Completion without a
+target now retains the exhaustion/timeout/failure reason instead of overwriting
+it with a generic return message. Mission start, ending cause, and completion
+are logged. There are no app/, serial, motor, firmware, or IPC schema changes.
+
+Regression coverage includes the northern-start southern detour, an offset
+0.85 m passage skipped by the old lattice, unknown cells blocking that same
+passage, and retention of the no-target return reason. The old planner returned
+no viewpoint for the open-passage case. All 27 ROS tests pass with the repair.
+
+Validation uses the existing macOS ARM64 / Docker Ubuntu 24.04 / Jazzy / Harmonic
+environment. The live reproduction retained the user's world, pose, and SLAM
+map; only the verified, disarmed mission-manager process was replaced after
+copying the updated Python sources. No second simulator was started. Commands
+from this worktree (`docker` is /Users/shaderahman/.docker/bin/docker):
+
+```bash
+git fetch origin --prune
+docker build -f /private/tmp/rescuebot-search-fix.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+The temporary Dockerfile derives from the existing validated image, copies
+ros_ws/src/ and ros_ws/docker/ with rescuebot ownership, and runs
+`source /opt/ros/jazzy/setup.bash && cd ros_ws && colcon build --symlink-install --event-handlers console_direct+`.
+Canonical clean builds continue to use ros_ws/docker/Dockerfile. Captured state,
+maps, runtime logs, and diagnostics stay outside Git under /private/tmp/.
+
+The preserved-map reproduction started around (-0.594, 2.084) m, with the
+second mission saving that position after the validator's explicit Stop/restart.
+At requested 3x playback it found the target after 22 destinations, returned,
+and disarmed in 165.16 wall seconds over 17.919 m. Forward travel was 99.09%;
+home position/heading error was 0.0783 m / 0.0703 rad, minimum measured body
+clearance 0.1422 m, and maximum SLAM error 0.0468 m. Detection range/occlusion,
+stationary Stop, post-return hold, and a new mission clearing the old detection
+all passed. Evidence: rescuebot-search-cell-runtime.log and
+rescuebot-search-cell-manager.log in /private/tmp/.
+
+The final image rebuilt all four ROS packages. macOS and Ubuntu each discovered
+168 Python tests: 166 passed, two optional integration skips. Ubuntu's 27 ROS
+tests passed with no skips or errors. Exact final commands:
+
+```bash
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+docker build -f /private/tmp/rescuebot-search-fix.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+The first fresh-map retest with cell-resolution coverage exposed an arrival
+clearance issue at the eastern crate. Nav2 accepted (1.33, -1.55) m while the
+robot was approximately 7 cm short, then the final turn put the stop polygon
+against the crate. FootprintStop held the robot stationary, repeated Nav2
+recovery attempts made no progress, and source expiry disarmed during recovery.
+Evidence: rescuebot-search-fresh-runtime.log, rescuebot-search-fresh-full.log,
+and rescuebot-search-crate-map.json. This motivated the 0.55 m destination
+clearance above; the stop polygon and command deadlines were not changed.
+The passage regression also verifies that the chosen destination has room to
+turn beyond the narrow passage. All 27 ROS tests pass after this change.
+
+A repeatable `validate_search.py --north-start` option drives from near spawn
+to (-0.55, 2.15) m via two bounded dashboard goals, then runs the same complete
+search validation. It does not teleport the robot or reset the SLAM map.
+The final fresh-map run with 0.55 m arrival clearance progressed beyond the
+previous eastern-crate stop, but the turn was intentionally interrupted before
+completion. The exact validator process received SIGINT; its finally handler
+sent Stop, and the final API check confirmed disarmed, autonomy inactive, no
+control owner, and zero wheel commands. The log ends with KeyboardInterrupt;
+it is not a passing complete-mission result. The new `--north-start` variant
+has not yet been executed. The dashboard navigation snapshot was "Waiting for
+navigation" after interruption and must be checked on resume.
+
+Latest validation commands:
+
+```bash
+docker build -f /private/tmp/rescuebot-search-fix.Dockerfile -t rescuebot-autonomy-sim:jazzy .
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+Evidence under /private/tmp/: rescuebot-search-arrival-tests.log (27 passing
+ROS tests), rescuebot-search-arrival-final-build.log, rescuebot-search-arrival-
+fresh.log (interrupted runtime), and rescuebot-search-interrupted-state.json
+(verified Stop). The Python suites above still cover unchanged application
+code. Work remains uncommitted and unpushed on feature/autonomy-sim. There are
+no other workstream edits. Do not claim final-image search acceptance yet.
+
+Next: keep control tabs closed; restart the single simulator to a fresh
+search_house world, restore 3x playback, run validate_search.py to completion,
+then run validate_search.py --north-start from its returned spawn position.
+Investigate any failure without relaxing Stop/source-expiry protection. Once
+both pass, record their actual metrics, check the expected team commit identity,
+commit the scoped repair, and push only feature/autonomy-sim. Docker currently
+has one active image/container and no volumes; repair build cache remains to
+be cleaned after acceptance. Varied targets, missing targets, blocked returns,
+and physical autonomy remain unvalidated. The simulation-only scope exception
+above continues to apply.
 
 ## Simulation playback checkpoint (2026-09-26)
 
@@ -196,6 +430,7 @@ is recorded above. Shared serial, firmware, and non-Gazebo app paths are unchang
 | `9b20e91` | Optional obstacle house and world selection | New world loaded with working sensors/SLAM/Nav2; original default retained. |
 | `0fdf41c` | Map coverage search, synthetic notification, return/disarm, local SLAM loop tuning | Full 14.98 m mission, Stop/restart/repeat-start and selected-goal safety regression; 159 Python passes/two skips on each OS, 21 ROS passes. |
 | `1d6f9fa` | Merge latest origin/test/integration through 7071d1e | Imported three upstream firmware initialization fixes unchanged; post-merge Python suite: 159 passes, two optional skips. No direct firmware edits or physical tests. |
+| `6afe288` | Map-cell search coverage, arrival clearance, retained ending reasons, northern-start validator, Dijkstra return planning | Final image: 166 application passes/two skips, 27 ROS passes; fresh and northern searches with detection/return/disarm pass; selected-goal/Stop/takeover/source-loss regression passes. Simulation only. |
 
 Previous publication: code through `784f08b` and its handoff were committed
 and pushed only to origin/feature/autonomy-sim, not integrated. The goal-form
