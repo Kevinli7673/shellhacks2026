@@ -1,15 +1,15 @@
 """Launch Gazebo Harmonic and the simulation-only Rescuebot command path."""
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, SetEnvironmentVariable
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 
 
 def generate_launch_description():
     gazebo_share = FindPackageShare("rescuebot_gazebo")
-    world = PathJoinSubstitution([gazebo_share, "worlds", "indoor_maze.sdf"])
+    world = PathJoinSubstitution([gazebo_share, "worlds", LaunchConfiguration("world")])
     model = PathJoinSubstitution([gazebo_share, "models", "rescuebot", "model.sdf"])
     bridge_config = PathJoinSubstitution([gazebo_share, "config", "bridge.yaml"])
     model_path = PathJoinSubstitution([gazebo_share, "models"])
@@ -19,6 +19,7 @@ def generate_launch_description():
     ])
 
     return LaunchDescription([
+        DeclareLaunchArgument("world", default_value="indoor_maze.sdf", choices=["indoor_maze.sdf", "search_house.sdf"]),
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", model_path),
         ExecuteProcess(cmd=["gz", "sim", "-r", world], output="screen"),
         Node(

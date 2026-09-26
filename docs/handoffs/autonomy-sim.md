@@ -16,6 +16,13 @@ WORKSTREAMS.md, and IMPLEMENTATION_PLAN.md. The integrator should record this
 decision in changes.md; this workstream does not edit the shared status or
 plan files.
 
+The user subsequently authorized the simulation search-and-return milestone:
+an obstacle environment, autonomous search for a synthetic person location,
+a dashboard notification, and return to the original mission start. This
+extends the same simulation-only scope exception. Physical camera snapshots,
+buzzer integration, and physical autonomy remain deferred. The integrator
+should carry this accepted design into IMPLEMENTATION_PLAN.md and changes.md.
+
 Gazebo/ROS output must never reach the serial transport, ESP32, or real motors.
 The existing non-Gazebo application paths must retain their behavior. Scope is
 ros_ws/, simulation-specific application behavior and tests, and this handoff.
@@ -46,6 +53,21 @@ The working tree is clean at handoff. Expected commit identity was verified
 before each commit; Git configuration and branch history were not rewritten.
 The simulation control tab is open with the updated form; the robot is
 disarmed and navigation is ready after browser acceptance.
+
+## Search obstacle-world checkpoint (2026-09-26)
+
+Added optional `search_house.sdf` and a bounded world launch argument while
+preserving `indoor_maze.sdf` as the default. The 6 m enclosure has the original
+divider, two additional partitions, two crates, a green spawn disk, and a pink
+synthetic target disk. Markers have visual geometry only. The Gazebo world name
+stays `indoor_maze` so existing bridges and ground-truth topics remain compatible.
+
+The Docker image built all four packages, then the existing container loaded
+the new world via `RESCUEBOT_WORLD=search_house.sdf docker compose -f
+ros_ws/docker/compose.yaml up -d`. Actual-pose streaming, SLAM, and Nav2 became
+ready, and an in-progress search run navigated its first partition. The mission
+implementation and its full acceptance are a separate checkpoint below.
+No firmware, serial interfaces, or physical devices were accessed.
 
 ## Current checkpoint
 
