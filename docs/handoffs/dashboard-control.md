@@ -17,7 +17,8 @@ AGENTS.md "Cross-workstream requests".
 | DC-1 | esp32-controller | Merge `main` (b37213e) into feature/esp32-controller so your agent follows the new AGENTS.md request check, and add Requests/Responses tables to docs/handoffs/esp32-controller.md. | done (1988d5a) |
 | DC-2 | esp32-controller | Copy `fixtures/serial_protocol_vectors.json` (30 cases) from origin/feature/dashboard-control into firmware/test/fixtures/, unedited. We observed 52/52 `pio test -e native` on macOS for 0332bd9 with it. | done (f6213f3) |
 | DC-3 | esp32-controller | Try `pio run -e esp32-s2` (build only, no flashing; uses PlatformIO's bundled toolchain) and record the result in your handoff. | done (dc4ed43) |
-| DC-4 | esp32-controller | Invert the front-left motor: in `firmware/include/chassis_config.h` set `WheelWiring front_left{1, true};`. Bench test on 2026-09-26 (Arduino IDE sketch, all four shield ports driven FORWARD) showed only the front-left wheel pushing backward, so its leads are reversed. Please also confirm with a one-port-at-a-time test that front-left really is port M1 (the mapping is still the placeholder); if not, fix the port numbers too. Already applied and verified on test/integration as e952e9a: native 52/52, clean esp32-s2 build, and a check that W drives M1 BACKWARD and M2-M4 FORWARD. A native test asserting this inversion would guard it. | open |
+| DC-4 | esp32-controller | Invert the front-left motor: in `firmware/include/chassis_config.h` set `WheelWiring front_left{1, true};`. Bench test on 2026-09-26 (Arduino IDE sketch, all four shield ports driven FORWARD) showed only the front-left wheel pushing backward, so its leads are reversed. Please also confirm with a one-port-at-a-time test that front-left really is port M1 (the mapping is still the placeholder); if not, fix the port numbers too. Already applied and verified on test/integration as e952e9a: native 52/52, clean esp32-s2 build, and a check that W drives M1 BACKWARD and M2-M4 FORWARD. A native test asserting this inversion would guard it. | done (eba9e04, verified mapping) |
+| DC-5 | esp32-controller | Port the two robot-verified boot fixes from test/integration into `firmware/src/main.cpp` on feature/esp32-controller; your eba9e04 already has the wiring, ceiling, and QT Py board. (1) eaa824a: `setup()` must call `g_motors.begin()` before anything drives the shield (and retry it from `loop()`), otherwise every motor write is dropped while ACKs still look correct. (2) 1ce1f37 + 7071d1e: call `configureI2cBus()` (`Wire.setClock(100000)` then `Wire.setClock(400000)`) after every device `begin()`. On the QT Py ESP32-S2, `Adafruit_BNO055::begin()` leaves the bus slow while `getClock()` reports the old value, which stalled `loop()` up to 0.5 s and caused dropped USB bytes and malformed/oversized faults. The three commits cherry-pick cleanly onto 9417cba (checked in a throwaway worktree) and touch only main.cpp. Don't flash; the robot already runs test/integration 7071d1e. Please report `pio test -e native` and a clean `pio run -e esp32-s2`. Evidence: 2026-09-26 floor run of all six moves through the real firmware protocol, no faults, correct ACKs, movement confirmed by eye. | open |
 
 ## Responses
 
@@ -604,6 +605,38 @@ Private details (username, network, device serial numbers) are omitted.
 - Next action:
   - Merge into test/integration and run RESCUEBOT_INTEGRATION=1 there,
     where firmware/ and the serial transport are present.
+
+### 2026-09-26 EDT - Floor movement confirmed with real firmware
+
+- Commit: firmware test/integration 7071d1e, flashed on the Adafruit QT Py
+  ESP32-S2; no code changes on this branch.
+- Changed files and interfaces:
+  - This handoff only: DC-4 marked done (eba9e04); DC-5 requests the
+    motor-shield begin and I2C reconfiguration fixes on
+    feature/esp32-controller.
+- Tests and results:
+  - Scratch script over USB serial from a Mac (real protocol: arm, drive at
+    20 Hz, speed_limit 60, disarm). All six moves (forward, backward, strafe
+    left/right, rotate cw/ccw), 2 s each: 39 ACKs per move, no faults,
+    disarm acknowledged, ACK wheel values match the mixing fixtures.
+  - Forward and strafe right rerun on their own: same result. An apparent
+    slide in the first run was a cable in the robot's way.
+  - The operator confirmed by eye that all six moves go the right way.
+- Mock or physical coverage:
+  - Physical, on the floor, driven directly over USB from a Mac. Not yet
+    driven through the Pi dashboard and bridge.
+- Known limitations:
+  - Once, the firmware stopped running loop() (no IMU stream, no ACKs)
+    while USB stayed enumerated; a RESET fixed it. The cause is unknown
+    and it did not recur in later runs. Watch for it during dashboard
+    driving.
+  - A test client that reuses a session ID must not restart seq at 1: the
+    firmware correctly rejects that arm as stale. Use a fresh session per
+    run.
+  - hardware_pwm_ceiling stays 60 until further floor tests.
+- Next action:
+  - Move the ESP32 to the Pi (USB-A to USB-C data cable), restart the bridge
+    with --transport serial, and drive from the dashboard.
 
 ## Entry template
 
