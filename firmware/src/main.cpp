@@ -11,6 +11,7 @@
 #ifdef ARDUINO
 
 #include <Arduino.h>
+#include <Wire.h>
 
 #include "chassis_config.h"
 #include "controller.h"
@@ -44,6 +45,15 @@ bool g_imu_ready = false;
 // MotorShield holds no motor handles and every write is silently dropped.
 bool g_motors_ready = false;
 uint32_t g_last_motor_attempt_ms = 0;
+
+// Measured on the QT Py ESP32-S2: after the libraries' own Wire.begin()
+// calls, each I2C transaction took ~8.6 ms although getClock() reported
+// 100 kHz, so one four-motor update stalled the loop ~0.5 s. Setting the
+// clock explicitly reconfigures the bus (~0.06 ms per transaction at 400 kHz).
+// The motor shield (PCA9685) and BNO055 both support 400 kHz. Reapply after
+// every device begin(), since a begin() may reinitialize Wire.
+constexpr uint32_t kI2cClockHz = 400000;
+void configureI2cBus() { Wire.setClock(kI2cClockHz); }
 uint32_t g_last_imu_ms = 0;
 uint32_t g_last_imu_attempt_ms = 0;
 
@@ -72,6 +82,7 @@ void setup() {
     Serial.begin(115200);
     // Initialize the shield first; begin() leaves every output off (section 7).
     g_motors_ready = g_motors.begin();
+    configureI2cBus();
     g_last_motor_attempt_ms = millis();
     g_controller.setHardwarePwmCeiling(g_chassis.hardware_pwm_ceiling);
 
@@ -81,6 +92,7 @@ void setup() {
     sendLine(g_out_buf, n);
 
     g_imu_ready = g_imu.begin();
+    configureI2cBus();
     g_last_imu_attempt_ms = millis();
 }
 
@@ -109,11 +121,13 @@ void loop() {
 
     if (!g_motors_ready && now_ms - g_last_motor_attempt_ms >= kMotorRetryIntervalMs) {
         g_motors_ready = g_motors.begin();
+        configureI2cBus();
         g_last_motor_attempt_ms = now_ms;
     }
 
     if (!g_imu_ready && now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {
         g_imu_ready = g_imu.begin();
+        configureI2cBus();
         g_last_imu_attempt_ms = now_ms;
     }
 
