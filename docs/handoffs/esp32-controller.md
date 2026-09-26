@@ -2,10 +2,28 @@
 
 Workstream: ESP32 controller
 Branch: feature/esp32-controller (pushed to origin)
-Status: in progress; native tests pass 52/52 (no board build or hardware test yet)
+Status: in progress; native tests 52/52; esp32-s2 build succeeds; not flashed, no hardware test
 
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
+
+## Requests
+
+Requests from ESP32-controller to the dashboard/control workstream. See
+AGENTS.md "Cross-workstream requests".
+
+| ID | To | Request | Status |
+|---|---|---|---|
+
+## Responses
+
+Responses from ESP32-controller to dashboard/control requests (DC-#).
+
+| Request | Response |
+|---|---|
+| DC-1 | Done. Merged origin/main (b37213e) into feature/esp32-controller as 1988d5a; this Requests/Responses section was added in the commit that introduced it. |
+| DC-2 | Done in f6213f3. `firmware/test/fixtures/serial_protocol_vectors.json` is byte-identical to origin/feature/dashboard-control (checked against e101f82 and again at 585d499). `pio test -e native` on 0332bd9 plus that file: 52/52 pass on Windows 11, GCC 15.2.0 (MinGW-w64), PlatformIO 6.2.0, ArduinoJson 6.21.6. Details in the handoff log below. |
+| DC-3 | Done. `pio run -e esp32-s2` (build only, nothing flashed) on 1988d5a: SUCCESS, 0 compiler warnings, RAM 4.8% (15620/327680 B), flash 20.6% (269566/1310720 B). Board is still the placeholder esp32-s2-saola-1. Toolchain came from PlatformIO's registry into an isolated core dir. |
 
 ## Current state
 
@@ -27,7 +45,7 @@ Do not edit shared project documents while parallel work is active.
   (30 cases + `boot_emit`) against the firmware's actual logic via
   `Controller`.
 - **Native tests compiled and run: 52/52 pass** (PlatformIO 6.2.0, GCC
-  15.2.0 on Windows). The esp32-s2 board build has not been attempted; no
+  15.2.0 on Windows). `pio run -e esp32-s2` also builds (0 warnings). No
   flashing or hardware testing has happened. See "Tests" below.
 - Hardware adapters (`motor_shield.cpp`, `imu_bno055.cpp`) and `main.cpp`
   are guarded with `#ifdef ARDUINO` so native test builds compile them to
@@ -185,8 +203,10 @@ the `native` env; it does not bundle one):
   dashboard/control cross-check (macOS arm64, Apple clang).
 - Mixing fixture values are also reproducible from
   `python firmware/test/fixtures/generate_mixing_fixtures.py`.
-- Not performed: `pio run -e esp32-s2` (board build), flashing, or any
-  physical/hardware test.
+- Board build: `pio run -e esp32-s2` → SUCCESS, 0 warnings, RAM 4.8%,
+  flash 20.6% (espressif32 platform, Arduino framework, Adafruit Motor
+  Shield V2 1.1.4, Adafruit BNO055 1.6.4, ArduinoJson 6.21.6).
+- Not performed: flashing, or any physical/hardware test.
 
 ## Known limitations
 
@@ -204,9 +224,9 @@ the `native` env; it does not bundle one):
   host, so this is the conservative case.
 - `SessionGuard`/`protocol_codec` sequence numbers are validated via
   `is<int>()`; `seq` values beyond int32 range are untested.
-- `motor_shield.cpp` / `imu_bno055.cpp` / `main.cpp` compile only for the
-  esp32-s2 env (behind `#ifdef ARDUINO`) and have not been built against the
-  real Adafruit/Arduino headers yet.
+- `motor_shield.cpp` / `imu_bno055.cpp` / `main.cpp` (behind
+  `#ifdef ARDUINO`) compile against the real Arduino/Adafruit headers but
+  have never run on hardware.
 - `test_protocol_fixtures.cpp` tries several candidate relative paths to
   find the vendored fixture file; set `RESCUEBOT_FIXTURE_DIR` if none hit.
   Its failure messages are sometimes truncated in PlatformIO's summary
@@ -215,10 +235,8 @@ the `native` env; it does not bundle one):
 
 ## Next action
 
-1. Run `pio run -e esp32-s2` (build only, do not flash) to check the
-   Arduino-side code compiles against the real Arduino/Adafruit headers;
-   update `platformio.ini`'s `board` once the exact ESP32-S2 board is
-   confirmed.
+1. Confirm the exact ESP32-S2 board and update `platformio.ini`'s `board`,
+   then rebuild.
 2. Resolve the "Hardware facts still required" list, then set
    `chassis_config.h` from validated values before any real motor output.
 3. Someone should reconcile WORKSTREAMS.md's `firmware/tests/` path with
@@ -458,6 +476,35 @@ the dashboard/control side should correct that sentence.
   compiled.
 - Next action: build-only `pio run -e esp32-s2`; dashboard/control to fix
   the duplicate-key sentence in the shared fixture's description.
+
+### 2026-09-26 EDT - Request channel adopted; DC-1 to DC-3 answered; esp32-s2 build succeeds
+
+- Merged origin/main (b37213e, cross-workstream request channel; also brings
+  in ai_camera_detect.py from 994802e) as 1988d5a. The merge was clean.
+- Added Requests/Responses tables above and answered DC-1, DC-2, and DC-3.
+  No FW requests were filed. The duplicate-key wording in the shared
+  fixture description is left as a note only, by the user's choice.
+- No CLAUDE.md was added: this Claude Code environment loads AGENTS.md
+  automatically (it was injected at session start), so a CLAUDE.md that
+  only contains `@AGENTS.md` would load it twice.
+- DC-3 command, run from a `git archive` export of 1988d5a with
+  `PLATFORMIO_CORE_DIR` in scratch and nothing flashed:
+
+      pio run -e esp32-s2
+
+  Result: SUCCESS in 488 s (most of it the first toolchain download). All
+  eight src/ files compiled with 0 warnings. RAM 4.8%, flash 20.6%. One
+  package mirror was unreachable from this network and PlatformIO fell back
+  to another automatically.
+- At the user's explicit direction, this branch also updates AGENTS.md (two
+  invariants: stale arms are ignored and accepted arms zero outputs; the
+  shared serial vectors are vendored unedited and replayed by the firmware
+  native tests) and changes.md (current state, active work, checkpoints,
+  and a History entry). WORKSTREAMS.md normally reserves those files for
+  the integrator, so expect conflicts there at merge.
+- Mock or physical coverage: native host tests plus the board compile. No
+  flashing or hardware testing.
+- Next action: see "Next action" above.
 
 ## Entry template
 
