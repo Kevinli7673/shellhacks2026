@@ -30,6 +30,13 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `225fec2` | SLAM Toolbox, Nav2, Collision Monitor, goal manager, frontier evaluation gate | Static ROS asset/safety tests and Python syntax checks passed locally. |
 | `5868e16` | Previous `test/integration` merge, including the earlier wheel-direction configuration | Mecanum, autonomy, and ROS asset tests passed after that merge. Configuration superseded by the merge below. |
 | `38c686d` | Merge of `origin/test/integration` at `d6a5d5f`, carrying the verified wheel configuration that replaces `e952e9a` | macOS Python regression suite: 151 discovered, 149 passed, 2 skipped; JavaScript syntax passed. No ROS/Gazebo runtime coverage. |
+| `e6e5bee` | Native ARM64 Docker environment | All four ROS packages build; initial Ubuntu suite 149 passed, 2 skipped. |
+| `95073de` | Gazebo model physics, sensors, bridges, and manual speed | Six actual-pose direction checks, browser keys/Space, speed, release, Stop and input expiry pass; 151 Python passes, 2 skips, one ROS pass. |
+| `aaf3f88` | Runtime SLAM/Nav2, mission cancellation, matching IPC/velocity limits | Map and goal success, Stop/manual override, safe-source expiry/no rearm; 152 Python passes, 2 skips on each OS, five ROS passes. |
+
+Publication: runtime code through `aaf3f88` is committed and pushed to
+origin/feature/autonomy-sim. The branch has not been integrated. This handoff
+checkpoint is committed on the same branch. Working tree is clean at handoff.
 
 ## Current checkpoint
 
@@ -312,3 +319,22 @@ chassis parameters, physical robot acceptance, and real autonomy remain
 outside this completed short simulation acceptance. The integrator should
 record the authorized scope exception and merged results in shared changes.md
 and reconcile the shared implementation plan; neither was edited here.
+
+
+Final packaging and publication:
+
+- Code checkpoint `aaf3f88` was pushed only to origin/feature/autonomy-sim;
+  the prior Docker and manual-driving commits were included. No history was
+  rewritten and no other branch was pushed.
+- The final image was rebuilt successfully and started again with
+  `docker compose -f ros_ws/docker/compose.yaml up -d`. SLAM/Nav2 was launched
+  with the command above. Dashboard: http://localhost:18000 ; browser desktop:
+  http://localhost:16080/vnc.html?autoconnect=true&resize=scale .
+- `docker inspect rescuebot-autonomy-sim-sim-1` confirms no mounted host
+  directories/devices, no privileged mode, and only loopback port bindings.
+  The simulator was left disarmed with autonomy inactive.
+- Final macOS command with `PYTHONPATH=app`: 154 discovered, 152 passed,
+  2 skipped in 2.152 seconds. `git diff --check` passed; no authored firmware
+  differences exist after integration merge `38c686d`.
+- The last commit identity matched the expected team identity before each
+  commit. Git configuration was not changed.
