@@ -44,6 +44,11 @@ controller_server:
       simulate_ahead_time: 1.0
       rotate_to_goal_heading: true
       rotate_to_heading_once: false
+      # Follow a nearby segment around bends. A distant local goal across a
+      # wall makes DWB's goal-distance critics oppose the required detour.
+      prune_distance: 0.30
+      forward_prune_distance: 0.60
+      shorten_transformed_plan: true
       debug_trajectory_details: false
       min_vel_x: -0.06
       max_vel_x: 0.08

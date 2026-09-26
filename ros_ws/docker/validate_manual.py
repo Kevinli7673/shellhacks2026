@@ -5,8 +5,10 @@ keyboard handling. It refuses to issue input unless the backend is Gazebo.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import math
+import time
 import urllib.request
 
 import websockets
@@ -31,8 +33,12 @@ async def pose():
         raise
     if process.returncode:
         raise RuntimeError("Gazebo pose query failed")
+    return decode_pose(raw.decode())
+
+
+def decode_pose(raw):
     # gz topic can deliver a second queued JSON record before honoring -n 1.
-    sample, _ = json.JSONDecoder().raw_decode(raw.decode().lstrip())
+    sample, _ = json.JSONDecoder().raw_decode(raw.lstrip())
     model = next(p for p in sample["pose"] if p["name"] == "rescuebot")
     p, q = model["position"], model["orientation"]
     yaw = math.atan2(
@@ -40,6 +46,49 @@ async def pose():
         1 - 2 * (q.get("y", 0) ** 2 + q.get("z", 0) ** 2),
     )
     return p.get("x", 0), p.get("y", 0), yaw
+
+
+@asynccontextmanager
+async def pose_stream():
+    """Bounded latest-pose reader for longer tests, without repeated CLI starts."""
+    process = await asyncio.create_subprocess_exec(
+        "gz", "topic", "-e", "--json-output", "-t",
+        "/world/indoor_maze/dynamic_pose/info", stdout=asyncio.subprocess.PIPE)
+    latest, received = None, 0.
+
+    async def read():
+        nonlocal latest, received
+        while raw := await process.stdout.readline():
+            latest = decode_pose(raw.decode())
+            received = time.monotonic()
+        raise RuntimeError(f"Gazebo pose stream exited: {await process.wait()}")
+
+    reader = asyncio.create_task(read())
+
+    async def snapshot():
+        if reader.done():
+            reader.result()
+        assert latest is not None and time.monotonic()-received < .5, "stale Gazebo model pose"
+        return latest
+
+    try:
+        deadline = time.monotonic() + 5
+        while latest is None and time.monotonic() < deadline:
+            if reader.done():
+                reader.result()
+            await asyncio.sleep(.02)
+        await snapshot()
+        yield snapshot
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), 2)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
 
 
 def displacement(before, after):

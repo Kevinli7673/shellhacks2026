@@ -10,6 +10,9 @@ dashboard keys, speed adjustment, release, Space, and input expiry have been
 validated against the actual model pose. A newly inserted Gazebo obstacle
 also triggers Collision Monitor and leaves measured clearance. SLAM publishes
 a map, Nav2 completes a selected goal, and Stop/manual override/source loss cancel or disarm safely.
+Forward-facing travel and a seven-goal route around the divider have also
+passed ground-truth pose checks. The controller uses a 0.60 m local path
+horizon so goals across a wall follow the planned detour instead of stalling.
 The Ubuntu suite reports 158 tests (156 pass, 2 environment-gated skips), and
 all seven ROS tests pass. This is simulation coverage only.
 
@@ -94,11 +97,17 @@ To measure heading and travel against Gazebo's actual model pose, close the
 control tab and run the following from a fresh container start. The first
 command checks three clear-aisle goals with right-angle turns. The optional
 second command adds a reversal and a longer route around the divider; restart the simulation
-before each run so it begins at the spawn.
+before each run so it begins at the spawn. The validator requires a fresh
+spawn, reads a continuous stream of actual model poses, and checks forward
+travel, final heading, destination error, and wall/divider clearance. Initial
+alignment is checked against the goal bearing only for the clear route legs;
+a detour must face its path rather than the direct line through the wall.
 
 ```bash
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
+# From another fresh start: Nav2 chooses its own path around the divider.
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --detour
 ```
 
 If readiness does not appear, inspect `docker compose -f
@@ -137,17 +146,21 @@ its lifecycle manager to test source expiry and restoration without automatic
 rearming. The script always sends Stop.
 
 To demonstrate obstacle stopping, keep the Gazebo desktop open and close
-control dashboard tabs so the test can own the simulated robot:
+control dashboard tabs so the test can own the simulated robot. Begin each
+case from a fresh simulation (`docker compose -f ros_ws/docker/compose.yaml
+restart sim`) and wait for navigation readiness:
 
 ```bash
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --shape cylinder --heading -135
 ```
 
-The robot starts a backward Nav2 goal. A red panel appears inside the safety
-zone. The check requires a `FootprintStop` event, zero filtered velocity,
-stationary model pose, and more than 5 cm of geometric clearance. It sends
-Stop and removes its own uniquely named panel on exit. This is one simulated
-rear-obstacle scenario; it does not establish all-direction physical safety.
+The robot turns toward its goal and drives forward. A red panel or cylinder
+appears inside the safety zone ahead of it. The check requires a `FootprintStop`
+event, zero filtered velocity, stationary model pose, and more than 5 cm of
+geometric clearance. It sends Stop and removes its own uniquely named obstacle
+on exit. These are simulated stopping scenarios, not obstacle detour or
+physical-safety acceptance.
 
 Run the ROS regression tests in a separate container:
 

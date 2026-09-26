@@ -13,18 +13,20 @@ import time
 
 import websockets
 
-from validate_manual import displacement, pose, state as fetch_state
+from validate_manual import displacement, pose_stream, state as fetch_state
 
 
 def angle(value):
     return math.atan2(math.sin(value), math.cos(value))
 
 
-async def main(long_routes=False):
+async def run(pose, long_routes=False, detour=False):
     current = await asyncio.to_thread(fetch_state)
     assert current["motor"]["backend"] == "gazebo"
     assert current["control"]["owner_session"] is None, "close simulation control tabs"
     assert not current["control"]["armed"]
+    initial = await pose()
+    assert math.hypot(*initial[:2]) < .05 and abs(initial[2]) < .05, "restart the simulation at its spawn"
     received = time.monotonic()
 
     async def poll():
@@ -78,6 +80,8 @@ async def main(long_routes=False):
                 goals = [(0., -.6), (-.7, -.6), (-.7, .5)]
                 if long_routes:
                     goals += [(-.7, -1.35), (.95, -1.35), (1.55, -.2), (1.55, 1.3)]
+                if detour:
+                    goals = [(1.55, 0.)]
                 for index, (x, y) in enumerate(goals, 1):
                     nav = state()["autonomy"]["navigation"]
                     origin = nav["pose"]
@@ -101,8 +105,15 @@ async def main(long_routes=False):
                     aligned = abs(angle(before[2] - bearing)) < .35
                     onset_error = None
                     samples = 0
+                    min_clearance = float("inf")
                     while time.monotonic() - started < 100:
                         actual = await pose()
+                        # Known test-world geometry and a conservative 0.20 m
+                        # circumscribed robot radius, including wheel spheres.
+                        divider = math.hypot(max(abs(actual[0]-.7)-.075, 0),
+                                             max(abs(actual[1]-.7)-1.5, 0)) - .20
+                        walls = 2.925 - max(abs(actual[0]), abs(actual[1])) - .20
+                        min_clearance = min(min_clearance, divider, walls)
                         local = displacement(previous, actual)
                         step = math.hypot(local[0], local[1])
                         total += step
@@ -127,17 +138,22 @@ async def main(long_routes=False):
                                   actual_pose=previous, goal_error_m=error, path_m=total,
                                   forward_share=forward_distance/max(total, .001),
                                   lateral_m=lateral_distance, backward_m=backward_distance,
-                                  pre_alignment_m=pre_alignment_distance,
-                                  onset_heading_error_rad=onset_error)
+                                  pre_alignment_m=None if detour else pre_alignment_distance,
+                                  min_clearance_m=min_clearance,
+                                  final_heading_error_rad=abs(angle(previous[2]-bearing)),
+                                  onset_heading_error_rad=None if detour else onset_error)
                     print(json.dumps(result), flush=True)
                     assert nav["goal_state"] == "succeeded", result
                     assert error < .23, result
-                    assert pre_alignment_distance < .08, result
-                    assert onset_error is not None and onset_error < .4, result
+                    assert min_clearance > .05, result
+                    assert abs(angle(previous[2]-bearing)) < .3, result
+                    if not detour:
+                        assert pre_alignment_distance < .08, result
+                        assert onset_error is not None and onset_error < .4, result
                     assert forward_distance / total > .80, result
                     assert backward_distance < .04, result
                     await asyncio.sleep(.3)
-                print("PASS goals align before travel and predominantly drive forward", flush=True)
+                print("PASS goals complete with forward travel and obstacle clearance", flush=True)
             finally:
                 await send("stop")
                 ticker.cancel()
@@ -148,7 +164,14 @@ async def main(long_routes=False):
         await asyncio.gather(poller, return_exceptions=True)
 
 
+async def main(long_routes=False, detour=False):
+    async with pose_stream() as pose:
+        await run(pose, long_routes, detour)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--long-routes", action="store_true")
-    asyncio.run(main(parser.parse_args().long_routes))
+    parser.add_argument("--detour", action="store_true", help="One goal across the divider; Nav2 must find its own detour")
+    args = parser.parse_args()
+    asyncio.run(main(args.long_routes, args.detour))

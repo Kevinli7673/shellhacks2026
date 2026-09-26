@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Dashboard goals now turn toward the path and travel primarily forward, retaining holonomic correction. Three clear-aisle goals and Stop/manual takeover/source expiry pass with the new controller. Longer routes and varied obstacles are the next validation stage; physical autonomy and exploration remain gated.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Dashboard goals turn toward the route and travel primarily forward, retaining holonomic correction. Seven-goal/8.23 m travel, a Nav2-selected divider detour, panel/cylinder stops, and regression checks pass. One final-image Gazebo startup hang recovered with restart and remains documented. Blocked-goal recovery, exploration, and physical autonomy remain unvalidated.
 
 ## User-authorized scope exception
 
@@ -36,9 +36,10 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `0dcfc75` | Wider simulation collision zone and reproducible obstacle/recovery checks | Rear obstacle: FootprintStop, zero filtered output and 0.0875 m clearance; goal/override/managed pause-resume pass; 152 Python passes, 2 skips, five ROS passes. |
 | `a824566` | Simulation dashboard destinations, readiness/status IPC, automatic Docker navigation startup | Image/colcon build, 156 Python passes and 2 skips on each OS, seven ROS passes; live dashboard API goal/Stop/takeover/source-loss checks now pass. |
 | `9be171f` | Clear-aisle default destination and completed browser acceptance | Real browser default goal succeeds; field editing/Enter submission/W takeover/Space/Stop/reload tested. Final Ubuntu regression: 156 passes, 2 optional skips. |
+| `08ca7e7` | Rotate toward the route, favor forward travel, retain strafe | Three clear-aisle goals, actual heading/travel checks, Stop/takeover/source expiry; 156 Python passes, two skips, seven ROS passes. |
 
-Publication: prior code through `962a2fa` is on origin/feature/autonomy-sim.
-The forward-facing update is recorded with this checkpoint, not integrated.
+Publication: heading checkpoint `08ca7e7` is on origin/feature/autonomy-sim.
+The local-horizon fix and expanded acceptance are recorded with this checkpoint, not integrated.
 The simulation control tab is closed for automated acceptance; the robot is
 disarmed after each test.
 
@@ -669,3 +670,125 @@ world divider; adapt obstacle insertion acceptance to forward-facing motion
 and vary obstacle shape/approach. No exploration or physical acceptance is
 claimed. The previous rear-panel result remains historical coverage until
 that validator is updated for the new controller.
+
+## 2026-09-26 — Longer routes, divider detour, and varied obstacle stops
+
+Following the user's requested order, the forward-facing behavior at 08ca7e7
+was first validated and pushed, then longer selected routes and varied
+obstacles were exercised. This continues the same simulation-only scope
+exception; automatic exploration and physical autonomy have not been enabled.
+
+A seven-destination route crossed the lower opening and continued up the far
+side of the divider. Before the final horizon adjustment it covered 8.174 m
+in 175.01 s of goal execution, with at least 98.48% forward travel on every
+leg, maximum position error 0.0965 m, and minimum conservative wall/divider
+clearance 0.1721 m. Those are actual Gazebo model poses. The clearance estimate
+uses a 0.20 m circumscribed robot radius including the estimated wheel spheres.
+
+A separate single dashboard goal at map (1.55, 0) exposed a local-controller
+stall: the global planner found a path around the divider, but the robot
+remained near the start for the 100 s acceptance deadline. DWB's goal-distance
+scoring considered a distant point across the wall. The controller now prunes
+the local path to a 0.60 m forward horizon with a 0.30 m rear pruning distance,
+so it scores progress along a nearby segment of the planned detour. No stop
+zone, velocity limit, transport, or application logic changed in this fix.
+Reference: [Nav2's DWB path transformation](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_dwb_controller/dwb_core/src/dwb_local_planner.cpp)
+and [distance scoring](https://github.com/ros-navigation/navigation2/blob/jazzy/nav2_dwb_controller/dwb_critics/src/map_grid.cpp).
+
+The same single destination then succeeded in 54.37 s over a 2.990 m path:
+98.30% forward travel, 0.0827 m destination error, 0.1173 rad final-heading
+error, and 0.1251 m minimum conservative clearance. No operator waypoints were
+supplied in this case. The test does not compare initial heading with the
+straight goal bearing on a detour, since that would point through the wall.
+
+Obstacle acceptance now waits for forward travel after turning toward the
+goal. The safety rectangle is unchanged. Two cases passed from fresh starts:
+
+| Approach and inserted object | FootprintStop observed after create request | Geometric clearance after stopping | Drift over 0.8 s |
+|---|---|---|---|
+| 180-degree goal, 0.02 x 0.50 m panel | 0.432 s | 0.0917 m | Below 1 nm |
+| -135-degree goal, radius 0.07 m cylinder | 0.400 s | 0.1051 m | Zero at reported precision |
+
+Both runs required a nonzero incoming command, zero filtered output, a
+FootprintStop event, and more than 5 cm clearance. Times include Gazebo service
+and test overhead; they are not isolated safety-controller latency claims.
+Each run sent Stop and removed only its uniquely named obstacle. These cases
+validate stopping, not automatic recovery or rerouting around a newly inserted
+obstacle. The old backward-travel panel result remains historical evidence.
+
+The first longer run encountered a nonzero exit from one of many repeated
+`gz topic -n 1` pose queries after four successful goals. The validator stopped
+the robot. Longer acceptance now uses a single continuous Gazebo pose stream,
+a bounded latest value, and a 500 ms freshness check, avoiding repeated CLI
+launches. HTTP and ROS polling do not block the 50 ms control heartbeat.
+
+Exact additional commands, each live scenario starting from a fresh simulator
+with the localhost:18000 control tab closed:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --detour
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_obstacle.py --shape cylinder --heading -135
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+docker compose -f ros_ws/docker/compose.yaml up -d
+```
+
+The final image builds all four ROS packages. Ubuntu and macOS each report
+158 Python tests: 156 passed, two optional integration skips (browser and
+firmware-link scenarios gated by RESCUEBOT_INTEGRATION). All seven ROS tests,
+JavaScript syntax, Python syntax, and diff checks pass. No firmware, shared
+plan/log, other handoff, or non-Gazebo application path was edited.
+
+One final image startup stalled before Gazebo published the world/model:
+`ros_gz_sim create` repeatedly requested world names, odom was absent, and the
+initial pose check failed before claiming or enabling control. The dashboard
+correctly stayed disarmed with navigation unavailable. `docker compose -f
+ros_ws/docker/compose.yaml restart sim` recovered readiness. No host install or
+configuration change was made; the startup root cause is unresolved. Capture
+`docker compose -f ros_ws/docker/compose.yaml logs sim` if it recurs, and wait
+for dashboard navigation Ready before running acceptance. Evidence is in
+/private/tmp/rescuebot-final-startup.log and rescuebot-final-startup-test.log.
+
+Final rebuilt-image route acceptance passed after readiness recovery:
+seven goals, 8.229 m actual travel in 173.48 s of goal execution, forward
+travel share at least 97.66% on each leg, maximum destination error 0.0939 m,
+maximum final-heading error 0.1477 rad, minimum wall/divider clearance 0.1665 m,
+and less than 0.00036 m translation before initial alignment. This run includes
+the 0.60 m horizon fix and the continuous-pose/clearance validator.
+
+Development tuning used `docker cp` for changed YAML and validator scripts;
+the final image was rebuilt from the worktree before repeated acceptance.
+Local evidence: /private/tmp/rescuebot-route-final-long.log,
+rescuebot-long-routes.log, rescuebot-detour-before-horizon.log,
+rescuebot-detour.log, rescuebot-panel.log, rescuebot-cylinder.log,
+rescuebot-route-final-build.log, rescuebot-route-final-regression.log,
+and rescuebot-route-final-mac-tests.log. Generated logs are not committed.
+
+Remaining validation: newly blocked-goal recovery/rerouting, unreachable goals,
+long-duration SLAM loop closure, automatic exploration, interactive RViz goal
+entry, measured hardware geometry, and physical autonomy. The next concrete
+step is to validate blocked-goal cancellation/recovery and dynamic rerouting
+before evaluating automatic exploration in simulation. Physical autonomy still
+requires separate hardware/physical acceptance; no ROS output is connected to
+serial, the ESP32, or real motors. Non-Gazebo behavior and firmware are unchanged.
+
+Final-image safety regression also passed:
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+```
+
+It completed the dashboard goal with actual displacement (0.0114, -0.5069) m
+and -1.5759 rad, held the model stationary after Stop, canceled on manual
+input without resuming on release, and disarmed 0.310 s after managed Nav2
+pause (including lifecycle/test overhead). All six nodes remained active
+after resume and the host did not automatically rearm. Evidence:
+/private/tmp/rescuebot-route-final-safety.log. The live final image is left
+running with navigation ready, driving disarmed, and the control tab closed.
