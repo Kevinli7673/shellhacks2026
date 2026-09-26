@@ -56,8 +56,12 @@ Private details (username, network, device serial numbers) are omitted.
 - Existing scripts in the home directory (not in this repository):
   ai_camera_detect.py, detect.py, detect_fast.py, cam_test.py, app.py,
   a yolo11n NCNN model folder, and LiDAR test scripts (out of scope).
+- Status confirmed by the team: the ESP32-S2 was not connected (still
+  being breadboarded/soldered), and the camera hardware was being worked
+  on at inspection time.
 - Open questions: ESP32-S2 USB identity (native USB CDC vs. a CP210x
   bridge), camera connection/config, and contents of ai_camera_detect.py.
+  Re-run the read-only camera and serial checks once each is connected.
 
 ## Handoff log
 
