@@ -14,6 +14,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .bridge_backend import BridgeMotorBackend
+from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .service import RobotControlService
 
@@ -50,10 +52,27 @@ def create_app(
     camera_backend: str = "mock",
     replay_path: str | Path | None = None,
     camera: MockCameraBackend | ReplayCameraBackend | None = None,
+    motor_backend: str = "mock",
+    bridge_command_socket: str | Path | None = None,
+    bridge_status_socket: str | Path | None = None,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
-    control_service = service or RobotControlService()
+    if service is not None:
+        control_service = service
+    elif motor_backend == "mock":
+        control_service = RobotControlService()
+    elif motor_backend == "bridge":
+        run_dir = default_run_dir()
+        run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        control_service = RobotControlService(
+            backend=BridgeMotorBackend(
+                bridge_command_socket or run_dir / "bridge-command.sock",
+                bridge_status_socket or run_dir / "bridge-status.sock",
+            )
+        )
+    else:
+        raise ValueError("motor_backend must be mock or bridge")
     if camera is not None:
         camera_service = camera
     elif camera_backend == "mock":
@@ -75,6 +94,8 @@ def create_app(
             app.state.control_loop.cancel()
             with suppress(asyncio.CancelledError):
                 await app.state.control_loop
+            control_service.stop("dashboard_shutdown")
+            control_service.close()
             camera_service.close()
 
     app = FastAPI(title="Rescuebot Dashboard", lifespan=lifespan)
@@ -159,12 +180,22 @@ def main() -> None:
         default=os.environ.get("RESCUEBOT_REPLAY_PATH"),
         help="Detection JSONL recording used when --camera-backend replay.",
     )
+    parser.add_argument(
+        "--motor-backend",
+        choices=("mock", "bridge"),
+        default=os.environ.get("RESCUEBOT_MOTOR_BACKEND", "mock"),
+        help="bridge: send commands to a separately started rescuebot.motor_bridge process.",
+    )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
         parser.error("--replay-path is required when --camera-backend replay")
 
     uvicorn.run(
-        create_app(camera_backend=args.camera_backend, replay_path=args.replay_path),
+        create_app(
+            camera_backend=args.camera_backend,
+            replay_path=args.replay_path,
+            motor_backend=args.motor_backend,
+        ),
         host="0.0.0.0",
         port=8000,
         reload=False,

@@ -1,0 +1,439 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T07:33:16+00:00",
+  "title": "Design System: Rescuebot",
+  "extensions": {
+    "colorMeta": {
+      "tally-red": {
+        "role": "primary",
+        "displayName": "Tally Red",
+        "canonical": "oklch(0.63 0.215 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.215 27)",
+          "oklch(0.26 0.215 27)",
+          "oklch(0.37 0.215 27)",
+          "oklch(0.48 0.215 27)",
+          "oklch(0.59 0.215 27)",
+          "oklch(0.70 0.215 27)",
+          "oklch(0.82 0.215 27)",
+          "oklch(0.95 0.215 27)"
+        ]
+      },
+      "tally-red-deep": {
+        "role": "primary",
+        "displayName": "Tally Red Deep",
+        "canonical": "oklch(0.46 0.17 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.170 27)",
+          "oklch(0.26 0.170 27)",
+          "oklch(0.37 0.170 27)",
+          "oklch(0.48 0.170 27)",
+          "oklch(0.59 0.170 27)",
+          "oklch(0.70 0.170 27)",
+          "oklch(0.82 0.170 27)",
+          "oklch(0.95 0.170 27)"
+        ]
+      },
+      "tally-amber": {
+        "role": "secondary",
+        "displayName": "Tally Amber",
+        "canonical": "oklch(0.82 0.155 78)",
+        "tonalRamp": [
+          "oklch(0.15 0.155 78)",
+          "oklch(0.26 0.155 78)",
+          "oklch(0.37 0.155 78)",
+          "oklch(0.48 0.155 78)",
+          "oklch(0.59 0.155 78)",
+          "oklch(0.70 0.155 78)",
+          "oklch(0.82 0.155 78)",
+          "oklch(0.95 0.155 78)"
+        ]
+      },
+      "lamp-green": {
+        "role": "tertiary",
+        "displayName": "Lamp Green",
+        "canonical": "oklch(0.76 0.16 152)",
+        "tonalRamp": [
+          "oklch(0.15 0.160 152)",
+          "oklch(0.26 0.160 152)",
+          "oklch(0.37 0.160 152)",
+          "oklch(0.48 0.160 152)",
+          "oklch(0.59 0.160 152)",
+          "oklch(0.70 0.160 152)",
+          "oklch(0.82 0.160 152)",
+          "oklch(0.95 0.160 152)"
+        ]
+      },
+      "stop": {
+        "role": "primary",
+        "displayName": "Stop Red",
+        "canonical": "oklch(0.585 0.215 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.215 27)",
+          "oklch(0.26 0.215 27)",
+          "oklch(0.37 0.215 27)",
+          "oklch(0.48 0.215 27)",
+          "oklch(0.59 0.215 27)",
+          "oklch(0.70 0.215 27)",
+          "oklch(0.82 0.215 27)",
+          "oklch(0.95 0.215 27)"
+        ]
+      },
+      "stop-hover": {
+        "role": "primary",
+        "displayName": "Stop Red Hover",
+        "canonical": "oklch(0.64 0.22 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.220 27)",
+          "oklch(0.26 0.220 27)",
+          "oklch(0.37 0.220 27)",
+          "oklch(0.48 0.220 27)",
+          "oklch(0.59 0.220 27)",
+          "oklch(0.70 0.220 27)",
+          "oklch(0.82 0.220 27)",
+          "oklch(0.95 0.220 27)"
+        ]
+      },
+      "stop-press": {
+        "role": "primary",
+        "displayName": "Stop Red Pressed",
+        "canonical": "oklch(0.52 0.2 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.200 27)",
+          "oklch(0.26 0.200 27)",
+          "oklch(0.37 0.200 27)",
+          "oklch(0.48 0.200 27)",
+          "oklch(0.59 0.200 27)",
+          "oklch(0.70 0.200 27)",
+          "oklch(0.82 0.200 27)",
+          "oklch(0.95 0.200 27)"
+        ]
+      },
+      "gallery-desk": {
+        "role": "neutral",
+        "displayName": "Gallery Desk",
+        "canonical": "oklch(0.215 0.009 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 68)",
+          "oklch(0.26 0.009 68)",
+          "oklch(0.37 0.009 68)",
+          "oklch(0.48 0.009 68)",
+          "oklch(0.59 0.009 68)",
+          "oklch(0.70 0.009 68)",
+          "oklch(0.82 0.009 68)",
+          "oklch(0.95 0.009 68)"
+        ]
+      },
+      "desk-raised": {
+        "role": "neutral",
+        "displayName": "Raised Desk",
+        "canonical": "oklch(0.255 0.01 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.010 68)",
+          "oklch(0.26 0.010 68)",
+          "oklch(0.37 0.010 68)",
+          "oklch(0.48 0.010 68)",
+          "oklch(0.59 0.010 68)",
+          "oklch(0.70 0.010 68)",
+          "oklch(0.82 0.010 68)",
+          "oklch(0.95 0.010 68)"
+        ]
+      },
+      "desk-line": {
+        "role": "neutral",
+        "displayName": "Desk Line",
+        "canonical": "oklch(0.36 0.01 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.010 68)",
+          "oklch(0.26 0.010 68)",
+          "oklch(0.37 0.010 68)",
+          "oklch(0.48 0.010 68)",
+          "oklch(0.59 0.010 68)",
+          "oklch(0.70 0.010 68)",
+          "oklch(0.82 0.010 68)",
+          "oklch(0.95 0.010 68)"
+        ]
+      },
+      "bezel": {
+        "role": "neutral",
+        "displayName": "Bezel",
+        "canonical": "oklch(0.135 0.005 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 68)",
+          "oklch(0.26 0.005 68)",
+          "oklch(0.37 0.005 68)",
+          "oklch(0.48 0.005 68)",
+          "oklch(0.59 0.005 68)",
+          "oklch(0.70 0.005 68)",
+          "oklch(0.82 0.005 68)",
+          "oklch(0.95 0.005 68)"
+        ]
+      },
+      "screen": {
+        "role": "neutral",
+        "displayName": "Monitor Screen",
+        "canonical": "oklch(0.175 0.012 245)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 245)",
+          "oklch(0.26 0.012 245)",
+          "oklch(0.37 0.012 245)",
+          "oklch(0.48 0.012 245)",
+          "oklch(0.59 0.012 245)",
+          "oklch(0.70 0.012 245)",
+          "oklch(0.82 0.012 245)",
+          "oklch(0.95 0.012 245)"
+        ]
+      },
+      "umd-black": {
+        "role": "neutral",
+        "displayName": "UMD Black",
+        "canonical": "oklch(0.1 0.003 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.003 68)",
+          "oklch(0.26 0.003 68)",
+          "oklch(0.37 0.003 68)",
+          "oklch(0.48 0.003 68)",
+          "oklch(0.59 0.003 68)",
+          "oklch(0.70 0.003 68)",
+          "oklch(0.82 0.003 68)",
+          "oklch(0.95 0.003 68)"
+        ]
+      },
+      "lamp-off": {
+        "role": "neutral",
+        "displayName": "Lamp Off",
+        "canonical": "oklch(0.34 0.008 68)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 68)",
+          "oklch(0.26 0.008 68)",
+          "oklch(0.37 0.008 68)",
+          "oklch(0.48 0.008 68)",
+          "oklch(0.59 0.008 68)",
+          "oklch(0.70 0.008 68)",
+          "oklch(0.82 0.008 68)",
+          "oklch(0.95 0.008 68)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Monitor White",
+        "canonical": "oklch(0.955 0.006 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 80)",
+          "oklch(0.26 0.006 80)",
+          "oklch(0.37 0.006 80)",
+          "oklch(0.48 0.006 80)",
+          "oklch(0.59 0.006 80)",
+          "oklch(0.70 0.006 80)",
+          "oklch(0.82 0.006 80)",
+          "oklch(0.95 0.006 80)"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Label Warm",
+        "canonical": "oklch(0.8 0.012 76)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 76)",
+          "oklch(0.26 0.012 76)",
+          "oklch(0.37 0.012 76)",
+          "oklch(0.48 0.012 76)",
+          "oklch(0.59 0.012 76)",
+          "oklch(0.70 0.012 76)",
+          "oklch(0.82 0.012 76)",
+          "oklch(0.95 0.012 76)"
+        ]
+      },
+      "ink-tertiary": {
+        "role": "neutral",
+        "displayName": "Caption Warm",
+        "canonical": "oklch(0.7 0.014 74)",
+        "tonalRamp": [
+          "oklch(0.15 0.014 74)",
+          "oklch(0.26 0.014 74)",
+          "oklch(0.37 0.014 74)",
+          "oklch(0.48 0.014 74)",
+          "oklch(0.59 0.014 74)",
+          "oklch(0.70 0.014 74)",
+          "oklch(0.82 0.014 74)",
+          "oklch(0.95 0.014 74)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Drive-state readout and the NO SIGNAL slate (B612)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Stop label and speed value (B612)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Wordmark and lower-third."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Reason lines, key map, slate messages."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "UMD tags, gallery bar, desk and chain labels."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "PWM and telemetry values (measurements only)."
+      }
+    },
+    "shadows": [
+      {
+        "name": "monitor-lift",
+        "value": "0 14px 30px -12px oklch(0 0 0 / 0.7)",
+        "purpose": "Program monitor bezel."
+      },
+      {
+        "name": "stop-lift",
+        "value": "0 10px 22px -12px oklch(0.4 0.18 27 / 0.9)",
+        "purpose": "Stop button at rest; removed while pressed."
+      },
+      {
+        "name": "graphic-lift",
+        "value": "0 6px 14px -6px oklch(0 0 0 / 0.6)",
+        "purpose": "Lower-third."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-state",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "All state transitions, 120-200ms."
+      },
+      {
+        "name": "tally-pulse",
+        "value": "900ms ease-in-out infinite",
+        "purpose": "Arming tally frame; static under reduced motion."
+      },
+      {
+        "name": "lamp-blink",
+        "value": "900ms steps(1) infinite",
+        "purpose": "Arming drive lamp; static under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "chain-stack",
+        "value": "1500px"
+      },
+      {
+        "name": "single-column",
+        "value": "900px"
+      },
+      {
+        "name": "compact",
+        "value": "520px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Stop Button",
+      "kind": "button",
+      "refersTo": "button-stop",
+      "description": "The one dominant control; stops and disables driving.",
+      "html": "<button class=\"ds-stop\"><span>Stop</span><kbd>Space</kbd></button>",
+      "css": ".ds-stop{display:flex;align-items:center;gap:14px;background:oklch(0.585 0.215 27);color:#fff;border:0;border-radius:4px;min-height:72px;padding:12px 28px;font:700 1.728rem/1 B612,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 10px 22px -12px oklch(0.4 0.18 27/.9);cursor:pointer;transition:background-color 150ms}.ds-stop:hover{background:oklch(0.64 0.22 27)}.ds-stop:active{background:oklch(0.52 0.2 27);box-shadow:none}.ds-stop:focus-visible{outline:3px solid oklch(0.82 0.155 78);outline-offset:3px}.ds-stop kbd{font:600 .75rem ui-monospace,Menlo,monospace;background:oklch(0 0 0/.28);border-radius:3px;padding:3px 7px}"
+    },
+    {
+      "name": "Enable Button",
+      "kind": "button",
+      "refersTo": "button-enable",
+      "description": "Outlined ghost control that arms driving; relabels while arming.",
+      "html": "<button class=\"ds-enable\">Enable driving</button>",
+      "css": ".ds-enable{background:transparent;color:oklch(0.955 0.006 80);border:2px solid oklch(0.8 0.012 76);border-radius:4px;min-height:56px;padding:12px 20px;font:800 1rem system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}.ds-enable:hover{background:oklch(1 0 0/.06);border-color:oklch(0.955 0.006 80)}.ds-enable:focus-visible{outline:3px solid oklch(0.82 0.155 78);outline-offset:3px}"
+    },
+    {
+      "name": "UMD Tag",
+      "kind": "chip",
+      "refersTo": "umd-tag",
+      "description": "Under-monitor-display label for sources and states.",
+      "html": "<span class=\"ds-umd\"><span class=\"ds-lamp\"></span>Cam 1 · Replay</span>",
+      "css": ".ds-umd{display:inline-flex;align-items:center;gap:8px;background:oklch(0.1 0.003 68);color:oklch(0.955 0.006 80);font:700 .875rem system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:2px}.ds-lamp{width:11px;height:11px;border-radius:50%;background:oklch(0.76 0.16 152);box-shadow:0 0 0 1px oklch(0 0 0/.55)}"
+    },
+    {
+      "name": "Lower-third",
+      "kind": "custom",
+      "refersTo": "lower-third",
+      "description": "Detection count graphic on the program monitor.",
+      "html": "<p class=\"ds-l3\">2 people detected</p>",
+      "css": ".ds-l3{display:inline-block;margin:0;background:oklch(0.97 0.004 80);color:oklch(0.1 0.003 68);font:800 1.2rem system-ui,sans-serif;padding:6px 13px 6px 11px;border-radius:2px;box-shadow:0 6px 14px -6px oklch(0 0 0/.6)}"
+    },
+    {
+      "name": "Keycap",
+      "kind": "custom",
+      "refersTo": "keycap",
+      "description": "Flat keycap that lights while held; red while armed.",
+      "html": "<span class=\"ds-key\">A</span><span class=\"ds-key ds-lit\">W</span><span class=\"ds-key ds-armed\">D</span>",
+      "css": ".ds-key{display:inline-grid;place-items:center;width:40px;height:40px;margin-right:5px;border-radius:5px;background:oklch(0.29 0.009 68);border:1px solid oklch(0.36 0.01 68);color:oklch(0.8 0.012 76);font:800 1rem system-ui,sans-serif}.ds-lit{background:oklch(0.955 0.006 80);border-color:oklch(0.955 0.006 80);color:oklch(0.1 0.003 68)}.ds-armed{background:oklch(0.63 0.215 27);border-color:oklch(0.63 0.215 27);color:#fff}"
+    },
+    {
+      "name": "Drive Readout",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Tally lamp plus B612 state word and reason line.",
+      "html": "<div class=\"ds-readout\"><span class=\"ds-tally\"></span><div><strong>Armed · driving</strong><p>Driving. Hold keys to move, release to stop.</p></div></div>",
+      "css": ".ds-readout{display:flex;gap:16px;align-items:flex-start;color:oklch(0.955 0.006 80)}.ds-tally{width:24px;height:24px;margin-top:7px;border-radius:50%;background:oklch(0.63 0.215 27);box-shadow:0 0 0 1px oklch(0 0 0/.55)}.ds-readout strong{display:block;font:700 2.488rem/1.05 B612,system-ui,sans-serif;text-transform:uppercase;color:oklch(0.8 0.12 27)}.ds-readout p{margin:8px 0 0;color:oklch(0.8 0.012 76);font:400 1rem system-ui,sans-serif}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Tally Gallery",
+    "overview": "Rescuebot's dashboard is a broadcast control room with one camera. The robot's view is the program monitor, and drive state is its tally light: the monitor frame and the gallery bar go from dark, to pulsing amber while arming, to solid red when the robot is armed. An operator at arm's length and a judge across the room read the same state at once.\n\nThe desk is warm graphite. Monitors are near-black glass in darker bezels, and every label on screen follows the under-monitor-display (UMD) grammar: uppercase white on black, tightly tracked. Saturation belongs to state alone. Red means the robot is hot or Stop, amber means arming or replay, and green is a small healthy-link lamp. Nothing is decorative, and nothing imitates a physical material the page does not render.\n\nIt is an Operate surface: dense, consistent, and familiar where controls are concerned. Its character lives in the tally, the UMD tags, the lower-third, and the B612 readout lettering. Each fact appears once on the page.",
+    "keyCharacteristics": [
+      "Drive state is shown three ways at once: tally color, a large B612 word, and a reason line.",
+      "Warm graphite neutrals; saturated color only for state.",
+      "Flat materials: solid fills, 1px keylines, offset drop shadows only.",
+      "Broadcast grammar: program monitor, UMD tags, lower-third."
+    ],
+    "rules": [
+      {
+        "name": "The Tally Rule",
+        "body": "Saturated red and amber are reserved for drive state and Stop. A decorative element never uses them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Reds Rule",
+        "body": "Stop (stop) and the armed state (tally-red) are kept as separate tokens. Never merge them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Stress Words Rule",
+        "body": "B612 is only for words an operator must read in under a second: drive state, Stop, the speed value, the slate, and the wordmark.",
+        "section": "typography"
+      },
+      {
+        "name": "The Measurement Mono Rule",
+        "body": "Monospace appears only on numbers that are measurements or time, never as a \"technical\" costume.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Imitation Rule",
+        "body": "No bevels, specular highlights, gradients faking plastic or metal, or scanline textures. Lamps are flat discs with a dark 1px ring, and keycaps are flat fills with a keyline.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** show drive state with color, a word, and a reason together; never color alone.",
+      "**Do** keep every source labeled (Mock, Replay, Live) on the monitor.",
+      "**Do** theme browser surfaces: amber focus rings (3px, 3px offset), amber selection, and graphite scrollbars.",
+      "**Do** respect `prefers-reduced-motion`: the arming pulse and lamp blink become static amber.",
+      "**Do** keep transitions between 120 and 200ms (`cubic-bezier(0.16, 1, 0.3, 1)`), and only for state changes."
+    ],
+    "donts": [
+      "**Don't** use tally red or amber for anything that is not drive state, arming, or replay.",
+      "**Don't** add eyebrow labels above headings, card grids, gradient text, or glyph icons; icons are authored inline SVG with a 2px round stroke.",
+      "**Don't** imitate materials with bevels, gloss, or scanlines.",
+      "**Don't** cover the camera with anything other than the source and camera tags, detections, and the lower-third.",
+      "**Don't** repeat a fact in two places (connection, ownership, source, frame age); each has one home."
+    ]
+  }
+}

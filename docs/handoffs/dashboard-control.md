@@ -33,10 +33,13 @@ Responses from dashboard/control to ESP32-controller requests (FW-#).
 - Detection recording/replay and a replay camera backend (mock/replay
   camera_backend) are merged and tested with fixtures only.
 - The Pi-side serial protocol codec, MotorLink session/ACK logic, and a
-  simulated firmware are merged; they follow the ESP32 firmware's message
-  format but are not yet wired to the dashboard.
-- The motor-bridge process, real serial transport, live camera, and video
-  are not implemented.
+  simulated firmware are merged and match ESP32 firmware 0332bd9 on all 30
+  shared vectors.
+- The motor-bridge process is merged. The dashboard drives it with
+  `--motor-backend bridge` (Enable waits for the firmware arm_ack); the
+  bridge currently talks only to the simulated firmware.
+- The real serial transport (pyserial, deferred by decision), live camera,
+  and video are not implemented.
 
 ## Local run
 
@@ -46,8 +49,22 @@ Create a local environment and start the dashboard:
     .venv/bin/pip install -e .
     .venv/bin/python -m uvicorn rescuebot.web:app --host 0.0.0.0 --port 8000
 
-Open http://localhost:8000. The active backend is mock only.
+Open http://localhost:8000. The default motor backend is the in-process mock.
 Never treat the displayed wheel values as a command to real hardware.
+
+To drive through the separate motor-bridge process (simulated firmware only),
+use two terminals from the repository root:
+
+    # Terminal 1: motor bridge
+    .venv/bin/python -m rescuebot.motor_bridge
+
+    # Terminal 2: dashboard
+    .venv/bin/rescuebot-dashboard --motor-backend bridge
+
+Both default to sockets under /tmp/rescuebot-<uid>/ (override with
+RESCUEBOT_RUN_DIR). Start either one first; Enable Driving is refused until
+the dashboard receives bridge status. Enable shows "Arming…" until the
+firmware confirms, and stops with arm_timeout after 1 s without it.
 
 ## Raspberry Pi environment
 
@@ -413,6 +430,148 @@ Private details (username, network, device serial numbers) are omitted.
     arbiter commands each tick, gate Enable on the bridge's arm_ack
     status, and show bridge health on the dashboard.
   - Step 3: pyserial transport opened by /dev/serial/by-id path.
+
+### 2026-09-26 EDT - Dashboard drives the motor bridge (step 2)
+
+- Commit: feature/dashboard-control; feat: drive the motor bridge from the
+  dashboard. Merged feature/motor-bridge first (ef88d95) and deleted the
+  merged branch.
+- Changed files and interfaces:
+  - Added app/rescuebot/bridge_backend.py (BridgeMotorBackend), the
+    arbiter's sender. It sends current intent on every control tick
+    ("stop" while disabled, zero "drive" while arming, the requested
+    "drive" once armed) and drains BridgeStatus without blocking.
+  - service.py: with the bridge backend, Enable is refused unless bridge
+    status is fresh (<= 0.5 s) and connected, then sends "arm" and reports
+    control.arming until the firmware confirms. No confirmation within 1 s
+    stops with arm_timeout. Losing firmware arming or bridge health while
+    enabled stops control with the bridge's fault (e.g. boot, link_lost)
+    or backend_unavailable, and a new explicit Enable is required. The
+    mock backend behaves exactly as before.
+  - web.py: `--motor-backend mock|bridge` (RESCUEBOT_MOTOR_BACKEND); the
+    default is mock. Shutdown sends stop and closes the bridge sockets.
+  - dashboard.js/index.html: the driving state shows "Arming…"; the wheel
+    caption names the active backend and bridge health. control.armed
+    stays true while arming so the browser's 50 ms key heartbeat continues.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 102 passed.
+  - tests/control/test_bridge_backend.py runs the real service against an
+    in-process bridge and simulated firmware over real Unix sockets.
+    Covered: enable refused without the bridge, arming then enabled, zero
+    output until the service sees confirmation, arm_timeout, firmware
+    reboot, bridge death, stop, and USB-unplug reconnect without
+    re-arming.
+  - Mutation checks (no arm timeout, ignoring firmware disarm or a dead
+    bridge, motion while arming, enabling without a healthy bridge, no stop
+    when disabled) each made the suite fail. Wheels hidden while disarmed
+    is intentionally redundant with MotorLink zeroing and not separately
+    tested.
+  - Manual two-process run (bridge process plus uvicorn dashboard with
+    --motor-backend bridge, WebSocket client): enable showed arming; holding
+    W gave firmware-acknowledged wheels of 54 (180 ceiling at 30%); stop
+    disarmed with wheels at 0. Both processes shut down cleanly and removed
+    their sockets. The dashboard exits -15 because uvicorn re-raises SIGTERM.
+- Mock or physical coverage:
+  - Simulated firmware only. No Pi, serial port, ESP32, or motors.
+- Known limitations:
+  - The browser UI was not opened in a real browser for this change; the
+    JS was syntax-checked and the WebSocket flow exercised by script.
+  - The dashboard cannot start the bridge itself yet (planned as an
+    optional development flag after the two-terminal flow).
+  - The dashboard's motor panel does not yet show ack age or IMU values,
+    although /api/state includes them.
+- Next action:
+  - Open the dashboard in a browser with --motor-backend bridge to check the
+    Arming… and caption UI. Then add the optional dashboard-starts-bridge
+    development flag, and run the mock dashboard on the Pi.
+
+### 2026-09-26 EDT - Operator dashboard redesign (Impeccable, broadcast gallery)
+
+- Commit: feature/dashboard-control; feat: redesign operator dashboard as
+  a broadcast gallery.
+- Process: user-requested redesign using the Impeccable skill (installed
+  guidance-only at user level from pbakaus/impeccable 9d715cc: no hooks,
+  no engine binary). The user chose the "Broadcast gallery" direction, an
+  even camera/controls split, and always-on debug telemetry.
+  Launcher-dependent steps ran in their documented degraded forms: the
+  concept roll did not run (directions were hand-ranked), the build was
+  code-led, and the finish review and documenter ran in-thread.
+- Changed files and interfaces:
+  - index.html, styles.css, dashboard.js rebuilt. The program monitor's
+    tally ring and the gallery bar show drive state (dark, amber pulse
+    while arming, red when armed). Also: source/camera UMD tags, a
+    detection lower-third, a speed fader, keycaps that light while held,
+    a signal-chain lamp strip, and wheel PWM at the chassis corners with
+    ack/status/input/IMU/dropped/frame ages. Fault codes map to plain
+    reasons with the code shown. Read-only viewers get viewer copy.
+  - Safety logic in dashboard.js is unchanged (diffed): key handling,
+    heartbeat, blur/hidden stop, and reconnect. Additions are display-only
+    (lit keys, session timecode). Enable is now also disabled while arming
+    or armed, and Stop is disabled only while disconnected (it could not
+    send then anyway).
+  - Added app/rescuebot/static/fonts/ (B612 Bold woff2 plus its OFL
+    license, self-hosted for offline venues); pyproject package-data now
+    ships static/fonts/*.
+  - Added PRODUCT.md, DESIGN.md, .impeccable/design.json, and the
+    development-only surface brief .impeccable/briefs/operator-dashboard.md.
+    No server, protocol, or test interface changed.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 102 passed.
+  - node --check dashboard.js passed; every element ID the script uses
+    exists in index.html.
+  - A live uvicorn server served /, styles, script, font, and /api/state
+    (all 200).
+  - Visual: headless Chrome with DevTools device emulation (1600, 1440,
+    1280, and 390 px) over a scripted state preview (disabled, arming,
+    armed with detections, fault, read-only). Two inspection rounds plus
+    one verdict pass. Earlier plain headless 390 px captures were invalid
+    (Chrome's minimum 500 px layout) and were discarded.
+  - Finish review (in-thread): disposition fix. Two fixes resolved
+    (imitation-material bevels and gloss removed; display face moved from
+    the system sans to B612). One item is open by process: the skipped
+    concept roll.
+- Mock or physical coverage:
+  - Scripted preview states and the mock server only. Not checked on the
+    Pi, a projector, or with live camera video.
+- Known limitations:
+  - Not yet viewed in a real browser by a person; no real screen-reader
+    pass.
+  - Live video still shows the NO SIGNAL slate until the camera service
+    lands.
+- Next action:
+  - The user opens the dashboard (mock or --motor-backend bridge) and
+    checks it on a projector or large screen.
+
+### 2026-09-26 EDT - Dashboard distill: remove speed slider and repetition
+
+- Commit: feature/dashboard-control; refactor: distill operator dashboard.
+- Changed files and interfaces:
+  - Removed the speed fader. Speed is now one line ("Motor speed", the B612
+    percentage, and PWM), still adjusted with Up/Down.
+  - Removed the session timecode, the UMD strip under the monitor (replay
+    is now an amber source tag; frame age lives only in the telemetry), the
+    key-map list (keycap legends carry the meaning), the gallery bar's
+    connection and ownership readouts (shown once, in the signal chain),
+    and the chassis box around the wheel values. The wheel caption and
+    readings are shorter, with readings three to a row (two on phones).
+  - dashboard.js: key handling, heartbeat, blur/hidden stop, and reconnect
+    are unchanged (diffed; only the timecode timer was removed). Every
+    element ID it uses exists.
+  - DESIGN.md, .impeccable/design.json, and the surface brief now match
+    the distilled page. Net -141 lines.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 102 passed.
+  - node --check passed; a live uvicorn server served the page, CSS, JS,
+    and font (all 200).
+  - Headless Chrome with device emulation at 1440, 1280, and 390 px: one
+    inspection round (telemetry spread and the mobile speed-line wrap
+    fixed) and one confirmation round, both clean.
+- Mock or physical coverage:
+  - Scripted preview states and the mock server only.
+- Known limitations:
+  - Not yet viewed by a person in a real browser or on a projector.
+- Next action:
+  - The user reviews the page; an Impeccable polish pass is optional.
 
 ## Entry template
 
