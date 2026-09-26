@@ -1,6 +1,6 @@
 """Host-side simulation of the ESP32-S2 serial behavior.
 
-Mirrors the firmware on feature/esp32-controller (48ae9dd: main.cpp,
+Mirrors the firmware on feature/esp32-controller (3cbea5f: controller.cpp,
 session_guard.cpp, protocol_codec.cpp) for protocol tests and simulated
 communication failures. It applies the same mixing reference as the mock
 backend and must pass fixtures/serial_protocol_vectors.json like the
@@ -39,7 +39,7 @@ class SimulatedFirmware:
         self.reboot()
 
     def reboot(self) -> list[bytes]:
-        """Power-on state: no session, disarmed, outputs stopped. Sends nothing."""
+        """Power-on state: no session, disarmed, outputs stopped; announces boot."""
         self.boot_count += 1
         self._decoder = LineDecoder()
         self.session: str | None = None
@@ -48,7 +48,7 @@ class SimulatedFirmware:
         self.last_valid_at: float | None = None
         self.outputs = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
         self.rejected_lines = 0
-        return []
+        return [FirmwareFault("boot").encode()]
 
     def _stop(self) -> None:
         self.armed = False
@@ -86,11 +86,15 @@ class SimulatedFirmware:
             # Stop overrides everything: any session, any seq.
             self._stop()
             return [ControlAck("disarm_ack", command.session, command.seq, False).encode()]
-        # Arm always adopts the command's session and seq as the new baseline.
+        if command.session == self.session and command.seq <= self.last_seq:
+            return []  # stale or replayed arm: no ack, no state change
+        # Any other arm adopts its session and seq as the new baseline and
+        # zeroes outputs, so nothing moves until the next drive packet.
         self.session = command.session
         self.last_seq = command.seq
         self.armed = True
         self.last_valid_at = now
+        self.outputs = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
         return [ControlAck("arm_ack", command.session, command.seq, True).encode()]
 
     def _handle_drive(self, command: DriveCommand, now: float) -> list[bytes]:

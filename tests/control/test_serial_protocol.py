@@ -38,6 +38,7 @@ class ProtocolVectorTests(unittest.TestCase):
                     watchdog_s=document["watchdog_ms"] / 1000,
                     hardware_ceiling=case.get("hardware_ceiling", document["hardware_ceiling"]),
                 )
+                self.assertEqual(decode_lines(firmware.reboot()), document["boot_emit"])
                 for index, step in enumerate(case["steps"]):
                     now = step["t_ms"] / 1000
                     if step.get("tick"):
@@ -268,10 +269,23 @@ class MotorLinkTests(unittest.TestCase):
         self.assertIsNotNone(self.h.link.check(self.h.now + 0.3))
         self.assertEqual(self.h.link.fault, "ack_timeout")
 
-    def test_silent_firmware_reboot_trips_the_ack_deadline(self) -> None:
+    def test_boot_message_disarms_immediately_and_requires_explicit_rearm(self) -> None:
         self.h.connect_and_arm()
         self.h.drive()
-        self.h.to_pi(self.h.firmware.reboot())  # the firmware announces nothing
+        self.h.to_pi(self.h.firmware.reboot())
+        self.assertFalse(self.h.link.armed)
+        self.assertEqual(self.h.link.fault, "boot")
+        self.h.drive()
+        self.assertEqual(self.h.firmware.outputs, {"fl": 0, "fr": 0, "rl": 0, "rr": 0})
+        self.h.to_firmware(self.h.link.request_arm())
+        self.h.drive()
+        self.assertTrue(self.h.link.armed)
+        self.assertEqual(self.h.firmware.outputs["fl"], 100)
+
+    def test_lost_boot_message_still_trips_the_ack_deadline(self) -> None:
+        self.h.connect_and_arm()
+        self.h.drive()
+        self.h.firmware.reboot()  # boot line lost on the wire
         for _ in range(6):
             self.h.drive()  # ignored by the rebooted firmware: no ACKs; 0.30 s > 0.25 s
         self.assertFalse(self.h.link.armed)
@@ -286,7 +300,7 @@ class MotorLinkTests(unittest.TestCase):
         self.h.connect_and_arm()
         self.h.to_pi([self.h.firmware.imu(self.h.now + 10.0)])
         self.h.drive()
-        self.h.to_pi(self.h.firmware.reboot())
+        self.h.firmware.reboot()  # boot line lost on the wire
         self.h.to_pi([self.h.firmware.imu(0.02)])
         self.assertFalse(self.h.link.armed)
         self.assertEqual(self.h.link.fault, "firmware_reset")

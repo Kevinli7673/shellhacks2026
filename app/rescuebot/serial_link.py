@@ -4,8 +4,9 @@ This is transport-agnostic: methods return encoded lines to write and accept
 raw bytes read from the port. It never retransmits old movement packets and
 never arms on connect; arming requires request_arm() and a matching arm_ack.
 
-The firmware sends no boot message, so a reboot is detected by the IMU
-timestamp moving backwards or, at the latest, by the 250 ms ACK deadline.
+A firmware reboot is detected from its boot fault message; if that line is
+lost, from the IMU timestamp moving backwards or, at the latest, the 250 ms
+ACK deadline.
 """
 
 from __future__ import annotations

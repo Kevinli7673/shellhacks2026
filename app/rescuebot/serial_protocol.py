@@ -2,7 +2,7 @@
 
 The drive packet and drive acknowledgment are the frozen shared interface.
 The arm/disarm commands and the arm_ack, disarm_ack, fault, and imu replies
-follow the ESP32 workstream's firmware (feature/esp32-controller, 48ae9dd,
+follow the ESP32 workstream's firmware (feature/esp32-controller, 3cbea5f,
 firmware/include/protocol_messages.h). They are agreed in practice but not
 yet recorded as frozen in changes.md.
 """
@@ -74,9 +74,11 @@ def _require_pwm(name: str, value: Any, signed: bool) -> int:
     return value
 
 
-def _require_fields(data: Mapping[str, Any], expected: frozenset[str]) -> None:
+def _require_fields(
+    data: Mapping[str, Any], expected: frozenset[str], allow_extra: bool = False
+) -> None:
     keys = set(data)
-    if keys != expected:
+    if not expected <= keys or (keys != expected and not allow_extra):
         missing = sorted(expected - keys)
         extra = sorted(keys - expected)
         raise ProtocolError("bad_fields", f"missing={missing} extra={extra}")
@@ -176,11 +178,15 @@ class ControlCommand:
 
 
 def parse_command(line: bytes | str) -> DriveCommand | ControlCommand:
-    """Parse a Pi -> ESP32 line exactly as the firmware must."""
+    """Parse a Pi -> ESP32 line as the firmware does.
+
+    Like the firmware, unknown extra fields are ignored; missing, mistyped,
+    and out-of-range fields are malformed.
+    """
     data = decode_object(line)
     kind = data.get("type")
     if kind == "drive":
-        _require_fields(data, DRIVE_FIELDS)
+        _require_fields(data, DRIVE_FIELDS, allow_extra=True)
         return DriveCommand(
             session=data["session"],
             seq=data["seq"],
@@ -190,7 +196,7 @@ def parse_command(line: bytes | str) -> DriveCommand | ControlCommand:
             speed_limit=data["speed_limit"],
         )
     if kind in ("arm", "disarm"):
-        _require_fields(data, CONTROL_FIELDS)
+        _require_fields(data, CONTROL_FIELDS, allow_extra=True)
         return ControlCommand(type=kind, session=data["session"], seq=data["seq"])
     raise ProtocolError("bad_type", repr(kind))
 
@@ -261,7 +267,7 @@ class ControlAck:
 
 @dataclass(frozen=True)
 class FirmwareFault:
-    """Unprompted disarm report: malformed_packet, oversized_packet, or watchdog_expired.
+    """Unprompted disarm report: boot, malformed_packet, oversized_packet, or watchdog_expired.
 
     Faults carry no session; the firmware is disarmed whenever it sends one.
     """

@@ -305,6 +305,43 @@ Private details (username, network, device serial numbers) are omitted.
 - Next action:
   - Motor-bridge process around MotorLink using the simulated firmware.
 
+### 2026-09-26 EDT - Match firmware 3cbea5f and verify C++ parity
+
+- Commit: feature/dashboard-control; fix: match firmware arm and boot
+  behavior.
+- Changed files and interfaces:
+  - serial_sim.py follows firmware 3cbea5f: sends
+    {"type":"fault","reason":"boot","armed":false} on reboot, ignores a
+    stale arm (same session, seq not newer), and zeroes outputs on any
+    accepted arm.
+  - parse_command ignores unknown extra fields, matching the firmware's
+    agreed policy. The firmware reads the first of duplicate keys; that
+    case is not covered by the vectors.
+  - MotorLink treats the boot fault as an immediate disarm (fault "boot");
+    the IMU-reset and ACK-deadline fallbacks remain for a lost boot line.
+  - fixtures/serial_protocol_vectors.json: 30 cases. Updated the re-arm
+    case, added stale-arm, same-session re-arm, arm-after-disarm, and
+    extra-field cases, and a top-level boot_emit.
+- Tests and results:
+  - .venv/bin/python -m unittest discover -s tests: 72 passed.
+  - Firmware 3cbea5f, in a scratch copy with the PlatformIO CLI
+    (pip install platformio; pio test -e native): as pushed, all four
+    suites fail to link. With test_build_src = yes,
+    -D UNITY_INCLUDE_DOUBLE, kJsonCapacity 512, and the codec test's
+    StaticJsonDocument<128> raised to 256, 52/52 pass, including
+    test_protocol_fixtures against these 30 vectors.
+- Mock or physical coverage:
+  - Python simulation and the firmware's native (host) build only. No
+    ESP32-S2 build, board, or motors.
+- Known limitations:
+  - The four firmware fixes above are not yet on feature/esp32-controller;
+    kJsonCapacity 256 rejects every valid drive packet as malformed.
+  - The firmware's copy of the vectors is at the previous 26-case version.
+- Next action:
+  - After the firmware applies the fixes and copies the 30-case vectors,
+    record the agreed serial messages as a changes.md decision during
+    integration.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
