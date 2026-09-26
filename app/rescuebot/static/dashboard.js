@@ -26,6 +26,29 @@ function setText(id, value) {
   element(id).textContent = value;
 }
 
+function updateCamera(camera) {
+  setText("camera-status", "Camera " + camera.backend + " is " + camera.status);
+  setText("camera-message", camera.message);
+  setText("detection-count", camera.detection_count + " detection" + (camera.detection_count === 1 ? "" : "s"));
+  element("replay-label").hidden = camera.backend !== "replay";
+
+  const overlay = element("detection-overlay");
+  overlay.replaceChildren();
+  if (camera.status !== "online") return;
+  for (const detection of camera.detections) {
+    const box = document.createElement("div");
+    box.className = "detection-box";
+    box.style.left = (detection.bbox.x * 100) + "%";
+    box.style.top = (detection.bbox.y * 100) + "%";
+    box.style.width = (detection.bbox.width * 100) + "%";
+    box.style.height = (detection.bbox.height * 100) + "%";
+    const label = document.createElement("span");
+    label.textContent = detection.label + " " + Math.round(detection.confidence * 100) + "%";
+    box.append(label);
+    overlay.append(box);
+  }
+}
+
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
@@ -40,14 +63,24 @@ function updateDashboard(data) {
   setText("speed-value", control.speed_percent + "%");
   setText("speed-limit", motor.wheels ? control.speed_limit + " / 255 PWM" : "0 / 255 PWM");
   setText("fault-message", control.fault || (canControl ? "Click Enable Driving to arm controls." : "Another browser owns driving."));
-  setText("camera-status", "Camera " + camera.backend + " is " + camera.status);
-  setText("camera-message", camera.message);
+  updateCamera(camera);
   setText("wheel-fl", motor.wheels.fl);
   setText("wheel-fr", motor.wheels.fr);
   setText("wheel-rl", motor.wheels.rl);
   setText("wheel-rr", motor.wheels.rr);
 
   element("enable-button").disabled = !connected || !canControl || heldKeys.size > 0;
+}
+
+async function refreshCameraState() {
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data.camera) updateCamera(data.camera);
+  } catch (_error) {
+    // The WebSocket control path retains its own safety handling.
+  }
 }
 
 function connect() {
@@ -112,5 +145,6 @@ element("stop-button").addEventListener("click", clearAndStop);
 window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
 }, 50);
+window.setInterval(refreshCameraState, 100);
 
 connect();

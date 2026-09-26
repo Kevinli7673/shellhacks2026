@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager, suppress
 import asyncio
+import argparse
+import os
 from pathlib import Path
 import secrets
 from typing import Any
@@ -12,6 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .service import RobotControlService
 
 
@@ -25,8 +28,13 @@ async def _control_loop(service: RobotControlService) -> None:
         await asyncio.sleep(CONTROL_TICK_SECONDS)
 
 
-def _dashboard_state(service: RobotControlService, session: str) -> dict[str, object]:
+def _dashboard_state(
+    service: RobotControlService,
+    session: str | None,
+    camera: MockCameraBackend | ReplayCameraBackend,
+) -> dict[str, object]:
     state = service.state()
+    state["camera"] = camera.status()
     control = state["control"]
     assert isinstance(control, dict)
     return {
@@ -36,13 +44,30 @@ def _dashboard_state(service: RobotControlService, session: str) -> dict[str, ob
     }
 
 
-def create_app(service: RobotControlService | None = None) -> FastAPI:
+def create_app(
+    service: RobotControlService | None = None,
+    *,
+    camera_backend: str = "mock",
+    replay_path: str | Path | None = None,
+    camera: MockCameraBackend | ReplayCameraBackend | None = None,
+) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
     control_service = service or RobotControlService()
+    if camera is not None:
+        camera_service = camera
+    elif camera_backend == "mock":
+        camera_service = MockCameraBackend()
+    elif camera_backend == "replay":
+        if replay_path is None:
+            raise ValueError("replay_path is required when camera_backend is replay")
+        camera_service = ReplayCameraBackend(replay_path)
+    else:
+        raise ValueError("camera_backend must be mock or replay")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        camera_service.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
         try:
             yield
@@ -50,9 +75,11 @@ def create_app(service: RobotControlService | None = None) -> FastAPI:
             app.state.control_loop.cancel()
             with suppress(asyncio.CancelledError):
                 await app.state.control_loop
+            camera_service.close()
 
     app = FastAPI(title="Rescuebot Dashboard", lifespan=lifespan)
     app.state.control_service = control_service
+    app.state.camera_service = camera_service
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -61,13 +88,15 @@ def create_app(service: RobotControlService | None = None) -> FastAPI:
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return control_service.state()
+        return _dashboard_state(control_service, None, camera_service)
 
     @app.websocket("/ws/control")
     async def control_socket(websocket: WebSocket) -> None:
         await websocket.accept()
         session = secrets.token_urlsafe(16)
-        await websocket.send_json({"type": "state", "data": _dashboard_state(control_service, session)})
+        await websocket.send_json(
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+        )
 
         try:
             while True:
@@ -104,7 +133,9 @@ def create_app(service: RobotControlService | None = None) -> FastAPI:
                     response = {"type": "error", "message": "Unsupported control message."}
 
                 await websocket.send_json(response)
-                await websocket.send_json({"type": "state", "data": _dashboard_state(control_service, session)})
+                await websocket.send_json(
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+                )
         except WebSocketDisconnect:
             control_service.disconnect(session)
 
@@ -117,4 +148,24 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
-    uvicorn.run("rescuebot.web:app", host="0.0.0.0", port=8000, reload=False)
+    parser = argparse.ArgumentParser(description="Run the Rescuebot dashboard.")
+    parser.add_argument(
+        "--camera-backend",
+        choices=("mock", "replay"),
+        default=os.environ.get("RESCUEBOT_CAMERA_BACKEND", "mock"),
+    )
+    parser.add_argument(
+        "--replay-path",
+        default=os.environ.get("RESCUEBOT_REPLAY_PATH"),
+        help="Detection JSONL recording used when --camera-backend replay.",
+    )
+    args = parser.parse_args()
+    if args.camera_backend == "replay" and args.replay_path is None:
+        parser.error("--replay-path is required when --camera-backend replay")
+
+    uvicorn.run(
+        create_app(camera_backend=args.camera_backend, replay_path=args.replay_path),
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+    )

@@ -18,10 +18,13 @@
 
       <section class="grid">
         <article class="video-panel">
-          <div class="video-placeholder">
+          <div class="video-placeholder camera-viewport">
+            <span id="replay-label" class="replay-label" hidden>REPLAY</span>
+            <div id="detection-overlay" class="detection-overlay" aria-label="Detection bounding boxes"></div>
             <span class="camera-icon">◉</span>
             <strong id="camera-status">Camera mock is offline</strong>
             <p id="camera-message">Live camera integration is the next perception stage.</p>
+            <p id="detection-count" class="detection-count">0 detections</p>
           </div>
         </article>
 
