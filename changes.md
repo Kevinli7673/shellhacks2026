@@ -2,7 +2,7 @@
 
 This file records current progress and evidence.
 IMPLEMENTATION_PLAN.md defines the approved design.
-AGENTS.md defines contributor rules.
+AGENTS.md defines repository rules.
 
 Keep the current-state section concise.
 Append dated entries to History; preserve previous entries.
@@ -19,15 +19,17 @@ Correct historical mistakes with a new entry rather than silently erasing them.
 - Known application checkpoint: Stage 0 documentation baseline (tag: stage-0-docs).
 - Initial repository baseline: 34fb0b2, "Initial commit".
 - Initial tracked content: README.md.
-- Next action: begin Stage A, dashboard UI and mock status/video.
+- Next action: start the dashboard/control and ESP32-controller workstreams.
 
 ## Active work
 
-| Task/stage | Owner | Branch/worktree | Affected areas/interfaces | Status | Updated |
-|---|---|---|---|---|---|
-| Documentation baseline | Current implementation session | main | Plan, contributor rules, handoff log, original reference, README | Complete | 2026-09-26 EDT |
+| Workstream | Branch/worktree | Affected areas/interfaces | Status | Updated |
+|---|---|---|---|---|
+| Documentation baseline | main | Plan, repository rules, handoff log, original reference, README | Complete | 2026-09-26 EDT |
+| Dashboard and control | feature/dashboard-control | app/, static assets, control tests, mock backend | Planned | 2026-09-26 EDT |
+| ESP32 controller | feature/esp32-controller | firmware/, firmware tests, shield and IMU adapters | Planned | 2026-09-26 EDT |
 
-Assignments must be confirmed with the team before overlapping work begins.
+See WORKSTREAMS.md for the assigned development split and merge gates.
 This table alone does not lock files or synchronize separate branches.
 
 ## Checkpoints
@@ -71,7 +73,7 @@ Decisions:
 - Camera events are model-independent.
 - JSONL recording/replay and mock backends are required.
 - No scope expansion before physical milestone acceptance.
-- Concurrent contributors use separate branches/worktrees and explicit ownership.
+- Concurrent workstreams use separate branches/worktrees and explicit boundaries.
 
 Validation:
 
@@ -80,13 +82,33 @@ Validation:
 
 Next:
 
-- Begin Stage A, followed by the approved stage sequence.
+- Start the dashboard/control and ESP32-controller workstreams in parallel.
+- Integrate only at the declared merge gates in WORKSTREAMS.md.
+
+### 2026-09-26 EDT - Parallel workstream split
+
+Status: ready to begin.
+
+Decisions:
+
+- Dashboard/control and ESP32 firmware work in separate branches and worktrees.
+- docs/handoffs/dashboard-control.md and
+  docs/handoffs/esp32-controller.md are the only handoff files their
+  respective workstreams edit while work is concurrent.
+- The serial contract and mecanum equations in IMPLEMENTATION_PLAN.md are
+  frozen while both workstreams are active.
+- The integrator alone updates this shared current-state summary after a merge.
+
+Validation:
+
+- Documentation boundaries reviewed against the approved milestone.
+- No application, firmware, or physical tests performed.
 
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>
 
-- Contributor:
+- Workstream:
 - Stage:
 - Branch/worktree:
 - Status: in progress / ready for integration / integrated / blocked

@@ -1,4 +1,4 @@
-# Contributor and coding-agent instructions
+# Repository and coding-agent instructions
 
 ## Start here
 
@@ -7,14 +7,14 @@ At the start of a task:
 1. Read the current-state and active-work sections of changes.md.
 2. Read the relevant sections of IMPLEMENTATION_PLAN.md.
 3. Inspect the actual branch, working tree, and code before editing.
-4. Confirm task ownership and interfaces that overlap other contributors.
+4. Confirm the assigned workstream and overlapping interfaces.
 
 Use docs/reference/rescue_robot_plan.md for original project context.
 The approved implementation plan incorporates later user corrections.
 Do not treat the original roadmap as authorization to expand scope.
 
 Current explicit user instructions take precedence over repository guidance.
-Record accepted changes to project decisions so future contributors inherit
+Record accepted changes to project decisions so future work sessions inherit
 them. Report discrepancies between documentation and code.
 
 ## Scope and architecture invariants
@@ -37,28 +37,36 @@ them. Report discrepancies between documentation and code.
 
 ## Concurrent work
 
-Use one task branch and separate worktree/clone per concurrent contributor.
+Use one task branch and separate worktree/clone per concurrent workstream.
 Do not let independent agents edit the same working tree simultaneously.
 
-Agree on task ownership before editing overlapping files.
-Record owner, branch/worktree, affected areas, dependencies, and status
+Agree on workstream boundaries before editing overlapping files.
+Record the workstream, branch/worktree, affected areas, dependencies, and status
 in changes.md. The Markdown table is a record, not a distributed lock:
 confirm assignments with the coordinating human or agent.
 
 Keep changes focused on the assigned task.
-Do not overwrite, discard, stage, or commit another contributor's changes.
+Do not overwrite, discard, stage, or commit changes from another workstream.
 
 Coordinate edits to shared protocols, dependencies, configuration,
 mixing fixtures, and documentation before making incompatible changes.
-One integration owner merges completed work sequentially and reconciles
-the shared current-state summary. The contributor integrating a branch
-acts as integration owner for that merge.
+One integrator merges completed work sequentially and reconciles the shared
+current-state summary. The person integrating a branch is the integrator for
+that merge.
 
-When resolving documentation conflicts, preserve both contributors'
-distinct history entries and recompute the current summary from evidence.
+When resolving documentation conflicts, preserve distinct history entries and
+recompute the current summary from evidence.
 
-Do not force-push shared branches or rewrite another contributor's history.
+Do not force-push shared branches or rewrite another workstream's history.
 Use a new fix/revert commit when an integrated change needs correction.
+
+When workstreams run in parallel, only the integrator updates the current-state
+and active-work sections of changes.md. Each workstream updates only its
+dedicated file under docs/handoffs/. This prevents routine handoffs from
+conflicting in the shared log.
+
+Follow WORKSTREAMS.md for the current branch boundaries, merge gates, and
+shared-interface rules.
 
 ## Checkpoints and validation
 
@@ -85,7 +93,9 @@ Avoid unrelated refactors and speculative infrastructure.
 
 Before ending a work session or handing off:
 
-- Update changes.md with changes, rationale, test evidence, and blockers.
+- During parallel work, update the assigned docs/handoffs/ file with changes,
+  rationale, test evidence, and blockers. The integrator records merged
+  results in changes.md.
 - State whether work is committed, uncommitted, or integrated.
 - Identify affected interfaces and compatibility changes.
 - Give a concrete next action and reproduction steps for failures.

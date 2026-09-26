@@ -8,8 +8,9 @@ and AI Camera person detection with annotated low-latency video.
 ## Project documents
 
 - [Approved implementation plan](IMPLEMENTATION_PLAN.md)
-- [Contributor and coding-agent instructions](AGENTS.md)
+- [Repository and coding-agent instructions](AGENTS.md)
 - [Current status, ownership, and handoffs](changes.md)
+- [Parallel workstream plan](WORKSTREAMS.md)
 - [Original project plan](docs/reference/rescue_robot_plan.md)
 
 Read [AGENTS.md](AGENTS.md), the current-state section in

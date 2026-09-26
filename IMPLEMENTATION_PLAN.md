@@ -20,7 +20,7 @@ Included:
 - ESP32-S2 firmware and BNO055 telemetry.
 - Independent AI Camera person detection and annotated video.
 - JSONL recording, detection replay, and tests.
-- Working Git checkpoints and contributor handoffs.
+- Working Git checkpoints and team handoffs.
 
 Deferred until this milestone passes physical acceptance:
 
@@ -408,7 +408,8 @@ Follow AGENTS.md.
 Keep changes.md current with task ownership, progress, decisions, tests,
 blockers, and exact next steps.
 
-Use separate branches/worktrees for concurrent contributors.
+Use separate branches/worktrees for concurrent workstreams.
+Follow WORKSTREAMS.md for active branch boundaries and merge gates.
 Commit passing checkpoints and preserve immutable checkpoint references.
 Never label untested code as a known-good robot version.
 
