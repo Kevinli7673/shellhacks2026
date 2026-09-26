@@ -93,8 +93,11 @@ class MissionManager(Node):
             # Dashboard axes: forward/right; ROS body axes: forward/left.
             goal.pose.position.x = pose["x"] + math.cos(yaw)*forward + math.sin(yaw)*right
             goal.pose.position.y = pose["y"] + math.sin(yaw)*forward - math.cos(yaw)*right
-            goal.pose.orientation.z = math.sin(yaw / 2)
-            goal.pose.orientation.w = math.cos(yaw / 2)
+            # Finish facing the requested destination, rather than preserving
+            # the starting heading and encouraging a sideways approach.
+            heading = yaw + math.atan2(-right, forward)
+            goal.pose.orientation.z = math.sin(heading / 2)
+            goal.pose.orientation.w = math.cos(heading / 2)
             self._goal(goal)
 
     def _status(self, message: String) -> None:

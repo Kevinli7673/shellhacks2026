@@ -104,6 +104,9 @@ def test_dashboard_goal_uses_current_pose_and_right_axis_once(manager):
         assert goal.header.frame_id == "map"
         assert goal.pose.position.x == pytest.approx(1.2)
         assert goal.pose.position.y == pytest.approx(2.5)
+        heading = math.atan2(0.5, 0.2)
+        assert goal.pose.orientation.z == pytest.approx(math.sin(heading / 2))
+        assert goal.pose.orientation.w == pytest.approx(math.cos(heading / 2))
         sender.send(encode_navigation(record))
         manager._dashboard_goals(now, {"x": 1.0, "y": 2.0, "yaw": 0}, True)
         manager._action.send_goal_async.assert_called_once()

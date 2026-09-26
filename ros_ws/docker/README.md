@@ -76,8 +76,10 @@ checking manual driving, use the **Simulation autonomy** panel on the dashboard:
    by Collision Monitor. If navigation stops at an obstacle, cancel the goal
    and use manual control to move back into clear space before restarting.
 3. Click **Send goal**. The panel reports sending, navigating, and goal reached.
-   Nav2 chooses the path and keeps the starting heading. You can send another
-   destination after the previous goal finishes.
+   Nav2 turns toward the route, drives primarily forward, and strafes for
+   corrections. It finishes facing the bearing from the starting position to
+   the destination. You can send another destination after the previous goal
+   finishes.
 4. **Stop** or **Space** cancels the mission and disarms. W/A/S/D takes manual
    control immediately; releasing the key does not restart autonomy.
 
@@ -87,6 +89,17 @@ Keep the dashboard focused while watching in another window. Arrow keys edit
 the numeric fields while those fields have focus; W/A/S/D and Space retain
 their takeover/Stop behavior. With a field unfocused, arrows retain normal
 driving/speed behavior.
+
+To measure heading and travel against Gazebo's actual model pose, close the
+control tab and run the following from a fresh container start. The first
+command checks three clear-aisle goals with right-angle turns. The optional
+second command adds a reversal and a longer route around the divider; restart the simulation
+before each run so it begins at the spawn.
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py --long-routes
+```
 
 If readiness does not appear, inspect `docker compose -f
 ros_ws/docker/compose.yaml logs --tail 150 sim`. Readiness requires the Nav2

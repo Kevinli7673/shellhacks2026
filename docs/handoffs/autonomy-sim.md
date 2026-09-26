@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at d6a5d5f, merged in 38c686d
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Manual driving, SLAM/Nav2 short goals, Stop/manual takeover/source expiry, and one rear-obstacle scenario pass. Dashboard goal entry and automatic navigation startup now pass live acceptance, including visible goal completion, keyboard takeover, and Stop. Varied obstacle approaches and long missions remain unvalidated.
+Status: Docker on macOS ARM64 runs Ubuntu 24.04/Jazzy/Harmonic. Dashboard goals now turn toward the path and travel primarily forward, retaining holonomic correction. Three clear-aisle goals and Stop/manual takeover/source expiry pass with the new controller. Longer routes and varied obstacles are the next validation stage; physical autonomy and exploration remain gated.
 
 ## User-authorized scope exception
 
@@ -37,10 +37,10 @@ test/integration or main are authorized. Push only feature/autonomy-sim.
 | `a824566` | Simulation dashboard destinations, readiness/status IPC, automatic Docker navigation startup | Image/colcon build, 156 Python passes and 2 skips on each OS, seven ROS passes; live dashboard API goal/Stop/takeover/source-loss checks now pass. |
 | `9be171f` | Clear-aisle default destination and completed browser acceptance | Real browser default goal succeeds; field editing/Enter submission/W takeover/Space/Stop/reload tested. Final Ubuntu regression: 156 passes, 2 optional skips. |
 
-Publication: code through `9be171f` and this handoff are committed and pushed
-only to origin/feature/autonomy-sim. The branch has not been integrated.
-Working tree is clean at handoff. The live container runs the updated image;
-the browser dashboard is open with the robot disarmed and navigation ready.
+Publication: prior code through `962a2fa` is on origin/feature/autonomy-sim.
+The forward-facing update is recorded with this checkpoint, not integrated.
+The simulation control tab is closed for automated acceptance; the robot is
+disarmed after each test.
 
 ## Current checkpoint
 
@@ -57,8 +57,8 @@ the browser dashboard is open with the robot disarmed and navigation ready.
 - `ros_ws/` contains a parameterized Xacro model, Harmonic SDF model/world,
   `ros_gz_bridge` topic map, simulated LiDAR/IMU/odometry, and `odom →
   base_link` TF bridge.
-- `rescuebot_navigation` starts SLAM Toolbox, Nav2 with a holonomic DWB
-  controller, Collision Monitor, and a mission manager that owns dashboard
+- `rescuebot_navigation` starts SLAM Toolbox, Nav2 with a rotation shim around
+  holonomic DWB, Collision Monitor, and a mission manager that owns dashboard
   destinations and RViz `/goal_pose` actions. Nav2 output flows through `/cmd_vel_nav`, the velocity smoother, and
   `/cmd_vel_smoothed`; only Collision Monitor publishes `/cmd_vel_safe`.
 
@@ -603,3 +603,69 @@ not show a map or validate destination clearance. Long missions, loop closure,
 interactive RViz goals, frontier exploration, measured geometry, and physical
 autonomy remain unvalidated. The camera panel remains a short detection replay,
 not a live simulated camera; watch the separate Gazebo desktop for motion.
+
+## 2026-09-26 — Face the route before travel
+
+Accepted user decision: prioritize facing the selected route and driving
+forward, retaining strafe when needed; then test longer routes and varied
+obstacles. Automatic exploration and physical autonomy are future validation
+stages, not enabled here. The integrator should reconcile this decision with
+the shared plan and log the existing user-authorized simulation-only exception.
+
+The previous configuration disabled PathAlign/GoalAlign and preserved the
+initial goal heading, encouraging the observed shuffle. Dashboard destinations
+now set final orientation to the bearing from the starting pose to the goal.
+A Nav2 rotation shim aligns with the path before DWB takes over; path/goal
+alignment and a modest PreferForward critic favor forward travel without
+removing lateral velocity samples. PoseProgressChecker counts turning as
+progress. All existing velocity limits, Collision Monitor geometry, and host
+Stop/expiry behavior remain unchanged. Explicit ROS goal orientations still
+pass through. The only app change is simulation-panel explanatory text.
+
+Design reference: the official [Jazzy rotation-shim documentation](https://docs.nav2.org/jazzy/configuration_and_development/configuration_guide/controller_plugins/configuring_rotation_shim_controller/).
+The installed Jazzy package already supplies this plugin; its dependency is
+now explicit. No host software was installed. Host: macOS 26.6.2 ARM64;
+container: Ubuntu 24.04 ARM64, Python 3.12.3, Jazzy, Harmonic, Mesa software
+rendering. Only the existing isolated Docker simulator was updated.
+
+Exact commands from /private/tmp/rescuebot-autonomy-sim (Docker CLI is
+/Users/shaderahman/.docker/bin/docker on this Mac):
+
+```bash
+docker compose -f ros_ws/docker/compose.yaml --progress plain build
+docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_heading.py
+docker compose -f ros_ws/docker/compose.yaml restart sim
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_navigation.py --dashboard-goals
+docker compose -f ros_ws/docker/compose.yaml run --rm --no-deps sim bash -c 'python3 -m unittest discover -s tests -v && node --check app/rescuebot/static/dashboard.js && cd ros_ws && colcon test --event-handlers console_direct+ && colcon test-result --verbose'
+PYTHONPATH=app /Users/shaderahman/Documents/coding/shellhacks2026/.venv/bin/python -m unittest discover -s tests -v
+git diff --check
+```
+
+Results:
+
+- All four ROS packages built. Ubuntu and macOS each discovered 158 Python
+  tests: 156 passed, two optional integration skips. All seven ROS tests and
+  JavaScript syntax passed. The ROS goal-conversion test checks final heading
+  as well as rotated coordinates.
+- Three dashboard goals at map (0,-0.6), (-0.7,-0.6), (-0.7,0.5) succeeded in
+  14.47, 16.35, and 24.06 s. Ground-truth forward travel shares were 99.29%,
+  98.90%, and 98.95%. Position errors were 0.089, 0.091, and 0.092 m.
+  Pre-alignment translation was below 0.0004 m; heading errors at 0.08 m of
+  travel were 0.127, 0.002, and 0.089 rad. Lateral correction remained visible
+  in the measured trajectory. Metrics use Gazebo model poses, not wheel odometry.
+- A first test attempt exposed multiple queued JSON records from `gz topic`
+  despite `-n 1`; the pose reader now decodes the first complete record.
+  The corrected test was rerun from a fresh simulation and passed.
+- Live Stop holds position; manual takeover cancels with no resume on release.
+  Managed Nav2 pause disarmed in 0.358 s, including lifecycle/test overhead.
+  All six Nav2 nodes remained active after resume; the host stayed disarmed.
+- Logs: /private/tmp/rescuebot-heading.log, rescuebot-facing-build.log,
+  rescuebot-facing-regression.log, rescuebot-facing-python.log, and
+  rescuebot-facing-safety.log. Test/build artifacts are not committed.
+
+Next: run the optional longer route, including a reversal and passing the
+world divider; adapt obstacle insertion acceptance to forward-facing motion
+and vary obstacle shape/approach. No exploration or physical acceptance is
+claimed. The previous rear-panel result remains historical coverage until
+that validator is updated for the new controller.

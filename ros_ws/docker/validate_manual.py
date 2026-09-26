@@ -31,7 +31,9 @@ async def pose():
         raise
     if process.returncode:
         raise RuntimeError("Gazebo pose query failed")
-    model = next(p for p in json.loads(raw)["pose"] if p["name"] == "rescuebot")
+    # gz topic can deliver a second queued JSON record before honoring -n 1.
+    sample, _ = json.JSONDecoder().raw_decode(raw.decode().lstrip())
+    model = next(p for p in sample["pose"] if p["name"] == "rescuebot")
     p, q = model["position"], model["orientation"]
     yaw = math.atan2(
         2 * (q["w"] * q.get("z", 0) + q.get("x", 0) * q.get("y", 0)),
