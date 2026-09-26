@@ -91,6 +91,57 @@ Never treat the displayed wheel values as a command to real hardware.
     replay camera_backend that feeds DetectionTracker status to the
     dashboard in a process isolated from motor control.
 
+### 2026-09-26 EDT - Pi-side serial protocol and simulated link failures
+
+- Commit: branch feature/serial-protocol (worktree ../rescuebot-serial),
+  based on f6eae78; feat: add Pi-side serial protocol and link simulation.
+- Changed files and interfaces:
+  - Added app/rescuebot/serial_protocol.py: strict newline-delimited JSON
+    codec for the frozen drive packet and ACK, a bounded LineDecoder
+    (256-byte lines), and rejection of non-finite, out-of-range,
+    non-integer, missing/extra/duplicate-key, and oversized input.
+  - Added app/rescuebot/serial_link.py: transport-agnostic MotorLink with a
+    fresh session per connect, monotonically increasing seq, no
+    retransmission, explicit arm confirmation, 250 ms advancing-ACK
+    deadline, and stale/foreign ACK rejection. IMU messages never refresh
+    the deadline. Connect sends only a disarm and never arms.
+  - Added app/rescuebot/serial_sim.py: host simulation of the firmware
+    behavior (500 ms watchdog, hardware ceiling, shared mix_mecanum).
+  - Added fixtures/serial_protocol_vectors.json (25 cases) for firmware
+    parity, and tests/control/test_serial_protocol.py.
+  - No existing module, the frozen drive/ACK shapes, or mixing changed.
+- Proposed interface additions (need ESP32-workstream agreement and a
+  changes.md decision before they are frozen):
+  - Pi -> ESP32: {"type":"arm"|"disarm","session","seq"}, sharing the
+    drive seq counter. Disarm always stops and adopts its session; arm
+    requires the current session and a newer seq.
+  - ESP32 -> Pi: {"type":"state","session","armed","ack","fault"} in reply
+    to arm/disarm (ack = that seq) and unprompted on boot (session null,
+    fault "boot"), watchdog ("watchdog"), and malformed input
+    ("malformed"). IMU uses {"type":"imu",...}; the untyped message
+    remains the frozen drive ACK.
+  - Sessions are 1-32 characters of [A-Za-z0-9_-]; seq starts at 1.
+  - Firmware ignores (no ACK, no watchdog refresh) wrong-session,
+    duplicate, out-of-order, and disarmed drive packets; it stops and
+    disarms on any malformed line.
+- Tests and results:
+  - PYTHONPATH=app ../shellhacks2026/.venv/bin/python -m unittest discover
+    -s tests: 64 passed (41 existing, 23 new). PYTHONPATH is needed
+    because the shared venv's editable install points at the main checkout.
+  - Mutation checks (stale ACK acceptance, IMU refreshing the deadline,
+    unrequested arm, duplicate seq, late watchdog, silent connect) each
+    made the suite fail.
+- Mock or physical coverage:
+  - Simulated firmware only. No serial port, pyserial, ESP32, or motors.
+- Known limitations:
+  - No real serial transport, motor-bridge process, or arbiter IPC yet;
+    nothing calls MotorLink from the dashboard.
+  - Vectors are a proposal until the firmware passes them.
+- Next action:
+  - Share fixtures/serial_protocol_vectors.json and the proposed messages
+    with the ESP32 workstream; after agreement, add the motor-bridge
+    process with a pyserial transport around MotorLink.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
