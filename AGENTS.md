@@ -32,8 +32,12 @@ them. Report discrepancies between documentation and code.
 - Positive axes mean forward, right strafe, and clockwise rotation.
 - Camera processing remains isolated from motor-control processes.
 - Stop overrides everything; reconnects never automatically rearm.
+- An accepted arm zeroes motor outputs; a stale arm (same session, seq not
+  higher than the last seen) is ignored.
 - ESP32 watchdog defaults to 500 ms.
 - Mock and firmware calculations must pass the same behavioral fixtures.
+- Firmware native tests replay the shared serial protocol vectors, vendored
+  unedited under firmware/test/fixtures/.
 - Replay must never drive real motors.
 
 ## Concurrent work
