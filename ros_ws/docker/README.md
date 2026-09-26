@@ -311,6 +311,10 @@ travel, return position/heading, automatic disarming, and a new explicit start.
 It reports wall time, simulation time, traveled distance, sampled stationary
 and rotation-only intervals, and time/distance to first detection. Compare
 simulation time and distance when playback load differs between runs.
+By default it first moves briefly and checks Stop, then uses that stopped pose
+as the mission home. After a fresh simulator restart, use `--skip-stop-probe`
+to test a full mission from the untouched world spawn instead; that variant
+still checks the completed return, hold, and explicit restart/cancellation.
 To reproduce the northern-start case after a spawn-start test, run:
 
 ```bash
@@ -327,8 +331,8 @@ fixture only. Close control tabs and leave driving disarmed before recreating
 the simulator:
 
 ```bash
-# A different target in the house's western area.
-RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_X=-2.2 RESCUEBOT_SYNTHETIC_TARGET_Y=1.7 docker compose -f ros_ws/docker/compose.yaml up -d
+# An early-detection target in the initial aisle.
+RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_X=0.0 RESCUEBOT_SYNTHETIC_TARGET_Y=1.8 docker compose -f ros_ws/docker/compose.yaml up -d
 docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
 # Require a completed return without any detection.
 RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_ENABLED=false docker compose -f ros_ws/docker/compose.yaml up -d
@@ -336,6 +340,21 @@ docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entr
 # Restore the default detector fixture and a fresh house.
 RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
 ```
+
+Known clearance limitation: the western-room fixture (-2.2, 1.7) was missed
+and the robot returned safely without claiming detection. On the captured map,
+the old and optimized planners have exactly the same reachable component;
+the passage permits at most 0.375 m map clearance, below the retained 0.38 m
+requirement. Merely changing search scores cannot make that route usable.
+The run and map diagnosis are recorded in the simulation handoff. Clearance
+limits were not reduced to make this fixture pass.
+
+The upper-east fixture (2.2, 2.0) was detected, but its return route through
+the upper divider passage stopped against the collision envelope and safely
+disarmed after recovery/source expiry. The ordinary controller and stop
+configuration are unchanged: Nav2's circular footprint can admit a corner
+turn that the larger rectangular stop polygon blocks. This route remains
+unaccepted; resolving that geometry mismatch is separate from search scoring.
 
 Restore the original world using
 `RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d`.

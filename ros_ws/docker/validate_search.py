@@ -35,7 +35,7 @@ def clearance(point, boxes):
                for x, y, sx, sy in boxes)
 
 
-async def run(pose, north_start=False, expect_absent=False):
+async def run(pose, north_start=False, expect_absent=False, skip_stop_probe=False):
     current = await asyncio.to_thread(fetch_state)
     assert current["motor"]["backend"] == "gazebo"
     assert current["control"]["owner_session"] is None, "close simulation control tabs"
@@ -122,15 +122,16 @@ async def run(pose, north_start=False, expect_absent=False):
                     await wait(lambda: not state()["control"]["armed"], 3)
                     await asyncio.sleep(.5)
                     print(json.dumps(dict(event="north_start_ready", pose=await pose())), flush=True)
-                await start()
-                await asyncio.sleep(2)
-                await send("stop")
-                await wait(lambda: not state()["control"]["armed"] and search()["phase"] == "canceled", 3)
-                await asyncio.sleep(.5)
-                stopped = await pose()
-                await asyncio.sleep(.8)
-                assert math.dist(stopped[:2], (await pose())[:2]) < .005
-                print("PASS Stop during search; restarting explicitly", flush=True)
+                if not skip_stop_probe:
+                    await start()
+                    await asyncio.sleep(2)
+                    await send("stop")
+                    await wait(lambda: not state()["control"]["armed"] and search()["phase"] == "canceled", 3)
+                    await asyncio.sleep(.5)
+                    stopped = await pose()
+                    await asyncio.sleep(.8)
+                    assert math.dist(stopped[:2], (await pose())[:2]) < .005
+                    print("PASS Stop during search; restarting explicitly", flush=True)
 
                 home = await pose()
                 await start()
@@ -200,6 +201,8 @@ async def run(pose, north_start=False, expect_absent=False):
                 home_error = math.dist(previous[:2], home[:2])
                 heading_error = abs(displacement(home, previous)[2])
                 result = dict(phase=search()["phase"], found=search()["found"], phases=phases,
+                              reason=search()["reason"], visited_samples=search()["visited"],
+                              home_pose=home, final_pose=previous,
                               seconds=time.monotonic()-started, path_m=path,
                               sim_seconds=previous_sim-start_sim, detection=detection,
                               stationary_seconds=stationary_seconds,
@@ -224,7 +227,7 @@ async def run(pose, north_start=False, expect_absent=False):
                 assert not search()["found"], "new mission retained previous detection"
                 await send("stop")
                 await wait(lambda: search()["phase"] == "canceled", 3)
-                print("PASS search, notification, return, disarm, and repeat start", flush=True)
+                print("PASS search, expected detector outcome, return, disarm, and repeat start", flush=True)
             finally:
                 await send("stop")
                 reader.cancel()
@@ -235,9 +238,9 @@ async def run(pose, north_start=False, expect_absent=False):
         await asyncio.gather(poller, return_exceptions=True)
 
 
-async def main(north_start=False, expect_absent=False):
+async def main(north_start=False, expect_absent=False, skip_stop_probe=False):
     async with pose_stream() as pose:
-        await run(pose, north_start, expect_absent)
+        await run(pose, north_start, expect_absent, skip_stop_probe)
 
 
 if __name__ == "__main__":
@@ -246,5 +249,7 @@ if __name__ == "__main__":
                         help="Drive from near spawn to the reported northern start before testing search")
     parser.add_argument("--expect-absent", action="store_true",
                         help="Require return without detection; configure the detector fixture separately")
+    parser.add_argument("--skip-stop-probe", action="store_true",
+                        help="Skip the preliminary drive/Stop test so a fresh world searches from untouched spawn")
     args = parser.parse_args()
-    asyncio.run(main(args.north_start, args.expect_absent))
+    asyncio.run(main(args.north_start, args.expect_absent, args.skip_stop_probe))

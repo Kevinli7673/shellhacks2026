@@ -5,7 +5,7 @@ Branch: feature/autonomy-sim
 Original base: test/integration at 4af9098
 Current integration base: test/integration at 7071d1e, merged in 1d6f9fa (includes the verified d6a5d5f wheel configuration)
 Worktree: /private/tmp/rescuebot-autonomy-sim
-Status: Movement blending validated and committed in f5f5848 on feature/autonomy-sim, not integrated. Ordinary turns combine translation and yaw; sharp reversals and final alignment may turn in place. Seven-goal routes, direct divider detour, obstacle stopping during combined motion, fresh/northern search-and-return, Stop/takeover/source-loss, 166 application tests (two skips), and all 27 ROS tests pass. Simulator is ready at fresh search-house spawn, disarmed, zero output, requested 3x playback. Physical autonomy remains unvalidated.
+Status: Search optimization #1–#4 implementations integrated into feature/autonomy-sim at 0639500; not merged into test/integration or main. Application (166 pass/two skips) and ROS (56 pass) suites pass. Fresh/northern search-and-return improved in runtime tests; broader acceptance is ongoing. A western-room clearance exclusion and upper-east return-envelope failure are documented below. Physical autonomy remains unvalidated.
 
 ## User-authorized scope exception
 
@@ -75,6 +75,98 @@ Baseline logs are `/private/tmp/rescuebot-opt-baseline-{fresh,north,repeat}.log`
 integrated build/tests are `/private/tmp/rescuebot-opt-{build,tests}.log`.
 The prior passing image remains tagged
 `rescuebot-autonomy-sim:pre-search-optimization` for rollback.
+
+Runtime measurements use the same conservative speed settings, requested 3x
+playback, and validator Stop/restart sequence. Simulation seconds and actual
+Gazebo path length are the comparison metrics; wall playback varies with load.
+
+| Start / target | Baseline detection simulation seconds / metres | Optimized detection simulation seconds / metres | Optimized round trip simulation seconds / metres |
+|---|---|---|---|
+| Fresh house / (1.8, 0.6) | 259.683 / 14.567; repeat 253.161 / 14.768 | 222.436 / 13.592 | 285.566 / 16.788 |
+| Northern retained-map start / (1.8, 0.6) | 240.860 / 13.269 | 153.700 / 10.085 | 236.756 / 15.125 |
+
+Both optimized runs pass sensor range/occlusion, Stop/restart, all mission
+phases, return position/heading, automatic disarm, hold, and repeat-start reset.
+Fresh/northern home errors are 0.0662 / 0.0767 m and 0.0811 / 0.0771 rad;
+minimum clearances are 0.1336 / 0.1451 m. Measured first-detection improvement
+is 12–14% in the fresh pair and 36% in the northern pair; these are measured
+cases, not a universal speedup claim. The first nine fresh search handoffs
+occurred about 0–110 ms after the preceding action result. Nav2 can still
+briefly stop between goals. Logs: `/private/tmp/rescuebot-opt-{fresh,north}.log`
+and corresponding `-runtime.log` files.
+
+Additional completed search acceptance:
+
+- No-target fixture (`RESCUEBOT_SYNTHETIC_TARGET_ENABLED=false`): exhausted
+  useful reachable viewpoints without claiming detection, then returned and
+  disarmed in 590.149 simulation seconds / 35.883 m (261.871 wall seconds).
+  Home errors 0.0725 m / 0.0872 rad; minimum clearance 0.1700 m; forward share
+  95.57%. Stop/restart, expected phase sequence, hold and repeat start pass.
+  Evidence: `/private/tmp/rescuebot-opt-no-target{,-runtime}.log`.
+- Early-detection fixture (0.0, 1.8): detected during the first search leg in
+  9.065 simulation seconds / 0.604 m, canceled exploration/preparation, and
+  completed return/disarm in 41.355 simulation seconds / 1.171 m. Home errors
+  0.0795 m / 0.0966 rad; minimum clearance 0.4012 m. All normal search checks
+  pass. Evidence: `/private/tmp/rescuebot-opt-early-target.log` and
+  `/private/tmp/rescuebot-opt-early-runtime.log`.
+- Ordinary seven-goal route passes over 8.232 m, including blended motion and
+  final heading checks: maximum position/heading error 0.0893 m / 0.0978 rad;
+  minimum clearance 0.1530 m. The first two turns translate 0.430 / 0.465 m
+  during 1.092 / 1.085 rad of rotation. No search-only arrival policy leaks
+  into ordinary goals. Evidence: `/private/tmp/rescuebot-opt-routes.log`.
+- Obstacle inserted during combined translation/rotation: FootprintStop in
+  0.370 wall seconds including insertion/service overhead, zero filtered
+  velocity, 0.1000 m clearance, about 1.05 mm subsequent translation. This is
+  simulation evidence, not a physical stopping-time certification. Evidence:
+  `/private/tmp/rescuebot-opt-obstacle.log`.
+- Dashboard goal/Stop/manual takeover/source-loss regression passes. Managed
+  Nav2 pause disarms in 0.303 seconds including lifecycle/test overhead; all
+  six nodes remain active after resume, without automatic rearm. Evidence:
+  `/private/tmp/rescuebot-opt-safety.log`.
+
+### Broader route limitations exposed during acceptance
+
+- Western fixture (-2.2, 1.7): failed detection acceptance. The robot exhausted
+  19 useful reachable goals, returned/disarmed safely after 571.996 simulation
+  seconds / 35.900 m, and did not claim detection. Captured-map diagnosis proves
+  that legacy 877a1b5 and optimized connectivity graphs are exactly equal:
+  5,499 safe cells, 4,963 home-connected cells, a disconnected 535-cell western
+  component and one isolated cell. Clearing all unknowns in a diagnostic copy
+  does not connect it. The best occupied-map passage clearance is 0.375 m,
+  below the retained 0.38 m rule; the closest connected transit point remains
+  1.367 m from the target (detector range 0.9 m). This is conditional evidence
+  about the captured map, not a claim that every legacy live run generates
+  exactly the same map. No safety margin was reduced. Evidence:
+  `/private/tmp/rescuebot-opt-west-{target,runtime}.log`,
+  `/private/tmp/rescuebot-opt-west-map.json`, and
+  `/private/tmp/rescuebot-west-map-diagnosis.{py,log}`. Reproduce the diagnostic
+  with `PYTHONPATH=ros_ws/src/rescuebot_navigation python3 /private/tmp/rescuebot-west-map-diagnosis.py`.
+- Upper-east fixture (2.2, 2.0): detected in 234.719 simulation seconds / 14.452 m,
+  then failed return acceptance. At actual pose (0.634226, 2.490928, 2.935822),
+  the divider corner transforms to body (-0.197247, 0.256027), inside the
+  unchanged +/-0.30 by +/-0.26 m FootprintStop rectangle while Nav2's 0.19 m
+  circle still allows the pose. Collision stopping preceded four progress
+  failures, blocked Spin, and safe source-expiry disarm; it did not claim a
+  successful return. Ordinary BT XML is equivalent to the installed default
+  except for explicitly selecting the same goal checker; nav2.yaml and
+  collision_monitor.yaml are byte-identical to 877a1b5. This is a newly exposed
+  return-geometry limitation; a same-state baseline replay would be required
+  for a conclusive regression classification. Aligning navigation's hard
+  geometry with the stopping envelope is separate work; Stop and expiry were
+  not weakened. Evidence: `/private/tmp/rescuebot-opt-east-{target,runtime}.log`,
+  `/private/tmp/rescuebot-opt-east-map.json`, and `-east-final-state.json`.
+
+Reproduce either fixture using the matching coordinates in:
+
+```bash
+RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_X=-2.2 RESCUEBOT_SYNTHETIC_TARGET_Y=1.7 docker compose -f ros_ws/docker/compose.yaml up -d
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_playback.py --set-only 3
+docker exec rescuebot-autonomy-sim-sim-1 bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+```
+
+Use x=2.2 / y=2.0 for the upper-east return case. Capture state/logs before
+resetting a failure. These cases remain unaccepted; successful standard cases
+must not be reported as exhaustive search or arbitrary-return coverage.
 
 ## Movement blending (2026-09-26)
 
