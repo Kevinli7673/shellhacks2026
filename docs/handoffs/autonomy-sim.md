@@ -35,6 +35,47 @@ ros_ws/, simulation-specific application behavior and tests, and this handoff.
 No direct firmware edits, other workstream handoff edits, or merges into
 test/integration or main are authorized. Push only feature/autonomy-sim.
 
+## Search optimization work in progress (2026-09-26)
+
+The user authorized only movement/goal handling (#1 and #4) and search
+coverage/scoring (#2 and #3), with multiple subagents working in parallel.
+No room-level planning, saved-map reuse, broader caching project, speed-limit
+change, physical autonomy, or firmware change is included. The shared plan
+still defers autonomy; the explicit simulation-only exception above applies.
+The integrator should record this accepted refinement in the shared plan/log.
+
+Base checkpoint: `877a1b5`, retained unchanged. Fetched origin and confirmed a
+clean simulation worktree before starting. Cross-workstream request routing
+does not apply to simulation autonomy. Assignments confirmed by the
+coordinating agent before edits:
+
+| Workstream | Branch/worktree | Ownership | Dependency/status |
+|---|---|---|---|
+| Search movement | feature/autonomy-search-motion / /private/tmp/rescuebot-search-motion | mission manager, search-specific Nav2 goal/controller/BT configuration, focused manager tests, autonomy-search-motion handoff | Active; consumes agreed coverage API |
+| Coverage and scoring | feature/autonomy-search-coverage / /private/tmp/rescuebot-search-coverage | search.py, planner tests, autonomy-search-coverage handoff | Active; supplies immutable observation coverage and gain/cost waypoint selection |
+| Simulation integration | feature/autonomy-sim / /private/tmp/rescuebot-autonomy-sim | runtime validators, sequential integration, simulator acceptance, this handoff | Active; sole operator of shared simulator |
+
+Coverage must reflect the 0.9 m synthetic detector's actual capture-time range
+and free line of sight, not lidar map visibility. Predicted future coverage
+must not become observed coverage. Prefetched goals remain bounded and are
+revalidated; Stop/source loss/mission change invalidate outstanding work.
+Intermediate search goals may ignore final yaw, while dashboard goals and
+home return retain their exact-pose behavior. Speed, collision filtering,
+watchdogs, and cancellation-before-return semantics are unchanged.
+
+Both implementation branches are now integrated sequentially into this
+simulation feature branch (coverage `67888ec`, movement `6467f2a`; their
+dedicated handoffs record original commits). Independent read-only review
+identified and closed a race that could send a prefetched goal while newer
+observations were still being processed. The integrated image builds all four
+ROS packages. Full Ubuntu application and ROS suites pass: 168 application
+tests (166 passed, two optional skips), 56 ROS tests (zero failures/skips), and
+JavaScript syntax. Runtime acceptance and performance comparison are pending.
+Baseline logs are `/private/tmp/rescuebot-opt-baseline-{fresh,north,repeat}.log`;
+integrated build/tests are `/private/tmp/rescuebot-opt-{build,tests}.log`.
+The prior passing image remains tagged
+`rescuebot-autonomy-sim:pre-search-optimization` for rollback.
+
 ## Movement blending (2026-09-26)
 
 Tested code checkpoint: `f5f5848` (parent `4130a62`).

@@ -37,7 +37,10 @@ pids+=("$!")
 rescuebot-dashboard --motor-backend gazebo --camera-backend replay \
     --replay-path /workspace/fixtures/detections/person_appears_disappears.jsonl &
 pids+=("$!")
-ros2 launch rescuebot_navigation navigation.launch.py search_enabled:="$search_enabled" &
+ros2 launch rescuebot_navigation navigation.launch.py search_enabled:="$search_enabled" \
+    synthetic_target_x:="${RESCUEBOT_SYNTHETIC_TARGET_X:-1.8}" \
+    synthetic_target_y:="${RESCUEBOT_SYNTHETIC_TARGET_Y:-0.6}" \
+    synthetic_target_enabled:="${RESCUEBOT_SYNTHETIC_TARGET_ENABLED:-true}" &
 pids+=("$!")
 
 # A failed service ends the container. Docker init reaps child processes;

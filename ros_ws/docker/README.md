@@ -246,12 +246,26 @@ The pink disk is the synthetic person location; the green disk marks the
 world's spawn. Home is saved from the robot's actual SLAM pose when Search is
 clicked, so a mission started elsewhere returns there instead.
 
-The robot chooses reachable, unvisited viewpoints from its evolving SLAM map,
-with 0.38 m map clearance. It receives no target location for planning. A
+The robot chooses reachable viewpoints that expose useful unsearched space
+for their travel cost, with 0.38 m map clearance. It receives no target location for planning. A
 separate synthetic detector reports the target only within 0.9 m with a clear,
 known-free map ray. This is a 360-degree proximity simulation, not person
 recognition or camera validation. The dashboard's replay camera remains a
 separate demonstration and may be stale.
+
+Search coverage records samples actually visible within the detector's range
+using the map available at observation time. Newly mapped space is not marked
+searched by replaying earlier robot positions. Coverage resets for every new
+mission. Candidate selection balances new visible coverage with reachable
+travel distance and turning; unknown space remains blocked in its connectivity
+graph. Coverage uses 10 cm sample spacing and requires at least 12 new samples
+for a coverage goal, avoiding repeated trips for tiny residual gains. This is
+an approximate, bounded search; completion without detection does not prove
+that a person is absent. A bounded planner worker prepares the next destination while driving,
+then checks its map and coverage before using it. Intermediate search goals
+finish on position without a final-heading pause. Dashboard goals and return
+home still finish with their required orientation. Nav2 may briefly stop at
+goal handoff; this is not a promise of uninterrupted motion.
 
 Finding the marker produces a persistent **SIMULATION** notification, cancels
 the exploration goal, waits for cancellation, and navigates to the saved home
@@ -294,6 +308,9 @@ docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entr
 The validator checks Stop/restart, SLAM error against Gazebo truth, a found notification within the synthetic sensor
 range and without an obstacle crossing, actual Gazebo clearance and forward
 travel, return position/heading, automatic disarming, and a new explicit start.
+It reports wall time, simulation time, traveled distance, sampled stationary
+and rotation-only intervals, and time/distance to first detection. Compare
+simulation time and distance when playback load differs between runs.
 To reproduce the northern-start case after a spawn-start test, run:
 
 ```bash
@@ -302,6 +319,24 @@ docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entr
 
 This drives through the dashboard to approximately (-0.55, 2.15) m, then checks
 the same search, return, and stop sequence. Both variants always send Stop.
+
+Detector-only fixture overrides support acceptance at other target locations
+and with no target. These values never reach viewpoint selection. They do not
+move or remove the decorative pink disk in Gazebo; it represents the default
+fixture only. Close control tabs and leave driving disarmed before recreating
+the simulator:
+
+```bash
+# A different target in the house's western area.
+RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_X=-2.2 RESCUEBOT_SYNTHETIC_TARGET_Y=1.7 docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py
+# Require a completed return without any detection.
+RESCUEBOT_WORLD=search_house.sdf RESCUEBOT_SYNTHETIC_TARGET_ENABLED=false docker compose -f ros_ws/docker/compose.yaml up -d
+docker compose -f ros_ws/docker/compose.yaml exec -T sim bash ros_ws/docker/entrypoint.sh python3 ros_ws/docker/validate_search.py --expect-absent
+# Restore the default detector fixture and a fresh house.
+RESCUEBOT_WORLD=search_house.sdf docker compose -f ros_ws/docker/compose.yaml up -d
+```
+
 Restore the original world using
 `RESCUEBOT_WORLD=indoor_maze.sdf docker compose -f ros_ws/docker/compose.yaml up -d`.
 

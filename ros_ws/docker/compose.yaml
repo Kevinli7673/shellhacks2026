@@ -9,6 +9,9 @@ services:
     init: true
     environment:
       RESCUEBOT_WORLD: ${RESCUEBOT_WORLD:-indoor_maze.sdf}
+      RESCUEBOT_SYNTHETIC_TARGET_X: ${RESCUEBOT_SYNTHETIC_TARGET_X:-1.8}
+      RESCUEBOT_SYNTHETIC_TARGET_Y: ${RESCUEBOT_SYNTHETIC_TARGET_Y:-0.6}
+      RESCUEBOT_SYNTHETIC_TARGET_ENABLED: ${RESCUEBOT_SYNTHETIC_TARGET_ENABLED:-true}
     shm_size: 1gb
     stop_grace_period: 15s
     ports:

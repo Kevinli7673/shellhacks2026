@@ -35,7 +35,7 @@ def clearance(point, boxes):
                for x, y, sx, sy in boxes)
 
 
-async def run(pose, north_start=False):
+async def run(pose, north_start=False, expect_absent=False):
     current = await asyncio.to_thread(fetch_state)
     assert current["motor"]["backend"] == "gazebo"
     assert current["control"]["owner_session"] is None, "close simulation control tabs"
@@ -136,15 +136,31 @@ async def run(pose, north_start=False):
                 await start()
                 previous = home
                 started = last_report = time.monotonic()
+                start_sim = state()["simulation_playback"]["sim_seconds"]
+                assert start_sim is not None, "simulation clock unavailable"
                 path = forward = 0.
+                stationary_seconds = stationary_sim_seconds = 0.
+                rotation_only_seconds = rotation_only_sim_seconds = 0.
+                previous_wall, previous_sim = started, start_sim
                 minimum = float("inf")
                 maximum_pose_error = 0.
                 boxes = obstacles()
                 found_pose = None
+                detection = None
                 phases = []
                 while time.monotonic()-started < 850:
                     actual = await pose()
                     local = displacement(previous, actual)
+                    wall_now = time.monotonic()
+                    sim_now = state()["simulation_playback"]["sim_seconds"]
+                    assert sim_now is not None and sim_now >= previous_sim, "simulation clock regressed"
+                    if math.hypot(*local[:2]) < .001 and abs(local[2]) < .003:
+                        stationary_seconds += wall_now-previous_wall
+                        stationary_sim_seconds += sim_now-previous_sim
+                    elif math.hypot(*local[:2]) < .001:
+                        rotation_only_seconds += wall_now-previous_wall
+                        rotation_only_sim_seconds += sim_now-previous_sim
+                    previous_wall, previous_sim = wall_now, sim_now
                     path += math.hypot(*local[:2])
                     forward += max(0., local[0])
                     previous = actual
@@ -158,14 +174,21 @@ async def run(pose, north_start=False):
                     if not phases or phases[-1] != s["phase"]:
                         phases.append(s["phase"])
                     if s.get("found") and found_pose is None:
+                        assert not expect_absent, "absent-target test reported a detection"
                         found_pose = actual
+                        detection = dict(seconds=wall_now-started, sim_seconds=sim_now-start_sim,
+                                         path_m=path, stationary_seconds=stationary_seconds,
+                                         stationary_sim_seconds=stationary_sim_seconds,
+                                         rotation_only_seconds=rotation_only_seconds,
+                                         rotation_only_sim_seconds=rotation_only_sim_seconds)
                         target = (s["target"]["x"], s["target"]["y"])
                         assert math.dist(actual[:2], target) < 1., ("target reported out of range", actual)
                         for i in range(101):
                             ray = (actual[0]+(target[0]-actual[0])*i/100,
                                    actual[1]+(target[1]-actual[1])*i/100)
                             assert clearance(ray, boxes) > -.195, ("target reported through obstacle", actual)
-                        print(json.dumps(dict(event="simulated_person_found", pose=actual, target=target)), flush=True)
+                        print(json.dumps(dict(event="simulated_person_found", pose=actual, target=target,
+                                              **detection)), flush=True)
                     if time.monotonic()-last_report > 5:
                         print(json.dumps(dict(phase=s["phase"], pose=actual, visited=s["visited"],
                                               goal=state()["autonomy"]["navigation"]["goal_state"])), flush=True)
@@ -178,11 +201,18 @@ async def run(pose, north_start=False):
                 heading_error = abs(displacement(home, previous)[2])
                 result = dict(phase=search()["phase"], found=search()["found"], phases=phases,
                               seconds=time.monotonic()-started, path_m=path,
+                              sim_seconds=previous_sim-start_sim, detection=detection,
+                              stationary_seconds=stationary_seconds,
+                              stationary_sim_seconds=stationary_sim_seconds,
+                              rotation_only_seconds=rotation_only_seconds,
+                              rotation_only_sim_seconds=rotation_only_sim_seconds,
                               forward_share=forward/max(path, .001), home_error_m=home_error,
                               home_heading_error_rad=heading_error, minimum_clearance_m=minimum,
                               max_slam_error_m=maximum_pose_error, found_pose=found_pose)
                 print(json.dumps(result), flush=True)
-                assert search()["phase"] == "complete" and search()["found"], result
+                assert search()["phase"] == "complete" and search()["found"] != expect_absent, result
+                assert {"exploring", "returning", "complete"}.issubset(phases), result
+                assert ("return_pending" if expect_absent else "notifying") in phases, result
                 assert home_error < .20 and heading_error < .30, result
                 assert forward/path > .8, result
                 await wait(lambda: not state()["control"]["armed"] and not state()["autonomy"]["active"], 3)
@@ -205,13 +235,16 @@ async def run(pose, north_start=False):
         await asyncio.gather(poller, return_exceptions=True)
 
 
-async def main(north_start=False):
+async def main(north_start=False, expect_absent=False):
     async with pose_stream() as pose:
-        await run(pose, north_start)
+        await run(pose, north_start, expect_absent)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--north-start", action="store_true",
                         help="Drive from near spawn to the reported northern start before testing search")
-    asyncio.run(main(parser.parse_args().north_start))
+    parser.add_argument("--expect-absent", action="store_true",
+                        help="Require return without detection; configure the detector fixture separately")
+    args = parser.parse_args()
+    asyncio.run(main(args.north_start, args.expect_absent))
