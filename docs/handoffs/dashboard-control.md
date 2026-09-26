@@ -26,6 +26,39 @@ Create a local environment and start the dashboard:
 Open http://localhost:8000. The active backend is mock only.
 Never treat the displayed wheel values as a command to real hardware.
 
+## Raspberry Pi environment
+
+Read-only inspection on 2026-09-26 EDT. Nothing was installed or changed.
+Private details (username, network, device serial numbers) are omitted.
+
+- Hardware/OS: Raspberry Pi 5 Model B Rev 1.1, 8 GB RAM; Debian 13
+  (trixie), kernel 6.18 aarch64; not throttled; ~200 GB free.
+- Python: system /usr/bin/python3 3.13.5 (project requires >= 3.11).
+  Installed system-wide: picamera2 (python3-picamera2 0.3.37), OpenCV
+  4.10.0, NumPy 2.2.4, pyserial 3.5. FastAPI is not installed; use a venv.
+- Camera stack: imx500-all 1.13.0, imx500-firmware, imx500-models,
+  imx500-tools, libcamera 0.7.2, rpicam-apps 1.13.0 with
+  imx500-postprocess.
+- IMX500 detection models present in /usr/share/imx500-models/ include
+  yolo11n_pp, ssd_mobilenetv2_fpnlite_320x320_pp,
+  efficientdet_lite0_pp, and nanodet_plus_416x416_pp. No model has been
+  selected yet.
+- Camera: rpicam-hello --list-cameras reported "No cameras available!"
+  with no camera process running. Cause not yet diagnosed (cable, port,
+  or config.txt). Blocks camera work, not driving.
+- Serial: /dev/ttyUSB0 is a Silicon Labs CP2102N USB-UART bridge. The
+  original plan lists the RPLIDAR C1 with a CP210x adapter, so this is
+  likely the LiDAR, not the ESP32-S2. No /dev/ttyACM* device was present.
+  The user is in the dialout group. The motor bridge must open the ESP32
+  by its /dev/serial/by-id/ path, never a bare ttyUSB/ttyACM name.
+- Running software: no Python or camera processes; Docker is installed
+  and running but unused by this project.
+- Existing scripts in the home directory (not in this repository):
+  ai_camera_detect.py, detect.py, detect_fast.py, cam_test.py, app.py,
+  a yolo11n NCNN model folder, and LiDAR test scripts (out of scope).
+- Open questions: ESP32-S2 USB identity (native USB CDC vs. a CP210x
+  bridge), camera connection/config, and contents of ai_camera_detect.py.
+
 ## Handoff log
 
 ### 2026-09-26 EDT - Dashboard/control mock checkpoint
