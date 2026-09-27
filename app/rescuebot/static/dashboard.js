@@ -238,6 +238,167 @@ function drawLidar() {
   setText("lidar-scale", "Rings " + ringStep + " m");
 }
 
+// Live SLAM map, relayed from the autonomy stack's map viewer. Drawn in world
+// coordinates, centered on the robot, so the view follows it as it moves.
+const MAP_ZOOMS_M = [1.5, 2, 3, 5, 8, 12];  // meters across the shorter side
+let mapInfo = null;
+let mapImage = null;  // recolored offscreen canvas, one pixel per map cell
+let mapImageAt = 0;
+let mapZoomIndex = 2;
+let mapHeadingUp = true;
+try {
+  const saved = JSON.parse(window.localStorage.getItem("rescuebot-map-view") || "null");
+  if (saved && MAP_ZOOMS_M[saved.zoom] !== undefined) mapZoomIndex = saved.zoom;
+  if (saved && typeof saved.headingUp === "boolean") mapHeadingUp = saved.headingUp;
+} catch (_error) {
+  // View preferences are a convenience only.
+}
+
+function saveMapView() {
+  try {
+    window.localStorage.setItem("rescuebot-map-view", JSON.stringify({ zoom: mapZoomIndex, headingUp: mapHeadingUp }));
+  } catch (_error) {
+    // Ignored: private windows may block storage.
+  }
+}
+
+function recolorMap(image) {
+  // map_viewer colors: unknown 205 grey, free white, occupied darker greys,
+  // robot red, people blue. Unknown stays transparent (the screen shows
+  // through); the robot and people are drawn on top instead.
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = pixels.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    if (r === 205 && g === 205 && b === 205) {
+      d[i + 3] = 0;                                           // unknown
+    } else if ((r === g && g === b && r >= 250) || r !== g || g !== b) {
+      d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = 34;  // free (and baked-in markers)
+    } else {
+      const occupied = 1 - r / 254;                            // 0 free .. 1 wall
+      d[i] = 240; d[i + 1] = 236; d[i + 2] = 226; d[i + 3] = Math.round(90 + 165 * occupied);
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  return canvas;
+}
+
+function drawMap() {
+  const canvas = element("map-canvas");
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width, h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+  const info = mapInfo;
+  if (!info || !info.width || !mapImage) return;
+
+  const res = info.resolution;
+  const robot = info.robot || {
+    x: info.origin.x + info.width * res / 2, y: info.origin.y + info.height * res / 2, yaw: Math.PI / 2,
+  };
+  const ppm = Math.min(w, h) / MAP_ZOOMS_M[mapZoomIndex];
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue("--ink").trim();
+  const red = css.getPropertyValue("--tally-red").trim();
+  const blue = "oklch(0.7 0.14 250)";
+
+  // World frame: x right, y up, centered on the robot; heading-up rotates
+  // the world so the robot's front points to the top of the screen.
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  if (mapHeadingUp) ctx.rotate(robot.yaw - Math.PI / 2);
+  ctx.scale(ppm, -ppm);
+  ctx.translate(-robot.x, -robot.y);
+  const world = ctx.getTransform();
+
+  ctx.save();
+  ctx.translate(info.origin.x, info.origin.y + info.height * res);
+  ctx.scale(res, -res);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mapImage, 0, 0);
+  ctx.restore();
+
+  // People the camera saw in the last minute.
+  ctx.fillStyle = blue;
+  for (const person of info.people || []) {
+    ctx.beginPath();
+    ctx.arc(person.x, person.y, 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // The robot: about 30 x 25 cm, pointing along its heading.
+  ctx.translate(robot.x, robot.y);
+  ctx.rotate(robot.yaw);
+  ctx.fillStyle = red;
+  ctx.beginPath();
+  ctx.moveTo(0.2, 0);
+  ctx.lineTo(-0.15, 0.13);
+  ctx.lineTo(-0.08, 0);
+  ctx.lineTo(-0.15, -0.13);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Numbered people from the room search, labelled in screen space so the
+  // text stays upright whatever the map rotation.
+  const report = currentState?.search_report;
+  ctx.font = "600 12px " + css.getPropertyValue("--sans").trim();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const person of report?.people || []) {
+    const p = world.transformPoint(new DOMPoint(person.x, person.y));
+    const x = p.x / dpr, y = p.y / dpr;
+    ctx.fillStyle = blue;
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.fillText(String(person.id), x, y + 0.5);
+  }
+}
+
+async function refreshMap() {
+  const screen = element("map-canvas").closest(".aux-screen");
+  try {
+    const response = await fetch("/api/map.json", { cache: "no-store" });
+    const info = response.ok ? await response.json() : null;
+    if (!info || !info.width) throw new Error("no map");
+    mapInfo = info;
+    // The image changes at most every map update (~2 s); the pose every call.
+    if (!mapImage || Date.now() - mapImageAt > 1000) {
+      mapImageAt = Date.now();
+      const image = new Image();
+      image.onload = () => { mapImage = recolorMap(image); drawMap(); };
+      image.src = "/api/map.png?t=" + mapImageAt;
+    }
+    screen.dataset.status = "online";
+    setLamp(document.querySelector('[data-lamp="map"]'), info.robot ? "ok" : "warn");
+    setText("map-status", info.robot ? "Live" : "No pose");
+    const view = MAP_ZOOMS_M[mapZoomIndex] + " m view";
+    setText("map-pose", info.robot
+      ? `x ${info.robot.x.toFixed(2)} m · y ${info.robot.y.toFixed(2)} m · ${view}`
+      : `Robot pose unknown · ${view}`);
+  } catch (_error) {
+    mapInfo = null;
+    screen.dataset.status = "offline";
+    setLamp(document.querySelector('[data-lamp="map"]'), "off");
+    setText("map-status", "Offline");
+  }
+  drawMap();
+}
+
 async function refreshLidar() {
   if (sensorsMode === "off" || lidarStatus === "offline") {
     if (lidarScan) { lidarScan = null; drawLidar(); }
@@ -481,6 +642,9 @@ function updateNavigation(autonomy, drive) {
   element("simulation-navigation").hidden = !autonomy.available;
   if (!autonomy.available) return;
   element("navigation-title").textContent = autonomy.physical ? "Robot autonomy" : "Simulation autonomy";
+  if (autonomy.physical) {
+    setText("navigation-description", "Enable driving, start autonomy, then send a nearby goal. The robot keeps its heading: negative forward reverses, right/left strafe (strafing is slower on this robot).");
+  }
   setText("autonomy-speed-note", autonomy.speed_percent ? `Autonomy motor speed: up to ${autonomy.speed_percent}%.` : "");
   const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
   const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
@@ -679,6 +843,27 @@ window.setInterval(() => {
 }, 50);
 window.setInterval(refreshState, 100);
 window.setInterval(refreshLidar, 200);
+window.setInterval(refreshMap, 500);
 window.addEventListener("resize", drawLidar);
+window.addEventListener("resize", drawMap);
+element("map-zoom-in").addEventListener("click", () => {
+  mapZoomIndex = Math.max(0, mapZoomIndex - 1);
+  saveMapView();
+  refreshMap();
+});
+element("map-zoom-out").addEventListener("click", () => {
+  mapZoomIndex = Math.min(MAP_ZOOMS_M.length - 1, mapZoomIndex + 1);
+  saveMapView();
+  refreshMap();
+});
+element("map-orientation").addEventListener("click", () => {
+  mapHeadingUp = !mapHeadingUp;
+  element("map-orientation").textContent = mapHeadingUp ? "Heading up" : "North up";
+  element("map-orientation").setAttribute("aria-pressed", String(mapHeadingUp));
+  saveMapView();
+  drawMap();
+});
+element("map-orientation").textContent = mapHeadingUp ? "Heading up" : "North up";
+element("map-orientation").setAttribute("aria-pressed", String(mapHeadingUp));
 
 connect();

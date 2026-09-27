@@ -179,6 +179,7 @@ body[data-drive="arming"] .gallery-bar { box-shadow: inset 0 -3px 0 var(--tally-
 .desk { grid-area: desk; min-width: 0; }
 .chain { grid-area: chain; min-width: 0; }
 .wall { grid-area: wall; min-width: 0; }
+.wall.map-wall { grid-area: map; }
 
 /* ---------- Program monitor ---------- */
 
@@ -606,7 +607,12 @@ body[data-sensors="off"] .wall { display: none; }
 body:not([data-sensors="off"]) .gallery {
   grid-template-areas:
     "program desk"
-    "wall chain";
+    "wall desk"
+    "map desk"
+    "chain chain";
+  /* The desk is taller than the left column: give the slack to the map row. */
+  grid-template-rows: auto auto 1fr auto;
+  align-items: start;
 }
 body:not([data-sensors="off"]) .chain { grid-template-columns: 1fr; align-self: start; }
 body:not([data-sensors="off"]) .telemetry { border-left: 0; border-top: 1px solid var(--desk-line); padding: 1rem 0 0; }
@@ -719,7 +725,7 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
   }
   .gallery-bar { flex-wrap: wrap; padding: 0.5rem 1rem; }
   .chain-links { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0.5rem; }
-  body:not([data-sensors="off"]) .gallery { grid-template-areas: "program" "desk" "wall" "chain"; }
+  body:not([data-sensors="off"]) .gallery { grid-template-areas: "program" "desk" "wall" "map" "chain"; grid-template-rows: none; }
   .chain-node:nth-child(3) { padding-left: 0; }
   .chain-node:nth-child(3)::before, .chain-node:nth-child(3)::after { display: none; }
   .actions {
@@ -760,3 +766,15 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
 #search-people li { margin: 4px 0; }
 #search-people li[data-urgency="high"] { color: var(--tally-red); font-weight: 700; }
 #search-people li[data-urgency="medium"] { color: var(--tally-amber); }
+
+.map-controls { position: absolute; right: 0.5rem; bottom: 0.5rem; display: flex; gap: 0.25rem; }
+.map-controls button {
+  min-width: 2rem; padding: 0.3rem 0.5rem; font: inherit; font-size: var(--t-xs);
+  color: var(--ink); background: var(--desk-raised); border: 1px solid var(--desk-line); border-radius: 6px; cursor: pointer;
+}
+.map-controls button:hover { border-color: var(--ink-3); }
+.map-screen:not([data-status="online"]):not([data-status="stale"]) .map-controls { display: none; }
+@media (max-width: 520px) {
+  /* Keep the zoom buttons clear of the position readout. */
+  .map-controls { bottom: auto; top: 2.4rem; }
+}

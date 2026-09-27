@@ -10,6 +10,7 @@ from pathlib import Path
 import secrets
 import threading
 from typing import Any
+import urllib.request
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
@@ -44,6 +45,8 @@ from .voice import STARTUP_PHRASE, CameraVoice, Speaker, alert_text
 
 
 STATIC_DIR = Path(__file__).with_name("static")
+# The ROS map viewer (rescuebot_robot map_viewer) runs in the autonomy container.
+MAP_URL = os.environ.get("RESCUEBOT_MAP_URL", "http://127.0.0.1:8090")
 CONTROL_TICK_SECONDS = 0.05
 
 
@@ -90,6 +93,17 @@ class _LockedCamera:
     def status(self) -> dict[str, object]:
         with self._lock:
             return self._camera.status()
+
+
+def _fetch_map(path: str) -> Response:
+    """Relay the map viewer so the browser needs only the dashboard's port."""
+    try:
+        with urllib.request.urlopen(MAP_URL + path, timeout=1.0) as reply:
+            return Response(reply.read(), media_type=reply.headers.get_content_type(),
+                            headers={"Cache-Control": "no-store"})
+    except (OSError, ValueError):
+        return Response(b'{"width":0}', status_code=503, media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
 
 
 def _create_camera_voice(camera: _LockedCamera) -> CameraVoice:
@@ -290,6 +304,14 @@ def create_app(
     @app.get("/api/lidar")
     async def lidar() -> dict[str, object]:
         return sensor_service.lidar()
+
+    @app.get("/api/map.json", include_in_schema=False)
+    async def map_info() -> Response:
+        return await asyncio.to_thread(_fetch_map, "/map.json")
+
+    @app.get("/api/map.png", include_in_schema=False)
+    async def map_image() -> Response:
+        return await asyncio.to_thread(_fetch_map, "/map.png")
 
     @app.get("/api/gemini/snapshot.jpg", include_in_schema=False)
     async def gemini_snapshot() -> Response:

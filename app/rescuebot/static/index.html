@@ -98,7 +98,7 @@
             <h2 id="navigation-title">Autonomy</h2>
             <p id="navigation-status" role="status">Waiting for navigation</p>
           </div>
-          <p>Enable driving, start autonomy, then send a nearby goal. The robot moves and turns together, using diagonal travel and strafe. Sharp reversals and final alignment may turn in place.</p>
+          <p id="navigation-description">Enable driving, start autonomy, then send a nearby goal. The robot moves and turns together, using diagonal travel and strafe. Sharp reversals and final alignment may turn in place.</p>
           <div id="simulation-playback" hidden>
             <h3>Simulation playback</h3>
             <div class="playback-rates" role="group" aria-label="Simulation playback speed">
@@ -169,6 +169,29 @@
             </span>
             <p class="lower-third aux-lower-third" id="lidar-nearest">No obstacles</p>
             <span class="lidar-scale" id="lidar-scale" aria-hidden="true"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="wall map-wall" aria-label="Live map">
+        <div class="aux-monitor">
+          <div class="screen aux-screen map-screen" data-status="offline">
+            <canvas id="map-canvas" class="lidar-canvas" role="img" aria-label="Live SLAM map centered on the robot"></canvas>
+            <div class="slate">
+              <p class="slate-title aux-slate-title" id="map-slate-title">No map</p>
+              <p class="slate-message" id="map-message">The map appears once the autonomy stack is running.</p>
+            </div>
+            <span class="umd-tag source-tag">Live map · Follows robot</span>
+            <span class="umd-tag camera-tag">
+              <span class="lamp" data-lamp="map" aria-hidden="true"></span>
+              <span id="map-status">Offline</span>
+            </span>
+            <p class="lower-third aux-lower-third" id="map-pose">Robot position unknown</p>
+            <div class="map-controls">
+              <button type="button" id="map-zoom-out" aria-label="Zoom out">−</button>
+              <button type="button" id="map-zoom-in" aria-label="Zoom in">+</button>
+              <button type="button" id="map-orientation" aria-pressed="true">Heading up</button>
+            </div>
           </div>
         </div>
       </section>
