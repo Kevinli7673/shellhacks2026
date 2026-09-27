@@ -15,14 +15,15 @@ struct WheelWiring {
 };
 
 struct ChassisConfig {
-    // Verified 2026-09-26 on the raised chassis: one port at a time (FORWARD at
-    // 60) gave M1=front-right, M2=rear-right, M3=front-left, M4=rear-left, and
-    // mapped forward/backward/strafe/rotate checks all matched with the right
-    // side (M1, M2) inverted. "Front" is the camera end.
-    WheelWiring front_left{3, false};
+    // Port mapping verified 2026-09-26 on the raised chassis: M1=front-right,
+    // M2=rear-right, M3=front-left, M4=rear-left. "Front" is the camera end.
+    // Directions set the same evening, after the motor wiring was reworked,
+    // from one-port-at-a-time tests at PWM 60: M1 and M3 inverted. (The
+    // morning's floor-verified setting, before the rework, was M1 and M2.)
+    WheelWiring front_left{3, true};
     WheelWiring front_right{1, true};
     WheelWiring rear_left{4, false};
-    WheelWiring rear_right{2, true};
+    WheelWiring rear_right{2, false};
 
     // Maximum PWM (0-255) the hardware may be commanded to. 60 is a
     // raised-chassis bench value confirmed by the team on 2026-09-26, not a

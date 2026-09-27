@@ -62,5 +62,16 @@ size_t buildDisarmAck(char* out, size_t out_size, const char* session, uint64_t 
 size_t buildImuTelemetry(char* out, size_t out_size, uint32_t timestamp_ms, bool available,
                           double heading_deg, uint8_t calibration);
 size_t buildFault(char* out, size_t out_size, const char* reason);
+// Diagnostic reports. The Pi bridge does not parse these (unknown types are
+// counted as rejected lines and ignored).
+// {"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3}:
+// shield presence, USB receive bytes dropped since boot, and the longest
+// loop() pass since the previous status.
+size_t buildStatus(char* out, size_t out_size, bool motor_shield, uint32_t rx_dropped,
+                    uint32_t loop_max_ms);
+// {"type":"rx_reject","len":N,"line":"..."}: the start of a line that was
+// rejected as malformed or oversized, truncated to max_chars.
+size_t buildRxReject(char* out, size_t out_size, const char* line, size_t length,
+                      size_t max_chars);
 
 }  // namespace rescuebot

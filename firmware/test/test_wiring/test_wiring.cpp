@@ -22,7 +22,7 @@ void test_confirmed_wiring_maps_forward_outputs_to_shield_ports(void) {
     const auto motor_commands = applyChassisConfig(logical_outputs, config);
 
     TEST_ASSERT_EQUAL_UINT8(3, motor_commands.front_left.channel);
-    TEST_ASSERT_EQUAL_INT(100, motor_commands.front_left.signed_pwm);
+    TEST_ASSERT_EQUAL_INT(-100, motor_commands.front_left.signed_pwm);
 
     TEST_ASSERT_EQUAL_UINT8(1, motor_commands.front_right.channel);
     TEST_ASSERT_EQUAL_INT(-100, motor_commands.front_right.signed_pwm);
@@ -31,7 +31,7 @@ void test_confirmed_wiring_maps_forward_outputs_to_shield_ports(void) {
     TEST_ASSERT_EQUAL_INT(100, motor_commands.rear_left.signed_pwm);
 
     TEST_ASSERT_EQUAL_UINT8(2, motor_commands.rear_right.channel);
-    TEST_ASSERT_EQUAL_INT(-100, motor_commands.rear_right.signed_pwm);
+    TEST_ASSERT_EQUAL_INT(100, motor_commands.rear_right.signed_pwm);
 }
 
 int main(int argc, char** argv) {

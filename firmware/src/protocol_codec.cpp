@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
 
 namespace rescuebot {
 
@@ -177,6 +178,30 @@ size_t buildFault(char* out, size_t out_size, const char* reason) {
     doc["type"] = "fault";
     doc["reason"] = reason;
     doc["armed"] = false;
+    size_t n = serializeJson(doc, out, out_size);
+    return n < out_size ? n : 0;
+}
+
+size_t buildStatus(char* out, size_t out_size, bool motor_shield, uint32_t rx_dropped,
+                    uint32_t loop_max_ms) {
+    StaticJsonDocument<kJsonCapacity> doc;
+    doc["type"] = "status";
+    doc["motor_shield"] = motor_shield;
+    doc["rx_dropped"] = rx_dropped;
+    doc["loop_max_ms"] = loop_max_ms;
+    size_t n = serializeJson(doc, out, out_size);
+    return n < out_size ? n : 0;
+}
+
+size_t buildRxReject(char* out, size_t out_size, const char* line, size_t length,
+                      size_t max_chars) {
+    StaticJsonDocument<kJsonCapacity> doc;
+    doc["type"] = "rx_reject";
+    doc["len"] = length;
+    size_t keep = length < max_chars ? length : max_chars;
+    // Copied into the document so the truncated text is serialized, not the
+    // whole caller buffer.
+    doc["line"] = std::string(line, keep);
     size_t n = serializeJson(doc, out, out_size);
     return n < out_size ? n : 0;
 }

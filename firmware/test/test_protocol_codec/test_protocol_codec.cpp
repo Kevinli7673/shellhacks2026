@@ -17,6 +17,8 @@ using rescuebot::buildDisarmAck;
 using rescuebot::buildDriveAck;
 using rescuebot::buildFault;
 using rescuebot::buildImuTelemetry;
+using rescuebot::buildRxReject;
+using rescuebot::buildStatus;
 using rescuebot::InboundType;
 using rescuebot::parseInbound;
 
@@ -171,6 +173,23 @@ void test_build_fault(void) {
     TEST_ASSERT_EQUAL_STRING(R"({"type":"fault","reason":"watchdog_expired","armed":false})", buf);
 }
 
+void test_build_status(void) {
+    char buf[128];
+    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), true, 0, 3) > 0);
+    TEST_ASSERT_EQUAL_STRING(
+        R"({"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3})", buf);
+    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), false, 42, 120) > 0);
+    TEST_ASSERT_EQUAL_STRING(
+        R"({"type":"status","motor_shield":false,"rx_dropped":42,"loop_max_ms":120})", buf);
+}
+
+void test_build_rx_reject_truncates_and_escapes(void) {
+    char buf[128];
+    const char line[] = R"({"type":"dri{"type":"drive")";
+    TEST_ASSERT_TRUE(buildRxReject(buf, sizeof(buf), line, std::strlen(line), 12) > 0);
+    TEST_ASSERT_EQUAL_STRING(R"({"type":"rx_reject","len":27,"line":"{\"type\":\"dri"})", buf);
+}
+
 void test_build_imu_telemetry_round_trips(void) {
     // Floating-point serialization formatting is not asserted exactly;
     // round-trip through the parser instead.
@@ -226,6 +245,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_build_arm_ack);
     RUN_TEST(test_build_disarm_ack);
     RUN_TEST(test_build_fault);
+    RUN_TEST(test_build_status);
+    RUN_TEST(test_build_rx_reject_truncates_and_escapes);
     RUN_TEST(test_build_imu_telemetry_round_trips);
     RUN_TEST(test_build_imu_telemetry_unavailable_omits_heading);
     RUN_TEST(test_build_fails_gracefully_on_too_small_buffer);

@@ -15,6 +15,8 @@
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 
+#include <cstring>
+
 #include "chassis_config.h"
 #include "controller.h"
 #include "imu_bno055.h"
@@ -34,6 +36,13 @@ constexpr uint32_t kWatchdogTimeoutMs = 500;    // IMPLEMENTATION_PLAN.md sectio
 constexpr uint32_t kImuIntervalMs = 50;         // ~20 Hz telemetry cadence
 constexpr uint32_t kImuRetryIntervalMs = 1000;  // bounded, non-blocking re-init cadence
 constexpr uint32_t kMotorRetryIntervalMs = 1000;  // bounded, non-blocking shield re-init
+constexpr uint32_t kStatusIntervalMs = 1000;      // diagnostic status report cadence
+// The USB CDC default is 256 bytes, about 0.1 s of drive packets at 20 Hz. When
+// it fills the core silently drops bytes, so the next line arrives spliced and
+// is rejected as malformed_packet. 4 KB covers any loop pass shorter than the
+// 3 s loop watchdog.
+constexpr size_t kSerialRxBufferBytes = 4096;
+constexpr size_t kRxRejectMaxChars = 120;
 // Resets the chip if setup() or one loop() pass blocks this long. The longest
 // legitimate pass is a BNO055 begin() (~1.3 s). Adafruit_BNO055::begin() waits
 // forever if the chip does not answer after its reset, which once left the
@@ -55,6 +64,11 @@ bool g_imu_ready = false;
 // MotorShield holds no motor handles and every write is silently dropped.
 bool g_motors_ready = false;
 uint32_t g_last_motor_attempt_ms = 0;
+uint32_t g_last_status_ms = 0;
+// Written from the USB event task, read from loop().
+volatile uint32_t g_rx_dropped = 0;
+uint32_t g_loop_max_ms = 0;
+char g_diag_buf[256];
 
 // Measured on the QT Py ESP32-S2: after the libraries' own Wire.begin()
 // calls, each I2C transaction took ~8.6 ms although getClock() reported
@@ -84,6 +98,20 @@ void sendLine(const char* text, size_t len) {
 // Applies wiring to the controller's current outputs and writes them, or
 // forces everything off when disarmed. Called once per processed line and
 // once per watchdog tick, matching how often outputs() can actually change.
+// Drive acks only echo the controller's math, so without this the Pi cannot
+// tell whether the shield answered on I2C at all.
+void sendStatus() {
+    size_t n = rescuebot::buildStatus(g_out_buf, sizeof(g_out_buf), g_motors_ready, g_rx_dropped,
+                                      g_loop_max_ms);
+    sendLine(g_out_buf, n);
+    g_loop_max_ms = 0;
+}
+
+void onRxOverflow(void*, esp_event_base_t, int32_t, void* event_data) {
+    auto* data = static_cast<arduino_usb_cdc_event_data_t*>(event_data);
+    g_rx_dropped += data->rx_overflow.dropped_bytes;
+}
+
 void applyControllerOutputs() {
     if (!g_controller.armed()) {
         g_motors.allOff();
@@ -99,6 +127,8 @@ void setup() {
     enableLoopWDT();
     g_imu_enabled = esp_reset_reason() != ESP_RST_TASK_WDT;
 
+    Serial.setRxBufferSize(kSerialRxBufferBytes);
+    Serial.onEvent(ARDUINO_USB_CDC_RX_OVERFLOW_EVENT, onRxOverflow);
     Serial.begin(115200);
     // Initialize the shield first; begin() leaves every output off (section 7).
     g_motors_ready = g_motors.begin();
@@ -110,6 +140,8 @@ void setup() {
     // once acks stop arriving (up to 250 ms later).
     size_t n = g_controller.boot(g_out_buf, sizeof(g_out_buf));
     sendLine(g_out_buf, n);
+    sendStatus();
+    g_last_status_ms = millis();
 
     if (g_imu_enabled) {
         g_imu_ready = g_imu.begin();
@@ -129,6 +161,13 @@ void loop() {
                                                 sizeof(g_out_buf));
             sendLine(g_out_buf, n);
             applyControllerOutputs();
+            if (n > 0 && (std::strstr(g_out_buf, "\"malformed_packet\"") != nullptr ||
+                          std::strstr(g_out_buf, "\"oversized_packet\"") != nullptr)) {
+                size_t m = rescuebot::buildRxReject(g_diag_buf, sizeof(g_diag_buf),
+                                                    g_line_reader.line(), g_line_reader.length(),
+                                                    kRxRejectMaxChars);
+                sendLine(g_diag_buf, m);
+            }
             g_line_reader.reset();
         }
     }
@@ -156,6 +195,11 @@ void loop() {
         g_last_imu_attempt_ms = now_ms;
     }
 
+    if (now_ms - g_last_status_ms >= kStatusIntervalMs) {
+        g_last_status_ms = now_ms;
+        sendStatus();
+    }
+
     if (now_ms - g_last_imu_ms >= kImuIntervalMs) {
         g_last_imu_ms = now_ms;
         ImuReading reading = g_imu_ready ? g_imu.read() : ImuReading{};
@@ -163,6 +207,11 @@ void loop() {
                                                  reading.available, reading.heading_deg,
                                                  reading.calibration);
         sendLine(g_out_buf, n);
+    }
+
+    uint32_t pass_ms = millis() - now_ms;
+    if (pass_ms > g_loop_max_ms) {
+        g_loop_max_ms = pass_ms;
     }
 }
 
