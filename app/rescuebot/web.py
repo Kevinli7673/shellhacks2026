@@ -37,6 +37,7 @@ from .motor_bridge import default_run_dir
 from .navigation_ipc import NavigationHostEndpoint
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .sensors import OffSensors, Sensors, create_sensors
+from .search_report import SearchReport
 from .service import ACCESSORY_NAMES, RobotControlService
 from .simulation_playback import SimulationPlayback
 from .voice import STARTUP_PHRASE, CameraVoice, Speaker, alert_text
@@ -59,6 +60,7 @@ def _dashboard_state(
     sensors: Sensors | None = None,
     playback: SimulationPlayback | None = None,
     gemini: GeminiTriage | None = None,
+    report: SearchReport | None = None,
 ) -> dict[str, object]:
     state = service.state()
     if playback is not None:
@@ -66,6 +68,9 @@ def _dashboard_state(
     state["camera"] = camera.status()
     state["sensors"] = (sensors or OffSensors()).status()
     state["gemini"] = gemini.status() if gemini is not None else {"enabled": False}
+    autonomy = state.get("autonomy")
+    if report is not None and isinstance(autonomy, dict) and autonomy.get("physical"):
+        state["search_report"] = report.update(autonomy.get("navigation"), state["gemini"])
     control = state["control"]
     assert isinstance(control, dict)
     return {
@@ -271,6 +276,7 @@ def create_app(
     app.state.sensor_service = sensor_service
     app.state.camera_voice = camera_voice
     app.state.gemini = gemini_triage
+    search_report = SearchReport()
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -279,7 +285,7 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_status_source, sensor_service, playback, gemini_triage)
+        return _dashboard_state(control_service, None, camera_status_source, sensor_service, playback, gemini_triage, search_report)
 
     @app.get("/api/lidar")
     async def lidar() -> dict[str, object]:
@@ -297,7 +303,7 @@ def create_app(
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage, search_report)}
         )
 
         try:
@@ -367,7 +373,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage, search_report)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)

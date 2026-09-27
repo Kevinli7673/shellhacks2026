@@ -431,6 +431,7 @@ function updateDashboard(data) {
   autonomyButton.disabled = !connected || !canControl || drive !== "armed" || heldKeys.size > 0 || autonomy.active;
   autonomyButton.textContent = autonomy.active ? "Autonomy active" : "Start autonomy";
   updateNavigation(autonomy, drive);
+  updateSearchReport(data.search_report);
   const playback = data.simulation_playback;
   element("simulation-playback").hidden = !playback;
   if (playback) {
@@ -456,6 +457,24 @@ function navigationGoalInput() {
   else if (distance < 0.1) error = `Combined distance is ${distance.toFixed(2)} m — minimum is 0.1 m.`;
   else if (inputs.some((input) => input.validity.stepMismatch)) error = "Enter distances in steps of 0.1 m.";
   return { forward, right, distance, error };
+}
+
+function updateSearchReport(report) {
+  // Physical room search: one entry per distinct person, with Gemini's notes.
+  element("search-results").hidden = !report || (report.phase === "idle" && report.count === 0);
+  if (!report) return;
+  const done = report.phase === "complete";
+  setText("search-count", report.count === 0 ? (done ? "No people found" : "No people found yet")
+    : `${report.count} ${report.count === 1 ? "person" : "people"} found${done ? "" : " so far"}`);
+  element("search-people").replaceChildren(...report.people.map((person) => {
+    const li = document.createElement("li");
+    const note = person.gemini;
+    const where = `x ${person.x.toFixed(1)} m, y ${person.y.toFixed(1)} m`;
+    li.textContent = `Person ${person.id} · ${where} · seen ${person.sightings}×`
+      + (note ? ` · ${urgencyText[note.urgency] || note.urgency} · ${titleCase(note.posture || "unknown")} · ${note.summary}` : " · Gemini: no assessment yet");
+    if (note) li.dataset.urgency = note.urgency;
+    return li;
+  }));
 }
 
 function updateNavigation(autonomy, drive) {
@@ -500,9 +519,17 @@ function updateNavigation(autonomy, drive) {
     return_pending: "Search ended — preparing to return", returning: "Returning to the saved starting position…",
     complete: search?.reason, failed: search?.reason, canceled: "Search canceled. Start a new mission to try again.",
   };
+  if (autonomy.physical) {
+    element("search-button").textContent = "Search room & return";
+    setText("search-description", "Cover the whole room, count each person the camera finds (Gemini describes them), then return to this mission’s starting position.");
+    Object.assign(phases, {
+      idle: "Enable driving → Start autonomy → Search room & return",
+      exploring: "Searching the room…", return_pending: "Room searched — preparing to return",
+    });
+  }
   setText("search-status", phases[search?.phase] || "Search world unavailable");
-  element("search-notification").hidden = !search?.found;
-  if (search?.found && search.target) {
+  element("search-notification").hidden = autonomy.physical || !search?.found;
+  if (!autonomy.physical && search?.found && search.target) {
     const notice = `SIMULATION: person marker found at x ${search.target.x.toFixed(2)} m, y ${search.target.y.toFixed(2)} m. ${search.phase === "complete" ? "Returned to start." : ""}`;
     if (element("search-notification").textContent !== notice) setText("search-notification", notice);
   }

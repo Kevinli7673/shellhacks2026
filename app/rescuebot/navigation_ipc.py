@@ -100,8 +100,21 @@ def decode_navigation_status(raw: bytes, now: float) -> dict:
         raise ValueError("ready navigation needs a pose")
     if "search" in record:
         search = record["search"]
-        if not isinstance(search, dict) or set(search) != {"available", "phase", "found", "home", "target", "visited", "reason"}:
+        keys = {"available", "phase", "found", "home", "target", "visited", "reason"}
+        if not isinstance(search, dict) or set(search) - {"people"} != keys:
             raise ValueError("invalid search status")
+        # Physical search: [[id, x, y, sightings, seconds since seen], ...].
+        people = search.get("people", [])
+        if not isinstance(people, list) or len(people) > 12:
+            raise ValueError("invalid search people")
+        for person in people:
+            if (not isinstance(person, list) or len(person) != 5
+                    or type(person[0]) is not int or type(person[3]) is not int
+                    or not 0 < person[0] <= 9999 or not 0 < person[3] <= 9999):
+                raise ValueError("invalid search person")
+            _number(person[1], 1e6)
+            _number(person[2], 1e6)
+            _number(person[4], 1e4)
         if not isinstance(search["available"], bool) or not isinstance(search["found"], bool):
             raise ValueError("invalid search flags")
         if search["phase"] not in SEARCH_PHASES or not isinstance(search["reason"], str) or len(search["reason"]) > 100:

@@ -29,7 +29,9 @@ from rescuebot.bridge_ipc import DatagramReceiver, DatagramSender
 from rescuebot.navigation_ipc import (
     SEARCH_BUSY, STATUS_TIMEOUT_S, decode_navigation_goal, encode_navigation, navigation_socket,
 )
-from rescuebot_navigation.search import Coverage, Grid, is_valid_viewpoint, next_viewpoint, observe
+from rescuebot_navigation.search import (
+    Coverage, Grid, PeopleTracker, is_valid_viewpoint, next_viewpoint, observe,
+)
 
 
 @dataclass(frozen=True)
@@ -79,9 +81,11 @@ class MissionManager(Node):
         if not all(math.isfinite(v) for v in self._target):
             raise ValueError("Synthetic target coordinates must be finite")
         # Physical robot: camera person sightings (PoseArray in base_link from
-        # rescuebot_robot's dashboard bridge) end the search instead.
+        # rescuebot_robot's dashboard bridge) are counted as distinct people
+        # while the search covers the whole room, then it returns to start.
         self._person_topic = self.declare_parameter("person_topic", "").value
         self._person_seen = None
+        self._people_tracker = PeopleTracker()
         self._search_tree = str(Path(get_package_share_directory("rescuebot_navigation"))
                                 / "behavior_trees" / "search_viewpoint.xml")
         self._grid = None
@@ -100,7 +104,7 @@ class MissionManager(Node):
         self._rejected = []
         self._viewpoint = None
         self._search = {"available": False, "phase": "idle", "found": False,
-                        "home": None, "target": None, "visited": 0, "reason": ""}
+                        "home": None, "target": None, "visited": 0, "reason": "", "people": []}
         self._goal_receiver = DatagramReceiver(goal_socket or navigation_socket("navigation-goal.sock"))
         self._status_sender = DatagramSender(status_socket or navigation_socket("navigation-status.sock"))
         self._transforms = Buffer(node=self)
@@ -129,17 +133,18 @@ class MissionManager(Node):
 
     def _people(self, message):
         if message.poses:
-            nearest = min(message.poses, key=lambda p: math.hypot(p.position.x, p.position.y))
-            self._person_seen = (time.monotonic(), nearest.position.x, nearest.position.y)
+            self._person_seen = (time.monotonic(), [(p.position.x, p.position.y) for p in message.poses])
 
-    def _person_in_view(self, now, pose):
-        """Map position of a person the camera saw within the last second, if any."""
-        if self._person_seen is None or now - self._person_seen[0] > 1.0:
-            return None
-        _, x, y = self._person_seen
-        yaw = pose["yaw"]
-        return (pose["x"] + math.cos(yaw)*x - math.sin(yaw)*y,
-                pose["y"] + math.sin(yaw)*x + math.cos(yaw)*y)
+    def _track_people(self, now, pose):
+        """Add each new camera frame's people (base_link) to the map-frame tracker once."""
+        seen, self._person_seen = self._person_seen, None
+        if seen is not None and now - seen[0] <= 1.0:
+            yaw = pose["yaw"]
+            for x, y in seen[1]:
+                self._people_tracker.add(pose["x"] + math.cos(yaw)*x - math.sin(yaw)*y,
+                                         pose["y"] + math.sin(yaw)*x + math.cos(yaw)*y, now)
+        self._search["people"] = self._people_tracker.report(now)
+        self._search["found"] = self._people_tracker.count > 0
 
     def _map(self, message):
         info = message.info
@@ -237,7 +242,8 @@ class MissionManager(Node):
             self._last_request = None
             if active:
                 self._goal_state = "idle"
-                self._search.update(phase="idle", found=False, home=None, target=None, visited=0, reason="")
+                self._search.update(phase="idle", found=False, home=None, target=None, visited=0, reason="",
+                                    people=[])
         self._active, self._mission = active, mission
         self._last_status = time.monotonic()
 
@@ -365,8 +371,10 @@ class MissionManager(Node):
         self._search_started = now
         self._search_pose = (now, dict(pose))
         self._goal_state = "idle"
+        self._people_tracker = PeopleTracker()
+        self._person_seen = None
         self._search.update(phase="exploring", found=False, home=dict(pose), target=None,
-                            visited=1, reason="Searching mapped free space")
+                            visited=1, reason="Searching mapped free space", people=[])
         self.get_logger().info(f"search started; home=({pose['x']:.3f}, {pose['y']:.3f}, {pose['yaw']:.3f})")
         return True
 
@@ -411,6 +419,9 @@ class MissionManager(Node):
             self._fail_search("Localization jumped; stopped. Restart simulation before searching")
             return
         self._search_pose = (now, dict(pose))
+        if self._person_topic:
+            # People seen on the way back count too; nothing here ends the search.
+            self._track_people(now, pose)
         if phase == "exploring":
             if math.dist(position, self._visited[-1]) >= .20 and len(self._visited) < 1024:
                 self._visited.append(position)
@@ -418,11 +429,6 @@ class MissionManager(Node):
             self._record_observation(position)
             self._collect_preparation()
             if self._search["phase"] != "exploring":
-                return
-            person = self._person_in_view(now, pose) if self._person_topic else None
-            if person is not None:
-                self._search.update(found=True, target={"x": person[0], "y": person[1], "yaw": 0.})
-                self._begin_return(now, "Camera saw a person; returning to start", found=True)
                 return
             # A 360-degree, 0.9 m synthetic proximity detector. Both range and
             # an entirely observed free ray are required; unknown cells and
@@ -432,7 +438,8 @@ class MissionManager(Node):
                 self._search.update(found=True, target={"x": self._target[0], "y": self._target[1], "yaw": 0.})
                 self._begin_return(now, "Simulated person found; returning to start", found=True)
                 return
-            if now-self._search_started > 600 or self._goal_count >= 48:
+            # The real robot is slower than the simulation, so a room gets longer.
+            if now-self._search_started > (1200 if self._person_topic else 600) or self._goal_count >= 48:
                 self._begin_return(now, "Search limit reached; target not found")
                 return
         if phase in {"notifying", "return_pending"}:
@@ -460,8 +467,14 @@ class MissionManager(Node):
             error = math.dist(position, (home["x"], home["y"]))
             heading = abs(math.atan2(math.sin(pose["yaw"]-home["yaw"]), math.cos(pose["yaw"]-home["yaw"])))
             if self._goal_state == "succeeded" and error <= .20 and heading <= .30:
-                self._search.update(phase="complete", reason=("Target found; returned to start" if self._search["found"]
-                                                              else "Returned to start. " + self._search["reason"]))
+                if self._person_topic:
+                    count = self._people_tracker.count
+                    reason = f"Returned to start. {count} {'person' if count == 1 else 'people'} found"
+                elif self._search["found"]:
+                    reason = "Target found; returned to start"
+                else:
+                    reason = "Returned to start. " + self._search["reason"]
+                self._search.update(phase="complete", reason=reason[:100])
                 self.get_logger().info(self._search["reason"])
             else:
                 self._fail_search("Return route failed; stopped away from start")
@@ -488,7 +501,8 @@ class MissionManager(Node):
             self._prefetched = None
             point = prepared.point
             if point is None:
-                self._begin_return(now, "No more useful reachable viewpoints; target not found")
+                self._begin_return(now, "Room searched; returning to start" if self._person_topic
+                                   else "No more useful reachable viewpoints; target not found")
                 return
             self._viewpoint = point
             self._goal_count += 1

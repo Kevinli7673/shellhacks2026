@@ -244,3 +244,49 @@ def is_valid_viewpoint(grid, pose, point, rejected=(), coverage=None, visited=()
     if sum(grid.visible(point, p) for p in _novel(grid, point, coverage)) >= MIN_NEW_CELLS:
         return True
     return bool(_frontier_gain(grid, point, visited, _frontiers(grid)))
+
+
+PERSON_MERGE_M = .7       # sightings closer than this on the map are one person
+PERSON_CONFIRM_SIGHTINGS = 5  # camera frames before a person counts, to drop false boxes
+MAX_REPORTED_PEOPLE = 12  # keeps the dashboard status datagram under 1 KB
+
+
+class PeopleTracker:
+    """Counts distinct people from camera sightings placed on the SLAM map.
+
+    Each sighting (camera bearing + LiDAR range, moved into the map frame)
+    joins the nearest known person within PERSON_MERGE_M, or starts a new
+    one. A person gets an id, in the order found, once seen in
+    PERSON_CONFIRM_SIGHTINGS frames, so one false detector box never counts.
+    """
+
+    def __init__(self, merge_m=PERSON_MERGE_M, confirm=PERSON_CONFIRM_SIGHTINGS):
+        self.merge_m, self.confirm = merge_m, confirm
+        self._people = []
+        self._next_id = 1
+
+    def add(self, x, y, now):
+        nearest = min(self._people, key=lambda p: math.dist((p["x"], p["y"]), (x, y)), default=None)
+        if nearest is None or math.dist((nearest["x"], nearest["y"]), (x, y)) > self.merge_m:
+            nearest = {"id": None, "x": x, "y": y, "sightings": 0, "last_seen": now}
+            self._people.append(nearest)
+        # Running mean: the position settles as more views agree.
+        n = nearest["sightings"]
+        nearest["x"] = (nearest["x"]*n + x) / (n+1)
+        nearest["y"] = (nearest["y"]*n + y) / (n+1)
+        nearest["sightings"] = n + 1
+        nearest["last_seen"] = now
+        if nearest["id"] is None and nearest["sightings"] >= self.confirm:
+            nearest["id"] = self._next_id
+            self._next_id += 1
+
+    @property
+    def count(self):
+        return self._next_id - 1
+
+    def report(self, now):
+        """[[id, x, y, sightings, seconds since last seen], ...] for confirmed people."""
+        confirmed = sorted((p for p in self._people if p["id"] is not None), key=lambda p: p["id"])
+        return [[p["id"], round(p["x"], 2), round(p["y"], 2), min(p["sightings"], 9999),
+                 round(min(now - p["last_seen"], 9999.), 1)]
+                for p in confirmed[:MAX_REPORTED_PEOPLE]]

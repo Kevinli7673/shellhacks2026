@@ -753,3 +753,10 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
 }
 /* Simulation notifications remain separate from live camera detections. */
 #search-notification { padding: 12px; border: 2px solid #e684ba; border-radius: 8px; font-weight: 700; }
+
+#search-results { margin-top: 12px; }
+#search-results h4 { margin: 0 0 6px; }
+#search-people { margin: 0; padding-left: 20px; }
+#search-people li { margin: 4px 0; }
+#search-people li[data-urgency="high"] { color: var(--tally-red); font-weight: 700; }
+#search-people li[data-urgency="medium"] { color: var(--tally-amber); }

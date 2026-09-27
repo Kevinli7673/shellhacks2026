@@ -252,3 +252,37 @@ def test_localization_jump_fails_instead_of_navigating_to_wrong_home(manager):
     assert manager._search["phase"] == "failed"
     assert "Localization jumped" in manager._search["reason"]
     manager._action.send_goal_async.assert_not_called()
+
+
+def test_camera_people_are_counted_and_do_not_end_the_physical_search(manager):
+    from geometry_msgs.msg import Pose, PoseArray
+    manager._person_topic = "/rescuebot/people"
+    manager._target_enabled = False
+    pose = start(manager, {"x": 1.0, "y": 0., "yaw": math.pi/2})
+    now = time.monotonic()
+    manager._search_destination(1.0, .5, 0, now)
+
+    def frame(*points):
+        message = PoseArray()
+        for x, y in points:
+            p = Pose()
+            p.position.x, p.position.y = x, y
+            message.poses.append(p)
+        manager._people(message)
+
+    # Two people 1.5 m ahead (base_link x) and 0.2 m / 2 m to the left.
+    for i in range(6):
+        frame((1.5, .2), (1.5, 2.))
+        manager._search_tick(now + i*.1, pose)
+    assert manager._search["phase"] == "exploring"
+    people = manager._search["people"]
+    assert [p[0] for p in people] == [1, 2]
+    # Robot at (1, 0) facing +y: base_link (1.5, 0.2) is map (0.8, 1.5).
+    assert people[0][1:3] == [pytest.approx(.8), pytest.approx(1.5)]
+    assert manager._search["found"]
+    # A frame is only counted once, however many ticks run before the next.
+    manager._search_tick(now + .7, pose)
+    assert manager._search["people"][0][3] == 6
+
+    manager._begin_return(now + 1, "Room searched; returning to start")
+    assert manager._search["phase"] == "return_pending"
