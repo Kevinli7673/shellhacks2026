@@ -24,7 +24,7 @@ import tempfile
 import wave
 
 RATE = 44100
-VOLUME = 0.5          # 0.0 - 1.0  (the amp has no volume knob, so set it here)
+VOLUME = 1.0          # 0.0 - 1.0  (the amp has no volume knob, so set it here)
 
 
 def find_card():
