@@ -1,6 +1,6 @@
 # Gemini triage handoff
 
-Branch: feature/gemini-triage (based on test/full-product 3faf0e1), worktree ~/rescuebot-gemini
+branch: gemini-implementation (based on test/full-product 3faf0e1), worktree ~/rescuebot-gemini
 Status: implemented, unit-tested, and run live on the Pi with the real Gemini API,
 ElevenLabs, and the AI Camera (2026-09-27). Uncommitted.
 
