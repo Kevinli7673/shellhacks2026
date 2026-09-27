@@ -650,6 +650,44 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
 }
 .aux-screen:not([data-status="online"]) .lidar-scale { display: none; }
 
+/* ---------- Gemini triage ---------- */
+
+.gemini-panel { display: grid; gap: 0.75rem; border-top: 1px solid var(--desk-line); padding-top: 1rem; }
+.gemini-panel[hidden] { display: none; }
+.gemini-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.gemini-head h2 { margin: 0; font-size: var(--t-lg); }
+.gemini-urgency {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--desk-line);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.gemini-urgency[data-urgency="low"] { color: var(--lamp-green); border-color: var(--lamp-green); }
+.gemini-urgency[data-urgency="medium"] { color: var(--tally-amber); border-color: var(--tally-amber); }
+.gemini-urgency[data-urgency="high"] { color: var(--ink); background: var(--tally-red-deep); border-color: var(--tally-red); }
+.gemini-status { color: var(--ink-2); font-size: var(--t-sm); }
+.gemini-panel[data-state="error"] .gemini-status,
+.gemini-panel[data-state="unavailable"] .gemini-status { color: var(--tally-amber); }
+.gemini-result { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+.gemini-result[hidden] { display: none; }
+.gemini-image { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--desk-line); border-radius: var(--radius); background: var(--screen); }
+.gemini-text { display: grid; gap: 0.5rem; min-width: 0; }
+.gemini-summary { font-size: var(--t-md); }
+.gemini-action { font-size: var(--t-sm); color: var(--ink-2); }
+.gemini-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem 1rem; font-size: var(--t-sm); }
+.gemini-facts dt { color: var(--ink-3); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.gemini-facts dd { margin: 0; overflow-wrap: anywhere; }
+.gemini-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; font-size: var(--t-xs); color: var(--ink-3); }
+.gemini-history:empty { display: none; }
+.gemini-history li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) { .gemini-result { grid-template-columns: 1fr; } }
+
 /* ---------- Responsive ---------- */
 
 .simulation-navigation { display: grid; gap: 0.75rem; border-top: 1px solid var(--desk-line); padding-top: 1rem; }

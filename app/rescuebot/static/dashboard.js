@@ -318,6 +318,64 @@ function updateAccessories(motor) {
   }
 }
 
+const urgencyText = { none: "No one in danger", low: "Low urgency", medium: "May need help", high: "Needs help now" };
+let geminiImageKey = null;
+
+const GEMINI_COUNT_MAX_AGE_S = 45;
+
+function uniquePeopleText(gemini, camera) {
+  // Gemini's unique count replaces the raw box count while its answer is recent.
+  // Gemini may count someone the detector missed. Fewer boxes than Gemini saw
+  // means people left (cap at the boxes); more means a new assessment is coming.
+  const latest = gemini?.latest;
+  const boxes = camera.status === "online" ? camera.detection_count : 0;
+  if (!latest || boxes === 0 || latest.age_s > GEMINI_COUNT_MAX_AGE_S) return null;
+  if (boxes > latest.detector_people) {
+    return boxes + (boxes === 1 ? " person" : " people") + " detected · Gemini checking…";
+  }
+  const unique = boxes < latest.detector_people ? Math.min(latest.unique_people, boxes) : latest.unique_people;
+  let text = unique + " unique " + (unique === 1 ? "person" : "people") + " on screen";
+  if (unique !== boxes) text += " · detector: " + boxes + (boxes === 1 ? " box" : " boxes");
+  return text;
+}
+
+function updateGemini(gemini, camera) {
+  const panel = element("gemini-panel");
+  panel.hidden = !gemini?.enabled;
+  if (!gemini?.enabled) return;
+  const unique = uniquePeopleText(gemini, camera);
+  if (unique) setText("detection-count", unique);
+  panel.dataset.state = gemini.state;
+  setText("gemini-status", gemini.message);
+  element("gemini-button").disabled = !connected || !gemini.can_ask;
+  element("gemini-button").textContent = gemini.state === "thinking" ? "Asking Gemini…" : "Ask Gemini now";
+  const latest = gemini.latest;
+  element("gemini-result").hidden = !latest;
+  const badge = element("gemini-urgency");
+  badge.dataset.urgency = latest ? latest.urgency : "none";
+  badge.textContent = latest ? urgencyText[latest.urgency] || latest.urgency : "No assessment";
+  if (latest) {
+    setText("gemini-summary", latest.summary);
+    setText("gemini-action", latest.recommended_action || "—");
+    setText("gemini-people", String(latest.unique_people) + (latest.people_note ? " · " + latest.people_note : ""));
+    setText("gemini-posture", titleCase(latest.posture));
+    setText("gemini-hazards", latest.hazards.length ? latest.hazards.join(", ") : "None seen");
+    setText("gemini-time", latest.time.slice(11) + " · " + (latest.latency_ms / 1000).toFixed(1) + " s · " + latest.model);
+    const key = latest.time + "|" + gemini.calls;
+    if (key !== geminiImageKey) {
+      geminiImageKey = key;
+      element("gemini-image").src = "/api/gemini/snapshot.jpg?k=" + encodeURIComponent(key);
+    }
+  }
+  const history = element("gemini-history");
+  history.replaceChildren(...gemini.history.map((item) => {
+    const li = document.createElement("li");
+    li.textContent = item.time.slice(11) + " · " + item.unique_people + " unique · " + (urgencyText[item.urgency] || item.urgency) + " · " + item.summary;
+    li.title = item.summary;
+    return li;
+  }));
+}
+
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
@@ -350,6 +408,7 @@ function updateDashboard(data) {
   updateCamera(camera);
   updateChain(data);
   if (data.sensors) updateSensors(data.sensors);
+  updateGemini(data.gemini, camera);
 
   for (const wheel of ["fl", "fr", "rl", "rr"]) {
     const value = motor.wheels[wheel];
@@ -555,6 +614,10 @@ element("enable-button").addEventListener("click", () => send({ type: "enable" }
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("search-button").addEventListener("click", () => send({ type: "start_search" }));
 element("stop-button").addEventListener("click", clearAndStop);
+element("gemini-button").addEventListener("click", () => {
+  element("gemini-button").disabled = true;
+  send({ type: "gemini_assess" });
+});
 for (const button of document.querySelectorAll(".accessory")) {
   button.addEventListener("click", () => send({
     type: "accessory",

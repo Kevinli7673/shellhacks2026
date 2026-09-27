@@ -70,6 +70,29 @@
           <span class="speed-pwm" id="speed-limit">0 / 255 PWM</span>
         </p>
 
+        <section id="gemini-panel" class="gemini-panel" aria-labelledby="gemini-title" hidden>
+          <div class="gemini-head">
+            <h2 id="gemini-title">Gemini triage</h2>
+            <span class="gemini-urgency" id="gemini-urgency" data-urgency="none">No assessment</span>
+          </div>
+          <p class="gemini-status" id="gemini-status" role="status">Waiting for a person to appear.</p>
+          <div class="gemini-result" id="gemini-result" hidden>
+            <img id="gemini-image" class="gemini-image" alt="Camera frame Gemini assessed">
+            <div class="gemini-text">
+              <p class="gemini-summary" id="gemini-summary"></p>
+              <p class="gemini-action"><span class="desk-label">Do</span> <span id="gemini-action"></span></p>
+              <dl class="gemini-facts">
+                <div><dt>Unique people</dt><dd id="gemini-people">—</dd></div>
+                <div><dt>Posture</dt><dd id="gemini-posture">—</dd></div>
+                <div><dt>Hazards</dt><dd id="gemini-hazards">—</dd></div>
+                <div><dt>Seen</dt><dd id="gemini-time">—</dd></div>
+              </dl>
+            </div>
+          </div>
+          <ol class="gemini-history" id="gemini-history" aria-label="Earlier assessments"></ol>
+          <button id="gemini-button" class="enable" type="button" disabled>Ask Gemini now</button>
+        </section>
+
         <section id="simulation-navigation" class="simulation-navigation" aria-labelledby="navigation-title" hidden>
           <div>
             <h2 id="navigation-title">Autonomy</h2>

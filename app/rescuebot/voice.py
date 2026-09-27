@@ -220,7 +220,8 @@ class CameraVoice:
     and the next alert comes only after nothing has been seen for `gone_after_s`
     seconds, so a brief detection dropout doesn't count as a new arrival.
     `speaker.say()` never blocks. It shares nothing with the control loop, so it
-    can't delay Stop, and any error is logged and skipped.
+    can't delay Stop, and any error is logged and skipped. While `muted` (set when
+    Gemini triage is speaking for the robot), it keeps tracking but says nothing.
     """
 
     def __init__(self, camera_status: Callable[[], dict], speaker: Speaker,
@@ -233,6 +234,7 @@ class CameraVoice:
         self.gone_after_s = gone_after_s
         self.clock = clock
         self.log = log or _stderr_log
+        self.muted = False
         self._present = False
         self._last_seen = float("-inf")
         self._stop = threading.Event()
@@ -256,6 +258,8 @@ class CameraVoice:
         if self._present:
             return None
         self._present = True
+        if self.muted:
+            return None
         self.speaker.say(text)
         return text
 

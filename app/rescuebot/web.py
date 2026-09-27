@@ -12,13 +12,20 @@ import threading
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .accessory_auto import AccessoryAutomation
 from .bridge_backend import BridgeMotorBackend
 from .autonomy import DEFAULT_AUTONOMY_SPEED_PERCENT
 from .autonomy_ipc import AutonomyHostEndpoint
+from .gemini import (
+    GeminiTriage,
+    api_key_from_env,
+    call_gemini,
+    fetch_snapshot,
+    models_from_text,
+)
 from .gazebo_backend import GazeboMotorBackend, default_sim_command_socket
 from .live_camera import (
     DEFAULT_DETECTOR,
@@ -51,12 +58,14 @@ def _dashboard_state(
     camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend | _LockedCamera,
     sensors: Sensors | None = None,
     playback: SimulationPlayback | None = None,
+    gemini: GeminiTriage | None = None,
 ) -> dict[str, object]:
     state = service.state()
     if playback is not None:
         state["simulation_playback"] = playback.state()
     state["camera"] = camera.status()
     state["sensors"] = (sensors or OffSensors()).status()
+    state["gemini"] = gemini.status() if gemini is not None else {"enabled": False}
     control = state["control"]
     assert isinstance(control, dict)
     return {
@@ -89,6 +98,28 @@ def _create_camera_voice(camera: _LockedCamera) -> CameraVoice:
     return CameraVoice(camera.status, speaker)
 
 
+def _create_gemini(camera: _LockedCamera, live_video_port: int | None, speaker: Speaker | None,
+                   model: str | None) -> GeminiTriage:
+    models = models_from_text(model)
+    key = api_key_from_env()
+    missing = None
+    if not key:
+        missing = "Set GEMINI_API_KEY and restart the dashboard to use Gemini."
+    elif not live_video_port:
+        missing = "Gemini needs the live camera with video (--camera-backend live)."
+    if missing:
+        print(f"Warning: {missing}", flush=True)
+        return GeminiTriage(camera.status, fetch_snapshot, None, model=models[0], missing_reason=missing)
+    snapshot_url = f"http://127.0.0.1:{live_video_port}/snapshot.jpg"
+    return GeminiTriage(
+        camera.status,
+        lambda: fetch_snapshot(snapshot_url),
+        lambda jpeg, context: call_gemini(jpeg, context, api_key=key, models=models),
+        model=models[0],
+        speaker=speaker,
+    )
+
+
 def create_app(
     service: RobotControlService | None = None,
     *,
@@ -105,6 +136,9 @@ def create_app(
     sensors: Sensors | None = None,
     voice: bool = False,
     camera_voice: CameraVoice | None = None,
+    gemini: bool = False,
+    gemini_triage: GeminiTriage | None = None,
+    gemini_model: str | None = None,
     auto_accessories: bool = False,
     sim_command_socket: str | Path | None = None,
     autonomy_command_socket: str | Path | None = None,
@@ -189,6 +223,13 @@ def create_app(
     automation = control_service.automation
     if camera_voice is None and voice:
         camera_voice = _create_camera_voice(camera_status_source)
+    if gemini_triage is None and gemini:
+        live_port = video_port if isinstance(camera_service, LiveCameraBackend) else None
+        speaker = camera_voice.speaker if camera_voice is not None else None
+        gemini_triage = _create_gemini(camera_status_source, live_port, speaker, gemini_model)
+    if camera_voice is not None and gemini_triage is not None and gemini_triage.active:
+        # Gemini is the robot's voice now; the fixed alerts are only its fallback.
+        camera_voice.muted = True
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -196,6 +237,8 @@ def create_app(
         sensor_service.start()
         if camera_voice is not None:
             camera_voice.start()
+        if gemini_triage is not None:
+            gemini_triage.start()
         if automation is not None:
             automation.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
@@ -211,6 +254,8 @@ def create_app(
             if playback is not None:
                 await playback.close()
             control_service.close()
+            if gemini_triage is not None:
+                gemini_triage.close()
             if camera_voice is not None:
                 camera_voice.close()
             if automation is not None:
@@ -223,6 +268,7 @@ def create_app(
     app.state.camera_service = camera_service
     app.state.sensor_service = sensor_service
     app.state.camera_voice = camera_voice
+    app.state.gemini = gemini_triage
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -231,18 +277,25 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_status_source, sensor_service, playback)
+        return _dashboard_state(control_service, None, camera_status_source, sensor_service, playback, gemini_triage)
 
     @app.get("/api/lidar")
     async def lidar() -> dict[str, object]:
         return sensor_service.lidar()
+
+    @app.get("/api/gemini/snapshot.jpg", include_in_schema=False)
+    async def gemini_snapshot() -> Response:
+        jpeg = gemini_triage.latest_jpeg() if gemini_triage is not None else None
+        if jpeg is None:
+            return Response(status_code=404)
+        return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.websocket("/ws/control")
     async def control_socket(websocket: WebSocket) -> None:
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage)}
         )
 
         try:
@@ -290,6 +343,10 @@ def create_app(
                 elif message_type == "start_search" and control_service.autonomy_available:
                     accepted = control_service.start_search(session)
                     response = {"type": "start_search", "accepted": accepted}
+                elif message_type == "gemini_assess":
+                    # Read-only camera analysis: never affects driving, so no owner check.
+                    accepted = gemini_triage is not None and gemini_triage.request()
+                    response = {"type": "gemini_assess", "accepted": accepted}
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}
@@ -308,7 +365,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback, gemini_triage)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)
@@ -379,6 +436,19 @@ def main() -> None:
         help="Speak camera detections (ElevenLabs, espeak-ng fallback) on its own thread.",
     )
     parser.add_argument(
+        "--gemini",
+        action="store_true",
+        default=os.environ.get("RESCUEBOT_GEMINI") == "1",
+        help="Ask Gemini whether each newly detected person needs help (needs GEMINI_API_KEY "
+        "and --camera-backend live). Speaks its alert too when --voice is on.",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        default=os.environ.get("RESCUEBOT_GEMINI_MODEL", ",".join(models_from_text(None))),
+        help="Gemini model(s), comma-separated; later ones are tried when earlier ones are "
+        "busy (default: %(default)s).",
+    )
+    parser.add_argument(
         "--auto-accessories",
         action="store_true",
         default=os.environ.get("RESCUEBOT_AUTO_ACCESSORIES") == "1",
@@ -412,6 +482,8 @@ def main() -> None:
             motor_backend=args.motor_backend,
             sensors_mode=args.sensors,
             voice=args.voice,
+            gemini=args.gemini,
+            gemini_model=args.gemini_model,
             auto_accessories=args.auto_accessories,
             sim_command_socket=args.sim_command_socket,
             autonomy_command_socket=args.autonomy_command_socket,
