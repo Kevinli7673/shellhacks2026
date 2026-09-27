@@ -1,5 +1,5 @@
 {
-  "description": "ESP32-S2 serial behavior vectors, matching the firmware on feature/esp32-controller (3cbea5f). Each case starts from a fresh boot (the boot line itself is listed once in boot_emit) with watchdog_ms and hardware_ceiling unless a case overrides hardware_ceiling (the firmware default ceiling is 0 until physically validated, so harnesses must set it). Each step sends one line (a newline is appended) at t_ms, or advances the watchdog with tick; emit lists the JSON lines expected in response, in order; armed and outputs are the logical (pre-wiring) state afterwards. Duplicate JSON keys are intentionally not covered: the firmware reads the first occurrence and no legitimate sender produces them.",
+  "description": "ESP32-S2 serial behavior vectors, matching the firmware on feature/esp32-controller (3cbea5f). Each case starts from a fresh boot (the boot line itself is listed once in boot_emit) with watchdog_ms and hardware_ceiling unless a case overrides hardware_ceiling (the firmware default ceiling is 0 until physically validated, so harnesses must set it). Each step sends one line (a newline is appended) at t_ms, or advances the watchdog with tick; emit lists the JSON lines expected in response, in order; armed and outputs are the logical (pre-wiring) state afterwards. Duplicate JSON keys are intentionally not covered: the firmware reads the first occurrence and no legitimate sender produces them. Optional per-step accessories {buzzer, light} is the firmware's buzzer/light state afterwards; it is off at boot and changes only on an accepted accessories command.",
   "watchdog_ms": 500,
   "hardware_ceiling": 255,
   "cases": [
@@ -2261,6 +2261,437 @@
             "fr": 100,
             "rl": 100,
             "rr": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "accessories_toggle_while_disarmed",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":1,\"buzzer\":true,\"light\":false}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi01",
+              "seq": 1,
+              "buzzer": true,
+              "light": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": false
+          }
+        },
+        {
+          "t_ms": 10,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":2,\"buzzer\":false,\"light\":true}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi01",
+              "seq": 2,
+              "buzzer": false,
+              "light": true
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale_accessories_command_is_ignored",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":5,\"buzzer\":false,\"light\":true}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi01",
+              "seq": 5,
+              "buzzer": false,
+              "light": true
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 10,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":5,\"buzzer\":false,\"light\":false}",
+          "emit": [],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 20,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":4,\"buzzer\":true,\"light\":true}",
+          "emit": [],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 30,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi02\",\"seq\":1,\"buzzer\":false,\"light\":false}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi02",
+              "seq": 1,
+              "buzzer": false,
+              "light": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "accessories_do_not_refresh_the_drive_watchdog",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 400,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":4,\"buzzer\":true,\"light\":false}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi01",
+              "seq": 4,
+              "buzzer": true,
+              "light": false
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": false
+          }
+        },
+        {
+          "t_ms": 551,
+          "tick": true,
+          "emit": [
+            {
+              "type": "fault",
+              "reason": "watchdog_expired",
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "arming_stop_and_faults_leave_accessories_alone",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":1,\"buzzer\":true,\"light\":true}",
+          "emit": [
+            {
+              "type": "accessories_ack",
+              "session": "pi01",
+              "seq": 1,
+              "buzzer": true,
+              "light": true
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 10,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":3}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 3,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": true
+          }
+        },
+        {
+          "t_ms": 20,
+          "send": "{\"type\":",
+          "emit": [
+            {
+              "type": "fault",
+              "reason": "malformed_packet",
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": true,
+            "light": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "malformed_accessories_command_stops_and_disarms",
+      "steps": [
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"disarm\",\"session\":\"pi01\",\"seq\":1}",
+          "emit": [
+            {
+              "type": "disarm_ack",
+              "session": "pi01",
+              "seq": 1,
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 0,
+          "send": "{\"type\":\"arm\",\"session\":\"pi01\",\"seq\":2}",
+          "emit": [
+            {
+              "type": "arm_ack",
+              "session": "pi01",
+              "seq": 2,
+              "armed": true
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          }
+        },
+        {
+          "t_ms": 50,
+          "send": "{\"type\":\"drive\",\"session\":\"pi01\",\"seq\":3,\"forward\":1.0,\"sideways\":0.0,\"turn\":0.0,\"speed_limit\":100}",
+          "emit": [
+            {
+              "session": "pi01",
+              "ack": 3,
+              "fl": 100,
+              "fr": 100,
+              "rl": 100,
+              "rr": 100
+            }
+          ],
+          "armed": true,
+          "outputs": {
+            "fl": 100,
+            "fr": 100,
+            "rl": 100,
+            "rr": 100
+          }
+        },
+        {
+          "t_ms": 100,
+          "send": "{\"type\":\"accessories\",\"session\":\"pi01\",\"seq\":4,\"buzzer\":1,\"light\":false}",
+          "emit": [
+            {
+              "type": "fault",
+              "reason": "malformed_packet",
+              "armed": false
+            }
+          ],
+          "armed": false,
+          "outputs": {
+            "fl": 0,
+            "fr": 0,
+            "rl": 0,
+            "rr": 0
+          },
+          "accessories": {
+            "buzzer": false,
+            "light": false
           }
         }
       ]

@@ -5,6 +5,10 @@ The arm/disarm commands and the arm_ack, disarm_ack, fault, and imu replies
 follow the ESP32 workstream's firmware (feature/esp32-controller, 3cbea5f,
 firmware/include/protocol_messages.h). They are agreed in practice but not
 yet recorded as frozen in changes.md.
+
+The accessories command (buzzer and light) and its accessories_ack are
+separate from driving: accepted armed or disarmed, never a motor ACK, and
+never a watchdog refresh.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ _SESSION_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,32}")
 
 DRIVE_FIELDS = frozenset({"type", "session", "seq", "forward", "sideways", "turn", "speed_limit"})
 CONTROL_FIELDS = frozenset({"type", "session", "seq"})
+ACCESSORY_FIELDS = frozenset({"type", "session", "seq", "buzzer", "light"})
 ACK_FIELDS = frozenset({"session", "ack", "fl", "fr", "rl", "rr"})
 
 
@@ -177,7 +182,34 @@ class ControlCommand:
         return _encode({"type": self.type, "session": self.session, "seq": self.seq})
 
 
-def parse_command(line: bytes | str) -> DriveCommand | ControlCommand:
+@dataclass(frozen=True)
+class AccessoryCommand:
+    """Sets both buzzer and light; the firmware applies it armed or disarmed."""
+
+    session: str
+    seq: int
+    buzzer: bool
+    light: bool
+
+    def __post_init__(self) -> None:
+        _require_session(self.session)
+        _require_seq(self.seq)
+        _require_bool("buzzer", self.buzzer)
+        _require_bool("light", self.light)
+
+    def encode(self) -> bytes:
+        return _encode(
+            {
+                "type": "accessories",
+                "session": self.session,
+                "seq": self.seq,
+                "buzzer": self.buzzer,
+                "light": self.light,
+            }
+        )
+
+
+def parse_command(line: bytes | str) -> DriveCommand | ControlCommand | AccessoryCommand:
     """Parse a Pi -> ESP32 line as the firmware does.
 
     Like the firmware, unknown extra fields are ignored; missing, mistyped,
@@ -198,6 +230,11 @@ def parse_command(line: bytes | str) -> DriveCommand | ControlCommand:
     if kind in ("arm", "disarm"):
         _require_fields(data, CONTROL_FIELDS, allow_extra=True)
         return ControlCommand(type=kind, session=data["session"], seq=data["seq"])
+    if kind == "accessories":
+        _require_fields(data, ACCESSORY_FIELDS, allow_extra=True)
+        return AccessoryCommand(
+            session=data["session"], seq=data["seq"], buzzer=data["buzzer"], light=data["light"]
+        )
     raise ProtocolError("bad_type", repr(kind))
 
 
@@ -266,6 +303,33 @@ class ControlAck:
 
 
 @dataclass(frozen=True)
+class AccessoryAck:
+    """Firmware reply to an accepted accessories command: the state it applied."""
+
+    session: str
+    seq: int
+    buzzer: bool
+    light: bool
+
+    def __post_init__(self) -> None:
+        _require_session(self.session)
+        _require_seq(self.seq)
+        _require_bool("buzzer", self.buzzer)
+        _require_bool("light", self.light)
+
+    def encode(self) -> bytes:
+        return _encode(
+            {
+                "type": "accessories_ack",
+                "session": self.session,
+                "seq": self.seq,
+                "buzzer": self.buzzer,
+                "light": self.light,
+            }
+        )
+
+
+@dataclass(frozen=True)
 class FirmwareFault:
     """Unprompted disarm report: boot, malformed_packet, oversized_packet, or watchdog_expired.
 
@@ -315,7 +379,7 @@ class ImuTelemetry:
         return _encode(data)
 
 
-InboundMessage = DriveAck | ControlAck | FirmwareFault | ImuTelemetry
+InboundMessage = DriveAck | ControlAck | AccessoryAck | FirmwareFault | ImuTelemetry
 
 
 def parse_inbound(line: bytes | str) -> InboundMessage:
@@ -328,6 +392,9 @@ def parse_inbound(line: bytes | str) -> InboundMessage:
     if kind in ("arm_ack", "disarm_ack"):
         _require_fields(data, frozenset({"type", "session", "seq", "armed"}))
         return ControlAck(kind, data["session"], data["seq"], data["armed"])
+    if kind == "accessories_ack":
+        _require_fields(data, frozenset({"type", "session", "seq", "buzzer", "light"}))
+        return AccessoryAck(data["session"], data["seq"], data["buzzer"], data["light"])
     if kind == "fault":
         _require_fields(data, frozenset({"type", "reason", "armed"}))
         return FirmwareFault(data["reason"], data["armed"])

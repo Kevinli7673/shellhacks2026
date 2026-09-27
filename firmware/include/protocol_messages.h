@@ -16,10 +16,16 @@
 // wire fields were not yet defined) and should be treated as a proposal to
 // reconcile with the dashboard/control workstream's serial motor bridge
 // before Stage G integration.
+//
+// Accessories (buzzer and light) are separate from driving:
+// {"type":"accessories","session":"...","seq":N,"buzzer":bool,"light":bool}
+// sets both, is accepted armed or disarmed, never refreshes the drive
+// watchdog, and is answered by
+// {"type":"accessories_ack","session":"...","seq":N,"buzzer":bool,"light":bool}.
 
 namespace rescuebot {
 
-enum class InboundType { UNKNOWN, DRIVE, ARM, DISARM };
+enum class InboundType { UNKNOWN, DRIVE, ARM, DISARM, ACCESSORIES };
 
 struct InboundDrive {
     char session[kMaxSessionLength] = {0};
@@ -35,6 +41,13 @@ struct InboundArmDisarm {
     uint64_t seq = 0;
 };
 
+struct InboundAccessories {
+    char session[kMaxSessionLength] = {0};
+    uint64_t seq = 0;
+    bool buzzer = false;
+    bool light = false;
+};
+
 struct InboundMessage {
     InboundType type = InboundType::UNKNOWN;
     // True for anything structurally invalid, wrong-typed, missing a
@@ -45,6 +58,7 @@ struct InboundMessage {
     bool malformed = false;
     InboundDrive drive;
     InboundArmDisarm arm_disarm;
+    InboundAccessories accessories;
 };
 
 // Parses one bounded, newline-stripped line (length must not include the
@@ -59,6 +73,8 @@ size_t buildDriveAck(char* out, size_t out_size, const char* session, uint64_t a
                       int fr, int rl, int rr);
 size_t buildArmAck(char* out, size_t out_size, const char* session, uint64_t seq, bool armed);
 size_t buildDisarmAck(char* out, size_t out_size, const char* session, uint64_t seq);
+size_t buildAccessoriesAck(char* out, size_t out_size, const char* session, uint64_t seq,
+                            bool buzzer, bool light);
 size_t buildImuTelemetry(char* out, size_t out_size, uint32_t timestamp_ms, bool available,
                           double heading_deg, uint8_t calibration);
 size_t buildFault(char* out, size_t out_size, const char* reason);

@@ -12,6 +12,8 @@ from __future__ import annotations
 from .mecanum import mix_mecanum
 from .serial_protocol import (
     MAX_PWM,
+    AccessoryAck,
+    AccessoryCommand,
     ControlAck,
     ControlCommand,
     DriveAck,
@@ -47,6 +49,9 @@ class SimulatedFirmware:
         self.last_seq = 0
         self.last_valid_at: float | None = None
         self.outputs = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
+        self.accessories = {"buzzer": False, "light": False}
+        self._accessory_session: str | None = None
+        self._accessory_seq = 0
         self.rejected_lines = 0
         return [FirmwareFault("boot").encode()]
 
@@ -73,7 +78,19 @@ class SimulatedFirmware:
             return self._reject("malformed_packet")
         if isinstance(command, ControlCommand):
             return self._handle_control(command, now)
+        if isinstance(command, AccessoryCommand):
+            return self._handle_accessories(command)
         return self._handle_drive(command, now)
+
+    def _handle_accessories(self, command: AccessoryCommand) -> list[bytes]:
+        # Independent of arming and the watchdog; only a stale or replayed
+        # command in the same session is ignored.
+        if command.session == self._accessory_session and command.seq <= self._accessory_seq:
+            return []
+        self._accessory_session = command.session
+        self._accessory_seq = command.seq
+        self.accessories = {"buzzer": command.buzzer, "light": command.light}
+        return [AccessoryAck(command.session, command.seq, command.buzzer, command.light).encode()]
 
     def _reject(self, reason: str) -> list[bytes]:
         # Malformed input never drives; it stops, disarms, and always reports.

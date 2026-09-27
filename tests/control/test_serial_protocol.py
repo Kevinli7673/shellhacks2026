@@ -5,6 +5,8 @@ import unittest
 from rescuebot.serial_link import MotorLink
 from rescuebot.serial_protocol import (
     MAX_LINE_BYTES,
+    AccessoryAck,
+    AccessoryCommand,
     ControlAck,
     ControlCommand,
     DriveAck,
@@ -49,6 +51,8 @@ class ProtocolVectorTests(unittest.TestCase):
                     self.assertEqual(decode_lines(emitted), step["emit"], context)
                     self.assertEqual(firmware.armed, step["armed"], context)
                     self.assertEqual(firmware.outputs, step["outputs"], context)
+                    if "accessories" in step:
+                        self.assertEqual(firmware.accessories, step["accessories"], context)
 
     def test_vector_lines_parse_the_same_way_on_the_pi(self) -> None:
         document = json.loads(VECTORS_PATH.read_text())
@@ -123,6 +127,25 @@ class CodecTests(unittest.TestCase):
             parse_inbound(b'{"type":"imu","timestamp_ms":1250,"available":false}'),
             ImuTelemetry(1250, False),
         )
+
+    def test_accessories_command_and_ack_match_protocol_messages_h(self) -> None:
+        line = AccessoryCommand("pi01", 3, True, False).encode()
+        self.assertEqual(
+            line, b'{"type":"accessories","session":"pi01","seq":3,"buzzer":true,"light":false}\n'
+        )
+        self.assertEqual(parse_command(line.rstrip(b"\n")), AccessoryCommand("pi01", 3, True, False))
+        self.assertEqual(
+            parse_inbound(b'{"type":"accessories_ack","session":"pi01","seq":3,"buzzer":true,"light":false}'),
+            AccessoryAck("pi01", 3, True, False),
+        )
+        for bad in [
+            b'{"type":"accessories","session":"pi01","seq":3,"buzzer":1,"light":false}',
+            b'{"type":"accessories","session":"pi01","seq":3,"buzzer":true}',
+        ]:
+            with self.subTest(line=bad), self.assertRaises(ProtocolError):
+                parse_command(bad)
+        with self.assertRaises(ProtocolError):
+            parse_inbound(b'{"type":"accessories_ack","session":"pi01","seq":3,"buzzer":true,"light":false,"x":1}')
 
     def test_inbound_messages_are_validated(self) -> None:
         for line in [
@@ -361,6 +384,32 @@ class MotorLinkTests(unittest.TestCase):
         self.h.link.receive(b"\x00\xffgarbage\n" + b"z" * 300 + b"\n", self.h.now)
         self.assertEqual(self.h.link.rejected_lines, 2)
         self.assertTrue(self.h.link.armed)
+
+    def test_accessories_work_disarmed_and_follow_the_firmware_confirmation(self) -> None:
+        self.assertIsNone(MotorLink().set_accessories(True, True))  # no link yet
+        self.h.to_firmware(self.h.link.connect())
+        self.h.to_firmware(self.h.link.set_accessories(True, False))
+        self.assertEqual(self.h.firmware.accessories, {"buzzer": True, "light": False})
+        self.assertEqual(self.h.link.accessories, {"buzzer": True, "light": False})
+        self.assertFalse(self.h.link.armed)
+        self.assertFalse(self.h.firmware.armed)
+
+    def test_accessory_acks_never_refresh_the_drive_ack_deadline(self) -> None:
+        self.h.connect_and_arm()
+        self.h.drive()  # last drive ACK at t=0.05
+        self.h.now = 0.2
+        self.h.to_firmware(self.h.link.set_accessories(True, True))
+        self.assertEqual(self.h.link.accessories, {"buzzer": True, "light": True})
+        self.h.now = 0.31
+        self.assertIsNotNone(self.h.link.check(self.h.now))
+        self.assertFalse(self.h.link.armed)
+        self.assertEqual(self.h.link.fault, "ack_timeout")
+
+    def test_firmware_reboot_reports_accessories_off(self) -> None:
+        self.h.to_firmware(self.h.link.connect())
+        self.h.to_firmware(self.h.link.set_accessories(True, True))
+        self.h.to_pi(self.h.firmware.reboot())
+        self.assertEqual(self.h.link.accessories, {"buzzer": False, "light": False})
 
     def test_stop_disarms_immediately_outside_the_drive_cadence(self) -> None:
         self.h.connect_and_arm()

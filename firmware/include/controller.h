@@ -9,6 +9,11 @@
 
 namespace rescuebot {
 
+struct Accessories {
+    bool buzzer = false;
+    bool light = false;
+};
+
 // Orchestrates one processed serial line against the safety state machine
 // and the pure mixing calculation. Hardware-agnostic and zero-dependency
 // beyond the modules above, so the exact same logic is exercised by the
@@ -48,14 +53,24 @@ public:
     // on boot, disarm, any fault, and any accepted arm.
     const WheelOutputs& outputs() const { return outputs_; }
 
+    // Requested buzzer/light state. Off at boot; changed only by an accepted
+    // accessories command. Arming, Stop, faults, and the watchdog leave it
+    // alone because it never moves the robot.
+    const Accessories& accessories() const { return accessories_; }
+
     void setHardwarePwmCeiling(int ceiling) { hardware_pwm_ceiling_ = ceiling; }
 
 private:
     size_t handleDrive(const InboundDrive& drive, uint32_t now_ms, char* out, size_t out_size);
+    size_t handleAccessories(const InboundAccessories& command, char* out, size_t out_size);
 
     SessionGuard guard_;
     int hardware_pwm_ceiling_;
     WheelOutputs outputs_;
+    Accessories accessories_;
+    // Last accepted accessories command, to ignore a stale or replayed one.
+    char accessory_session_[kMaxSessionLength] = {0};
+    uint64_t accessory_seq_ = 0;
 };
 
 }  // namespace rescuebot
