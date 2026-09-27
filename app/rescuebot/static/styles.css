@@ -395,6 +395,26 @@ button:disabled { cursor: not-allowed; }
   padding: 0.2rem 0.45rem;
 }
 
+.accessories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+
+/* "On" is ink white, never tally red or amber: those mean drive state. */
+.accessory {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--desk-line);
+  font-size: var(--t-md);
+}
+.accessory:hover:not(:disabled) { background: oklch(1 0 0 / 0.06); border-color: var(--ink-2); }
+.accessory[aria-pressed="true"] { background: var(--ink); color: var(--umd); border-color: var(--ink); }
+.accessory[aria-pressed="true"]:hover:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
+.accessory:disabled { opacity: 0.55; }
+.accessory-state { font-size: var(--t-sm); letter-spacing: 0.1em; }
+
 .desk-label {
   font-size: var(--t-sm);
   font-weight: 700;

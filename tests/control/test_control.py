@@ -123,3 +123,61 @@ class MockBackendTests(unittest.TestCase):
         service.tick(now=1.27)
         self.assertEqual(service.backend.wheels.as_dict(), {"fl": 0, "fr": 0, "rl": 0, "rr": 0})
         self.assertEqual(service.backend.last_reason, "browser_timeout")
+
+
+class AccessoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.service = RobotControlService(ManualControl(pwm_ceiling=100))
+        self.assertTrue(self.service.claim("browser-one"))
+
+    def accessories(self) -> dict:
+        return self.service.state(now=1.0)["motor"]["accessories"]
+
+    def test_owner_toggles_each_accessory_while_disarmed_without_arming(self) -> None:
+        self.assertTrue(self.service.set_accessory("browser-one", "buzzer", True, now=1.0))
+        self.assertEqual(self.accessories(), {"buzzer": True, "light": False, "available": True})
+        self.assertTrue(self.service.set_accessory("browser-one", "light", True, now=1.0))
+        self.assertTrue(self.service.set_accessory("browser-one", "buzzer", False, now=1.0))
+        self.assertEqual(self.accessories(), {"buzzer": False, "light": True, "available": True})
+        self.assertFalse(self.service.control.armed)
+        self.assertEqual(self.service.backend.wheels.as_dict(), {"fl": 0, "fr": 0, "rl": 0, "rr": 0})
+
+    def test_only_the_owner_can_toggle_and_names_are_checked(self) -> None:
+        self.assertFalse(self.service.set_accessory("browser-two", "light", True, now=1.0))
+        self.assertFalse(self.service.set_accessory("browser-one", "siren", True, now=1.0))
+        self.assertEqual(self.accessories(), {"buzzer": False, "light": False, "available": True})
+
+    def test_stop_leaves_them_and_owner_disconnect_switches_them_off(self) -> None:
+        self.service.set_accessory("browser-one", "buzzer", True, now=1.0)
+        self.service.set_accessory("browser-one", "light", True, now=1.0)
+        self.service.stop("operator_stop", now=1.0)
+        self.assertEqual(self.accessories(), {"buzzer": True, "light": True, "available": True})
+        self.service.disconnect("browser-two", now=1.0)  # a viewer leaving changes nothing
+        self.assertEqual(self.accessories(), {"buzzer": True, "light": True, "available": True})
+        self.service.disconnect("browser-one", now=1.0)
+        self.assertEqual(self.accessories(), {"buzzer": False, "light": False, "available": True})
+
+
+class AccessoryWebSocketTests(unittest.TestCase):
+    def test_accessory_messages_toggle_state_and_bad_ones_stop(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from rescuebot.web import create_app
+
+        with TestClient(create_app()) as client, client.websocket_connect("/ws/control") as socket:
+            socket.receive_json()  # initial state
+            socket.send_json({"type": "claim"})
+            self.assertTrue(socket.receive_json()["accepted"])
+            socket.receive_json()
+
+            socket.send_json({"type": "accessory", "name": "light", "on": True})
+            self.assertEqual(socket.receive_json(), {"type": "accessory", "accepted": True})
+            state = socket.receive_json()["data"]
+            self.assertTrue(state["motor"]["accessories"]["light"])
+            self.assertFalse(state["control"]["armed"])
+
+            socket.send_json({"type": "accessory", "name": "light", "on": "yes"})
+            self.assertEqual(socket.receive_json(), {"type": "accessory", "accepted": False})
+            state = socket.receive_json()["data"]
+            self.assertEqual(state["control"]["fault"], "invalid_browser_message")
+            self.assertTrue(state["motor"]["accessories"]["light"])

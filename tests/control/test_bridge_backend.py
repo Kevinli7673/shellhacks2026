@@ -153,6 +153,19 @@ class BridgeBackendTests(unittest.TestCase):
         self.assertEqual(self.rig.firmware.outputs, STOPPED)
         self.assertEqual(self.rig.service.control.fault, "operator_stop")
 
+    def test_accessory_toggle_reaches_the_firmware_and_owner_disconnect_turns_it_off(self) -> None:
+        self.assertFalse(self.rig.service.set_accessory(self.rig.session, "light", True, now=self.rig.clock.now))
+        self.rig.pump(3)  # the bridge must report status before a request is accepted
+        self.assertTrue(self.rig.service.set_accessory(self.rig.session, "light", True, now=self.rig.clock.now))
+        self.rig.pump(3)
+        self.assertEqual(self.rig.firmware.accessories, {"buzzer": False, "light": True})
+        accessories = self.rig.state()["motor"]["accessories"]
+        self.assertEqual(accessories, {"buzzer": False, "light": True, "available": True})
+        self.assertFalse(self.rig.firmware.armed)
+        self.rig.service.disconnect(self.rig.session, now=self.rig.clock.now)
+        self.rig.pump(3)
+        self.assertEqual(self.rig.firmware.accessories, {"buzzer": False, "light": False})
+
     def test_restarted_bridge_does_not_resume_driving_by_itself(self) -> None:
         self.rig.pump(3)
         self.rig.enable()
