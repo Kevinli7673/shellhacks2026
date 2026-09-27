@@ -2,7 +2,7 @@
 
 Workstream: ESP32 controller
 Branch: feature/esp32-controller (pushed to origin)
-Status: in progress; native tests 52/52; esp32-s2 build succeeds; not flashed, no hardware test
+Status: in progress; native tests 53/53; QT Py ESP32-S2 build succeeds; raised-chassis wiring confirmed; not flashed by this workstream
 
 This workstream owns the files listed in WORKSTREAMS.md.
 Do not edit shared project documents while parallel work is active.
@@ -24,6 +24,7 @@ Responses from ESP32-controller to dashboard/control requests (DC-#).
 | DC-1 | Done. Merged origin/main (b37213e) into feature/esp32-controller as 1988d5a; this Requests/Responses section was added in the commit that introduced it. |
 | DC-2 | Done in f6213f3. `firmware/test/fixtures/serial_protocol_vectors.json` is byte-identical to origin/feature/dashboard-control (checked against e101f82 and again at 585d499). `pio test -e native` on 0332bd9 plus that file: 52/52 pass on Windows 11, GCC 15.2.0 (MinGW-w64), PlatformIO 6.2.0, ArduinoJson 6.21.6. Details in the handoff log below. |
 | DC-3 | Done. `pio run -e esp32-s2` (build only, nothing flashed) on 1988d5a: SUCCESS, 0 compiler warnings, RAM 4.8% (15620/327680 B), flash 20.6% (269566/1310720 B). Board is still the placeholder esp32-s2-saola-1. Toolchain came from PlatformIO's registry into an isolated core dir. |
+| DC-4 | Corrected in eba9e04 after the raised-chassis one-port test. The earlier `017de3a` M1/front-left assumption was wrong. Confirmed mapping: FL=M3, FR=M1 inverted, RL=M4, RR=M2 inverted; the raised-chassis bench ceiling is 60/255. The regression test, port-test sketch, and QT Py PlatformIO target match these facts. Native 53/53 and a clean QT Py build pass. |
 
 ## Current state
 
@@ -43,13 +44,19 @@ Responses from ESP32-controller to dashboard/control requests (DC-#).
   modules — mixing, session/watchdog, protocol parsing/building — plus a
   suite that replays the shared `fixtures/serial_protocol_vectors.json`
   (30 cases + `boot_emit`) against the firmware's actual logic via
-  `Controller`.
-- **Native tests compiled and run: 52/52 pass** (PlatformIO 6.2.0, GCC
-  15.2.0 on Windows). `pio run -e esp32-s2` also builds (0 warnings). No
-  flashing or hardware testing has happened. See "Tests" below.
+  `Controller`, and a wiring suite that applies `ChassisConfig` after
+  mixing.
+- **Native tests compiled and run: 53/53 pass** (PlatformIO 6.2.0, macOS
+  arm64 clang in the current run). `pio run -e esp32-s2` also builds (0
+  warnings). No flashing or hardware testing has happened. See "Tests"
+  below.
 - Hardware adapters (`motor_shield.cpp`, `imu_bno055.cpp`) and `main.cpp`
   are guarded with `#ifdef ARDUINO` so native test builds compile them to
   empty translation units; they still need a real board to validate at all.
+- Confirmed hardware configuration: Adafruit QT Py ESP32-S2 with USB CDC,
+  default Wire on SDA=GPIO7/SCL=GPIO6, motor shield 0x60, BNO055 0x28,
+  BMP280 0x77; FL=M3, FR=M1 inverted, RL=M4, RR=M2 inverted; the configured
+  60/255 ceiling is a raised-chassis bench value, not a floor-driving limit.
 - The `firmware/tests/` → `firmware/test/` directory rename (matching
   PlatformIO's default, done outside this session) is reflected everywhere
   in code/docs now. WORKSTREAMS.md still says `firmware/tests/` — flagging
@@ -173,20 +180,21 @@ originally expected pre-fix outputs (100/100/100/100 kept through the
 re-arm). The 30-case version at e101f82 updates it to 0/0/0/0 and adds
 cases for the other changes; all pass against this firmware.
 
-## Hardware facts still required
+## Hardware configuration and open facts
 
-Unchanged from changes.md "Open hardware facts" — still blocking real
-driving, not mock/native development:
+Confirmed 2026-09-26 raised-chassis configuration:
 
-- Exact ESP32-S2 board and I2C pins (`platformio.ini` uses a placeholder
-  board id).
-- Confirmed motor-shield revision/address.
-- Wheel-channel mapping and direction inversions (`chassis_config.h` has
-  placeholder, unvalidated defaults).
-- Validated motor-output ceiling — `ChassisConfig::hardware_pwm_ceiling`
-  defaults to **0**, so the firmware cannot command any real motor output
-  until this is set from physical validation
-  (IMPLEMENTATION_PLAN.md section 7).
+- Board: Adafruit QT Py ESP32-S2 (`adafruit_qtpy_esp32s2`), USB CDC enabled.
+- Default Wire: SDA=GPIO7 and SCL=GPIO6.
+- I2C devices: motor shield 0x60, BNO055 0x28, BMP280 0x77.
+- Wheel mapping: M1=front-right, M2=rear-right, M3=front-left,
+  M4=rear-left. The right side (M1, M2) is inverted.
+- `hardware_pwm_ceiling = 60` is a raised-chassis bench value only. It must
+  be revalidated through low-speed floor driving before it is raised.
+
+Still required before physical driving acceptance:
+
+- Motor-shield revision confirmation.
 - BNO055 mounting/calibration details.
 
 ## Tests
@@ -196,17 +204,20 @@ the `native` env; it does not bundle one):
 
     pio test -e native
 
-- Native: **52/52 pass** — test_mixing 15, test_protocol_codec 21,
+- Native: **53/53 pass** — test_mixing 15, test_protocol_codec 21,
   test_session_guard 15, test_protocol_fixtures 1 (replays all 30 shared
-  cases plus `boot_emit`). Environment: Windows 11, PlatformIO Core 6.2.0,
-  GCC 15.2.0 (MinGW-w64), ArduinoJson 6.21.6, Unity 2.6.1. This matches the
-  dashboard/control cross-check (macOS arm64, Apple clang).
+  cases plus `boot_emit`), and test_wiring 1. Current environment: macOS
+  arm64, PlatformIO Core 6.2.0 in an isolated temporary Python environment,
+  ArduinoJson 6.21.6, Unity 2.6.1. This matches the earlier dashboard/control
+  cross-check in result and adds the wiring assertion.
 - Mixing fixture values are also reproducible from
   `python firmware/test/fixtures/generate_mixing_fixtures.py`.
-- Board build: `pio run -e esp32-s2` → SUCCESS, 0 warnings, RAM 4.8%,
-  flash 20.6% (espressif32 platform, Arduino framework, Adafruit Motor
-  Shield V2 1.1.4, Adafruit BNO055 1.6.4, ArduinoJson 6.21.6).
-- Not performed: flashing, or any physical/hardware test.
+- Board build: clean `pio run -e esp32-s2` for `adafruit_qtpy_esp32s2` →
+  SUCCESS, 0 warnings, RAM 8.5%, flash 20.7% (espressif32 platform, Arduino
+  framework, Adafruit Motor Shield V2 1.1.4, Adafruit BNO055 1.6.4,
+  ArduinoJson 6.21.6).
+- Not performed by this workstream: flashing or floor-driving tests. The
+  raised-chassis mapping and direction tests were performed by the team.
 
 ## Known limitations
 
@@ -231,18 +242,98 @@ the `native` env; it does not bundle one):
   find the vendored fixture file; set `RESCUEBOT_FIXTURE_DIR` if none hit.
   Its failure messages are sometimes truncated in PlatformIO's summary
   (text after a `:` is dropped); use `pio test -v` to see full text.
-- No board build, flashing, or physical test has occurred.
+- No flashing or floor-driving test has occurred in this workstream.
 
 ## Next action
 
-1. Confirm the exact ESP32-S2 board and update `platformio.ini`'s `board`,
-   then rebuild.
-2. Resolve the "Hardware facts still required" list, then set
-   `chassis_config.h` from validated values before any real motor output.
+1. Validate low-speed floor movement and stopping behavior before increasing
+   the 60/255 raised-chassis ceiling.
+2. Confirm the motor-shield revision and BNO055 mounting/calibration details.
 3. Someone should reconcile WORKSTREAMS.md's `firmware/tests/` path with
    the actual `firmware/test/` directory name.
 
 ## Handoff log
+
+### 2026-09-26 EDT - Confirmed QT Py chassis configuration replaces DC-4 assumption
+
+- Commit: eba9e04, `fix: apply confirmed chassis wiring`.
+- Changed files and interfaces: updated `ChassisConfig` and the native wiring
+  regression test to the raised-chassis results: FL=M3 +, FR=M1 -, RL=M4 +,
+  RR=M2 - for pure forward. The direction correction stays exclusively in
+  wiring configuration; mixing equations, serial messages, and the 500 ms
+  watchdog are unchanged. Set the PlatformIO board to
+  `adafruit_qtpy_esp32s2`, and updated the reusable port-test sketch with the
+  confirmed default-Wire pins and shield address.
+- Hardware facts supplied by the team: Adafruit QT Py ESP32-S2 with USB CDC;
+  SDA=GPIO7, SCL=GPIO6; motor shield=0x60, BNO055=0x28, BMP280=0x77. M1 is
+  front-right, M2 rear-right, M3 front-left, and M4 rear-left; M1/M2 are
+  inverted. Ceiling 60/255 is confirmed for raised-chassis testing only.
+- Tests and results:
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio test -e native
+
+  Result: 53/53 pass.
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2 -t clean
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2
+
+  Result: SUCCESS with 0 warnings; RAM 8.5% (27744/327680 B), flash 20.7%
+  (297982/1441792 B).
+- Mock or physical coverage: native tests and QT Py target build in this
+  workstream; the team reports the same configuration was raised-chassis
+  verified and flashed from `test/integration` d6a5d5f. No flash occurred in
+  this task.
+- Correction: 017de3a's M1/front-left inversion was based on a preliminary
+  all-ports-FORWARD observation and is superseded by this mapping.
+- Next action: keep the current 60/255 ceiling for initial floor tests;
+  measure direction and stopping behavior before raising it.
+
+### 2026-09-26 EDT - DC-4 front-left wiring correction and port-test fixture
+
+- Commit: 017de3a, `fix: invert front-left motor wiring`.
+- Changed files and interfaces: `chassis_config.h` sets the front-left
+  inversion only; `test_wiring` asserts a pure-forward logical mix at PWM
+  100 becomes M1 -100 and M2–M4 +100 after wiring. No mixing equation,
+  message shape, or watchdog value changed. Added
+  `firmware/tools/motor_shield_port_test/motor_shield_port_test.ino`, an
+  Arduino IDE sketch that refuses to run until confirmed I2C SDA/SCL pins
+  and shield address are supplied, then drives one port at a time FORWARD
+  at PWM 60 for two seconds and prints the port number.
+- Tests and results:
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio test -e native
+
+  Result: 53/53 pass, including `test_wiring`.
+
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2 -t clean
+      PLATFORMIO_CORE_DIR=/private/tmp/rescuebot-platformio-core \
+        /private/tmp/rescuebot-platformio-venv/bin/pio run -e esp32-s2
+
+  Result: clean and build succeed with 0 compiler warnings; RAM 4.8%
+  (15628/327680 B), flash 20.6% (269502/1310720 B).
+
+  `firmware/test/fixtures/serial_protocol_vectors.json` exactly matches
+  `origin/feature/dashboard-control:fixtures/serial_protocol_vectors.json`
+  (SHA-256 `9fe196796055615ea0f0dff5600232ec01d596c9e4b532c10ec891da801dff70`).
+  The isolated firmware branch does not contain the dashboard-owned root
+  `fixtures/` file, so `git diff origin/feature/dashboard-control --
+  fixtures/serial_protocol_vectors.json` reports that absence rather than
+  a content mismatch. No dashboard-owned file was copied into this branch.
+- Mock or physical coverage: native and target compilation only. The
+  front-left lead reversal is the pre-existing 2026-09-26 bench observation;
+  no new physical test or flashing occurred.
+- Confirmed hardware facts: none in this task. Board remains placeholder
+  `esp32-s2-saola-1`; I2C pins and shield address are unconfirmed; the
+  hardware PWM ceiling remains 0; port-to-wheel mapping remains provisional.
+- Next action: provide the exact board, I2C SDA/SCL pins, motor-shield
+  address, and raised-chassis M1–M4 observations. Only then update the board
+  configuration, wiring channels/inversions, or the PWM ceiling. Flash only
+  after the ESP32-S2 is connected and the chassis is raised.
 
 ### 2026-09-26 EDT - Stage E/F firmware skeleton
 
