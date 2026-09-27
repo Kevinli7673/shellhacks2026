@@ -402,6 +402,7 @@ function navigationGoalInput() {
 function updateNavigation(autonomy, drive) {
   element("simulation-navigation").hidden = !autonomy.available;
   if (!autonomy.available) return;
+  element("navigation-title").textContent = autonomy.physical ? "Robot autonomy" : "Simulation autonomy";
   const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
   const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
   const search = nav.search;

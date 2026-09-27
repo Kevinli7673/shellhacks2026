@@ -268,6 +268,33 @@ class PhysicalAutonomyTests(unittest.TestCase):
         self.assertEqual(rig.service.control.fault, "autonomy_timeout")
         self.assertEqual(rig.firmware.outputs, STOPPED)
 
+    def test_set_distance_goal_reaches_ros_only_when_physical_autonomy_is_allowed(self) -> None:
+        class Endpoint:
+            def __init__(self) -> None:
+                self.goals: list[tuple[str, object, object]] = []
+
+            def state(self, now=None) -> dict:
+                return {"ready": True}
+
+            def send_goal(self, mission, forward, right) -> bool:
+                self.goals.append((mission, forward, right))
+                return True
+
+        manual = self.armed_rig()
+        manual.service.navigation_endpoint = Endpoint()
+        self.assertFalse(manual.service.navigation_goal(manual.session, 0.5, 0.0))
+        self.assertEqual(manual.service.navigation_endpoint.goals, [])
+
+        rig = self.armed_rig(allow_physical_autonomy=True)
+        endpoint = rig.service.navigation_endpoint = Endpoint()
+        with patch("rescuebot.service.time.monotonic", rig.clock):
+            self.assertFalse(rig.service.navigation_goal(rig.session, 0.5, 0.0))  # no mission yet
+            mission = rig.service.start_autonomy(rig.session)
+            assert mission is not None
+            self.assertTrue(rig.service.navigation_goal(rig.session, 0.5, 0.0))
+            self.assertFalse(rig.service.navigation_goal("someone-else", 0.0, -0.5))
+        self.assertEqual(endpoint.goals, [(mission, 0.5, 0.0)])
+
     def test_create_app_rejects_physical_autonomy_without_the_bridge(self) -> None:
         with self.assertRaises(ValueError):
             create_app(motor_backend="mock", allow_physical_autonomy=True)

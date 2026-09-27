@@ -323,9 +323,9 @@ class RobotControlService:
         return mission
 
     def navigation_goal(self, session: str, forward: object, right: object) -> bool:
-        """A destination may only enter the current, explicitly started sim mission."""
+        """A destination may only enter the current, explicitly started mission."""
         self.tick()
-        if (not self.allow_autonomy or not isinstance(self.backend, GazeboMotorBackend)
+        if (not self.autonomy_available
                 or self.navigation_endpoint is None or session != self.control.owner_session
                 or not self.control.armed or self.control.has_movement
                 or not self.autonomy.active or self.autonomy.mission is None):
@@ -336,9 +336,9 @@ class RobotControlService:
             return False
 
     def start_search(self, session: str) -> bool:
-        """Start the simulation search only within an explicitly enabled mission."""
+        """Start the search only within an explicitly enabled mission."""
         self.tick()
-        if (not self.allow_autonomy or not isinstance(self.backend, GazeboMotorBackend)
+        if (not self.autonomy_available
                 or self.navigation_endpoint is None or session != self.control.owner_session
                 or not self.control.armed or self.control.has_movement
                 or not self.autonomy.active or self.autonomy.mission is None):
