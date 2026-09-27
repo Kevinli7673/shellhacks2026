@@ -35,6 +35,8 @@ def generate_launch_description() -> LaunchDescription:
                 "search_enabled": "true",
                 "synthetic_target_enabled": "false",
                 "person_topic": "/rescuebot/people",
+                # Mecanum: "0.5 m back" reverses and "0.5 m left" strafes.
+                "goal_keeps_heading": "true",
                 "robot_params": str(robot_share / "config" / "nav2_robot.yaml"),
             }.items(),
         ),

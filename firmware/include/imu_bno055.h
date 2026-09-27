@@ -25,8 +25,13 @@ public:
 
     ImuReading read();
 
+    // Wire.endTransmission() result of the last probe at 0x28 (0 = answered,
+    // 2 = no ACK), or 255 before the first probe. Diagnostic only.
+    uint8_t lastProbe() const { return last_probe_; }
+
 private:
     bool ready_ = false;
+    uint8_t last_probe_ = 255;
 };
 
 }  // namespace rescuebot

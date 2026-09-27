@@ -114,6 +114,26 @@ def test_dashboard_goal_uses_current_pose_and_right_axis_once(manager):
         sender.close()
 
 
+def test_mecanum_backward_goal_reverses_without_turning(manager):
+    manager._goal_keeps_heading = True
+    status(manager)
+    manager._action.send_goal_async.return_value = Future()
+    now = time.monotonic()
+    record = {"mission": "test", "request_id": "back", "expires_at": now + 0.25, "forward": -0.5, "right": 0.0}
+    sender = DatagramSender(manager._goal_receiver.path)
+    try:
+        sender.send(encode_navigation(record))
+        manager._dashboard_goals(now, {"x": 1.0, "y": 2.0, "yaw": math.pi/2}, True)
+        goal = manager._action.send_goal_async.call_args.args[0].pose
+        assert goal.pose.position.x == pytest.approx(1.0)
+        assert goal.pose.position.y == pytest.approx(1.5)
+        # Same heading as the start: no 180 degree turn.
+        assert goal.pose.orientation.z == pytest.approx(math.sin(math.pi/4))
+        assert goal.pose.orientation.w == pytest.approx(math.cos(math.pi/4))
+    finally:
+        sender.close()
+
+
 def test_dashboard_goal_cannot_survive_stop_mission_change_or_expiry(manager):
     status(manager)
     now = time.monotonic()

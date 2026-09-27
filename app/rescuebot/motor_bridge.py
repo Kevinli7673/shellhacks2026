@@ -122,6 +122,7 @@ class MotorBridge:
         self._last_connect_attempt: float | None = None
         self.rejected_commands = 0
         self._diagnostic_tail = b""
+        self._last_imu_diag = b""
         self.fault: str | None = None
 
     # -- transport ---------------------------------------------------------
@@ -186,6 +187,11 @@ class MotorBridge:
         for line in lines:
             if b'"rx_reject"' in line:
                 print(f"[bridge] firmware rejected: {line.decode('utf-8', 'replace')}",
+                      file=sys.stderr, flush=True)
+            elif b'"imu_diag"' in line and line != self._last_imu_diag:
+                # Sent every second; log only changes.
+                self._last_imu_diag = line
+                print(f"[bridge] firmware IMU: {line.decode('utf-8', 'replace')}",
                       file=sys.stderr, flush=True)
 
     # -- arbiter commands --------------------------------------------------

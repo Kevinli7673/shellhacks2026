@@ -64,6 +64,9 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("robot_params", default_value=params,
                               description="Parameter overrides loaded after nav2.yaml and collision_monitor.yaml."),
+        DeclareLaunchArgument("goal_keeps_heading", default_value="false",
+                              description="Set-distance goals keep the starting heading (mecanum robot) "
+                                          "instead of finishing faced toward the destination."),
         DeclareLaunchArgument("person_topic", default_value="",
                               description="PoseArray of camera person sightings that ends a search."),
         DeclareLaunchArgument("synthetic_target_x", default_value="1.8"),
@@ -96,6 +99,7 @@ def generate_launch_description():
              parameters=[{
                  "use_sim_time": use_sim_time,
                  "person_topic": LaunchConfiguration("person_topic"),
+                 "goal_keeps_heading": ParameterValue(LaunchConfiguration("goal_keeps_heading"), value_type=bool),
                  "search_enabled": LaunchConfiguration("search_enabled"),
                  "synthetic_target_x": ParameterValue(LaunchConfiguration("synthetic_target_x"), value_type=float),
                  "synthetic_target_y": ParameterValue(LaunchConfiguration("synthetic_target_y"), value_type=float),

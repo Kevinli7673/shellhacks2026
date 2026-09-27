@@ -84,6 +84,7 @@ class MissionManager(Node):
         # rescuebot_robot's dashboard bridge) are counted as distinct people
         # while the search covers the whole room, then it returns to start.
         self._person_topic = self.declare_parameter("person_topic", "").value
+        self._goal_keeps_heading = self.declare_parameter("goal_keeps_heading", False).value
         self._person_seen = None
         self._people_tracker = PeopleTracker()
         self._search_tree = str(Path(get_package_share_directory("rescuebot_navigation"))
@@ -215,9 +216,11 @@ class MissionManager(Node):
             # Dashboard axes: forward/right; ROS body axes: forward/left.
             goal.pose.position.x = pose["x"] + math.cos(yaw)*forward + math.sin(yaw)*right
             goal.pose.position.y = pose["y"] + math.sin(yaw)*forward - math.cos(yaw)*right
-            # Finish facing the requested destination, rather than preserving
-            # the starting heading and encouraging a sideways approach.
-            heading = yaw + math.atan2(-right, forward)
+            # Simulation: finish facing the requested destination, rather than
+            # preserving the starting heading and encouraging a sideways
+            # approach. The mecanum robot keeps its heading: it reverses and
+            # strafes instead of turning around.
+            heading = yaw if self._goal_keeps_heading else yaw + math.atan2(-right, forward)
             goal.pose.orientation.z = math.sin(heading / 2)
             goal.pose.orientation.w = math.cos(heading / 2)
             self._goal(goal)

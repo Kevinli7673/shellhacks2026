@@ -103,10 +103,27 @@ void sendLine(const char* text, size_t len) {
 // once per watchdog tick, matching how often outputs() can actually change.
 // Drive acks only echo the controller's math, so without this the Pi cannot
 // tell whether the shield answered on I2C at all.
+// Why the IMU is unavailable: disabled after a watchdog reset, not answering
+// at 0x28 (probe != 0), or answering at 0x29 instead (ADR pin high).
+void sendImuDiagnostics() {
+    Wire.beginTransmission(0x29);
+    bool alt = Wire.endTransmission() == 0;
+    int n = snprintf(g_diag_buf, sizeof(g_diag_buf),
+                     "{\"type\":\"imu_diag\",\"enabled\":%s,\"ready\":%s,\"probe_0x28\":%u,"
+                     "\"answers_0x29\":%s,\"reset_reason\":%d}",
+                     g_imu_enabled ? "true" : "false", g_imu_ready ? "true" : "false",
+                     static_cast<unsigned>(g_imu.lastProbe()), alt ? "true" : "false",
+                     static_cast<int>(esp_reset_reason()));
+    if (n > 0 && static_cast<size_t>(n) < sizeof(g_diag_buf)) {
+        sendLine(g_diag_buf, static_cast<size_t>(n));
+    }
+}
+
 void sendStatus() {
     size_t n = rescuebot::buildStatus(g_out_buf, sizeof(g_out_buf), g_motors_ready, g_rx_dropped,
                                       g_loop_max_ms);
     sendLine(g_out_buf, n);
+    sendImuDiagnostics();
     g_loop_max_ms = 0;
 }
 

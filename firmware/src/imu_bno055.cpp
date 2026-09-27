@@ -21,7 +21,8 @@ bool ImuSensor::begin() {
     // Adafruit_BNO055::begin() retries for ~850 ms when nothing answers, so a
     // single-transaction probe keeps a missing sensor from stalling loop().
     Wire.beginTransmission(kBnoAddress);
-    if (Wire.endTransmission() != 0) {
+    last_probe_ = Wire.endTransmission();
+    if (last_probe_ != 0) {
         ready_ = false;
         return false;
     }
