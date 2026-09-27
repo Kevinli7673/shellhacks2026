@@ -114,7 +114,7 @@ stay off until someone arms them again.
 | Raspberry Pi AI Camera (Sony IMX500) | Person detection on the sensor, plus annotated video |
 | Slamtec RPLIDAR C1 | 360° scans for the LiDAR view, SLAM mapping, and obstacle avoidance |
 | Adafruit QT Py ESP32-S2 | Robot controller: arming, watchdog, mecanum mixing, motors, IMU, buzzer, light |
-| Hiwonder mecanum wheel chassis | Frame, four mecanum wheels, and four DC gear motors |
+| Hiwonder mecanum wheel chassis kit | Frame, four mecanum wheels, and the kit's four DC gear motors (model and voltage not listed) |
 | Adafruit Motor/Stepper/Servo Shield for Arduino v2.3 (I2C 0x60) | Drives the four DC motors |
 | 6 × AA battery pack | Motor power, through the motor shield |
 | Energizer 10,000 mAh 22.5 W USB-C power bank | Powers the Raspberry Pi |
@@ -412,8 +412,8 @@ Latest results on `main` (Raspberry Pi 5, Python 3.13, pytest 9.1, PlatformIO
   integration and hardware bring-up, and physical ROS 2 mapping and autonomy
   (committed under the a1vcm account)
 - Isabelle Mathew: ESP32-S2 firmware, buzzer and light
-- a1vcm (GitHub): AI Camera detection, LiDAR and sensor tools, speaker and
-  voice, Gemini triage, and help with the hardware
+- Alvaro Canseco-Martinez (a1vcm): AI Camera detection, LiDAR and sensor
+  tools, speaker and voice, Gemini triage, and help with the hardware
 - Kevin Li: repository owner, and the robot's hardware (chassis, motors,
   wiring)
 
