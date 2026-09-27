@@ -209,6 +209,43 @@ Validation:
 - Next action: flash the firmware and Pi code together, then bench-check
   both toggles on the robot with the chassis raised.
 
+### 2026-09-27 EDT - Buzzer/light bench fixes and camera-driven automation
+
+- Workstream: full stack (Pi dashboard, camera script, firmware), on the Pi.
+- Branch/worktree: test/full-stack 97c0f05, ~/rescuebot-integration.
+- Status: flashed and running on the robot; not committed at time of writing.
+- Hardware facts (bench-checked with the user): the buzzer on A3 is
+  passive, so a steady level was silent (A3 measured 0 -> 3.3 V). Firmware
+  now drives a 2 kHz square wave on LEDC channel 0; `buzzer_duty_percent`
+  (10, max 50) sets the volume. The Jewel stayed dark on 5V (measured 4.7 V,
+  where 3.3 V data sits at the SK6812 logic threshold) and no level shifter
+  was available, so it now runs from the QT Py 3V pin with `light_level` 48
+  on all four channels (~100 mA). Data stays on RX = GPIO16. A wiring fault
+  on the Jewel was then found and fixed by the user.
+- Camera: ai_camera_detect.py adds libcamera's per-frame `Lux` estimate as
+  an optional `lux` field on detection_frame records; DetectionFrame keeps
+  it when present. Older records without it still parse.
+- Behavior decision (user-requested): dashboard `--auto-accessories`
+  (default off, or RESCUEBOT_AUTO_ACCESSORIES=1) runs AccessoryAutomation on
+  its own thread. When a person first appears, the buzzer sounds for 2 s and
+  the light flashes 5 times (0.2 s on/off), then returns to its previous
+  state; no new alert until nobody has been seen for 3 s. Below 10 lux for
+  5 s the light turns on; above 40 lux for 5 s it turns off. A dark/bright
+  change acts like a Light press, so a manual press overrides it until the
+  next change; turning the buzzer off ends a playing alert. Automation needs
+  no owning browser. When the owner disconnects, their switches reset but a
+  dark-scene light stays on (exception to the rule above). The Pi adopts
+  the firmware's state after a reboot or new serial session. Never affects
+  driving, arming, or watchdogs.
+- Tests: `pytest` 188 passed, 2 skipped (15 new in
+  tests/control/test_accessory_auto.py); firmware native 59/59;
+  `pio run -e esp32-s2` SUCCESS, 0 warnings.
+- Physical evidence: buzzer tone confirmed by the user; the Jewel lights
+  after the wiring fix; first live alert logged at 162 lux (bright room).
+- Next action: confirm the alert and the dark light by eye and ear; tune
+  DARK_LUX/BRIGHT_LUX in app/rescuebot/accessory_auto.py if the light's own
+  glow makes it toggle.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

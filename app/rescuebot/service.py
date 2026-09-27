@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from .accessory_auto import AccessoryAutomation, alert_outputs
 from .bridge_backend import BridgeMotorBackend
 from .control import ControlSnapshot, ManualControl
 from .mock import MockMotorBackend
@@ -11,6 +12,9 @@ from .mock import MockMotorBackend
 
 ARM_CONFIRM_TIMEOUT_S = 1.0
 ACCESSORY_NAMES = ("buzzer", "light")
+# With nothing sent for this long and no alert playing, a firmware state that
+# differs from ours (reboot, new serial session, lost command) is adopted.
+ACCESSORY_ADOPT_S = 1.0
 
 
 class RobotControlService:
@@ -21,6 +25,12 @@ class RobotControlService:
     until the firmware's arm_ack arrives; no confirmation within
     ARM_CONFIRM_TIMEOUT_S stops with "arm_timeout". Any later loss of firmware
     arming stops control with the bridge's reason and needs a new Enable.
+
+    The buzzer and light have a base state set by the owner's buttons. With an
+    AccessoryAutomation, a dark/bright change sets the base light like a button
+    press (so a press overrides it until the next change), and a person alert
+    plays on top of the base: buzzer for 2 s, five light flashes. Either never
+    touches driving or arming.
     """
 
     def __init__(
@@ -28,12 +38,20 @@ class RobotControlService:
         control: ManualControl | None = None,
         backend: MockMotorBackend | BridgeMotorBackend | None = None,
         arm_confirm_timeout_s: float = ARM_CONFIRM_TIMEOUT_S,
+        automation: AccessoryAutomation | None = None,
     ) -> None:
         self.control = control or ManualControl()
         self.backend = backend or MockMotorBackend()
         self.arm_confirm_timeout_s = arm_confirm_timeout_s
+        self.automation = automation
         self._arming_since: float | None = None
         self._last_snapshot: ControlSnapshot | None = None
+        self._base = {"buzzer": False, "light": False}
+        self._sent = {"buzzer": False, "light": False}
+        self._sent_at = float("-inf")
+        self._alert_started: float | None = None
+        self._seen_alert_seq = 0
+        self._seen_dark_seq = 0
 
     @property
     def _bridge(self) -> BridgeMotorBackend | None:
@@ -53,6 +71,7 @@ class RobotControlService:
         else:
             snapshot = self._reconcile_bridge(bridge, snapshot, now)
             bridge.send(snapshot, now)
+        self._sync_accessories(now)
         self._last_snapshot = snapshot
         return snapshot
 
@@ -118,27 +137,77 @@ class RobotControlService:
         self.tick(now)
 
     def set_accessory(self, session: str, name: str, on: bool, now: float | None = None) -> bool:
-        """Owner-only buzzer/light switch. Works armed or disarmed; never moves the robot."""
+        """Owner-only buzzer/light switch. Works armed or disarmed; never moves the robot.
+
+        Switching the buzzer off also ends a person alert that is playing.
+        """
         now = time.monotonic() if now is None else now
         if name not in ACCESSORY_NAMES or session != self.control.owner_session:
             return False
         bridge = self._bridge
-        if bridge is None:
-            wanted = {**self.backend.accessories, name: on}
-            self.backend.set_accessories(wanted["buzzer"], wanted["light"])
-            return True
-        bridge.poll(now)
-        if not bridge.healthy(now):
-            return False
-        wanted = {**bridge.accessories, name: on}
-        return bridge.request_accessories(wanted["buzzer"], wanted["light"], now)
+        if bridge is not None:
+            bridge.poll(now)
+            if not bridge.healthy(now):
+                return False
+        self._base[name] = on
+        if name == "buzzer" and not on:
+            self._alert_started = None
+        return self._sync_accessories(now, force=True)
 
-    def _accessories_off(self, now: float) -> None:
+    def _follow_automation(self, now: float) -> None:
+        if self.automation is None:
+            return
+        snap = self.automation.snapshot()
+        if snap.alert_seq != self._seen_alert_seq:
+            self._seen_alert_seq = snap.alert_seq
+            self._alert_started = now
+        if snap.dark_seq != self._seen_dark_seq:
+            self._seen_dark_seq = snap.dark_seq
+            self._base["light"] = snap.dark
+
+    def _wanted_accessories(self, now: float) -> dict[str, bool]:
+        wanted = dict(self._base)
+        if self._alert_started is not None:
+            outputs = alert_outputs(now - self._alert_started)
+            if outputs is None:
+                self._alert_started = None
+            else:
+                buzzer, light = outputs
+                wanted["buzzer"] = wanted["buzzer"] or buzzer
+                if light is not None:
+                    wanted["light"] = light
+        return wanted
+
+    def _sync_accessories(self, now: float, force: bool = False) -> bool:
+        """Send the wanted buzzer/light state when it changes (or when forced)."""
+        self._follow_automation(now)
+        wanted = self._wanted_accessories(now)
         bridge = self._bridge
         if bridge is None:
-            self.backend.set_accessories(False, False)
-        else:
-            bridge.request_accessories(False, False, now)
+            if force or wanted != self.backend.accessories:
+                self.backend.set_accessories(wanted["buzzer"], wanted["light"])
+            return True
+        if not bridge.healthy(now):
+            return False
+        if force or wanted != self._sent:
+            self._sent = wanted
+            self._sent_at = now
+            return bridge.request_accessories(wanted["buzzer"], wanted["light"], now)
+        if self._alert_started is None and now - self._sent_at >= ACCESSORY_ADOPT_S:
+            confirmed = bridge.accessories
+            if confirmed != wanted:
+                # The firmware rebooted, a new serial session switched them
+                # off, or a command was lost: follow what the firmware shows.
+                self._base = dict(confirmed)
+                self._sent = dict(confirmed)
+                self._sent_at = now
+        return True
+
+    def _accessories_off(self, now: float) -> None:
+        # The owner's switches reset; an automatic dark-scene light stays on.
+        dark = self.automation is not None and self.automation.snapshot().dark
+        self._base = {"buzzer": False, "light": dark}
+        self._sync_accessories(now, force=True)
 
     def disconnect(self, session: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
@@ -160,7 +229,7 @@ class RobotControlService:
         motor = bridge.as_dict(now) if bridge is not None else self.backend.as_dict()
         control = snapshot.as_dict()
         control["arming"] = self.arming
-        return {
+        state: dict[str, object] = {
             "control": control,
             "motor": motor,
             "camera": {
@@ -169,3 +238,9 @@ class RobotControlService:
                 "message": "Camera service has not been integrated.",
             },
         }
+        if self.automation is not None:
+            state["accessory_auto"] = {
+                **self.automation.snapshot().as_dict(),
+                "alert_playing": self._alert_started is not None,
+            }
+        return state

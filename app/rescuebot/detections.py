@@ -134,9 +134,16 @@ class DetectionFrame:
     image_width: int
     image_height: int
     detections: tuple[Detection, ...] = ()
+    # libcamera's scene brightness estimate for the frame, when the camera reports one.
+    lux: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "timestamp", _finite_number(self.timestamp, "timestamp"))
+        if self.lux is not None:
+            lux = _finite_number(self.lux, "lux")
+            if lux < 0:
+                raise ValueError("lux must not be negative")
+            object.__setattr__(self, "lux", lux)
         if isinstance(self.frame_id, bool) or not isinstance(self.frame_id, int) or self.frame_id < 0:
             raise ValueError("frame_id must be a non-negative integer")
         if not isinstance(self.camera_id, str) or not self.camera_id:
@@ -157,6 +164,7 @@ class DetectionFrame:
             image_width=self.image_width,
             image_height=self.image_height,
             detections=tuple(d for d in self.detections if d.confidence >= threshold),
+            lux=self.lux,
         )
 
     def with_timestamp(self, timestamp: float) -> "DetectionFrame":
@@ -167,16 +175,20 @@ class DetectionFrame:
             image_width=self.image_width,
             image_height=self.image_height,
             detections=self.detections,
+            lux=self.lux,
         )
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        data: dict[str, object] = {
             "timestamp": self.timestamp,
             "frame_id": self.frame_id,
             "camera_id": self.camera_id,
             "image": {"width": self.image_width, "height": self.image_height},
             "detections": [d.as_dict() for d in self.detections],
         }
+        if self.lux is not None:
+            data["lux"] = self.lux
+        return data
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DetectionFrame":
@@ -189,6 +201,7 @@ class DetectionFrame:
                 image_width=image["width"],
                 image_height=image["height"],
                 detections=tuple(Detection.from_dict(d) for d in data["detections"]),
+                lux=data.get("lux"),
             )
         except (KeyError, TypeError) as exc:
             raise ValueError(f"malformed detection frame: {exc!r}") from exc

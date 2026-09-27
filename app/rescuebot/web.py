@@ -15,6 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .accessory_auto import AccessoryAutomation
 from .bridge_backend import BridgeMotorBackend
 from .live_camera import (
     DEFAULT_DETECTOR,
@@ -96,6 +97,7 @@ def create_app(
     sensors: Sensors | None = None,
     voice: bool = False,
     camera_voice: CameraVoice | None = None,
+    auto_accessories: bool = False,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -132,6 +134,9 @@ def create_app(
         raise ValueError("camera_backend must be mock, replay, or live")
     sensor_service = sensors if sensors is not None else create_sensors(sensors_mode)
     camera_status_source = _LockedCamera(camera_service)
+    if auto_accessories and control_service.automation is None:
+        control_service.automation = AccessoryAutomation(camera_status_source.status)
+    automation = control_service.automation
     if camera_voice is None and voice:
         camera_voice = _create_camera_voice(camera_status_source)
 
@@ -141,6 +146,8 @@ def create_app(
         sensor_service.start()
         if camera_voice is not None:
             camera_voice.start()
+        if automation is not None:
+            automation.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
         try:
             yield
@@ -152,6 +159,8 @@ def create_app(
             control_service.close()
             if camera_voice is not None:
                 camera_voice.close()
+            if automation is not None:
+                automation.close()
             camera_service.close()
             sensor_service.close()
 
@@ -282,6 +291,12 @@ def main() -> None:
         default=os.environ.get("RESCUEBOT_VOICE") == "1",
         help="Speak camera detections (ElevenLabs, espeak-ng fallback) on its own thread.",
     )
+    parser.add_argument(
+        "--auto-accessories",
+        action="store_true",
+        default=os.environ.get("RESCUEBOT_AUTO_ACCESSORIES") == "1",
+        help="Sound the buzzer and flash the light when a person appears; light on in the dark.",
+    )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
         parser.error("--replay-path is required when --camera-backend replay")
@@ -295,6 +310,7 @@ def main() -> None:
             motor_backend=args.motor_backend,
             sensors_mode=args.sensors,
             voice=args.voice,
+            auto_accessories=args.auto_accessories,
         ),
         host="0.0.0.0",
         port=8000,

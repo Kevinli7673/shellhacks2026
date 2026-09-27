@@ -157,11 +157,12 @@ def model_settings(model_path, intrinsics, labels_file=None, box_format="auto"):
     return labels, normalize, order
 
 
-def make_event(frame_id, camera_id, width, height, sensor_timestamp_ns, found, now=None):
+def make_event(frame_id, camera_id, width, height, sensor_timestamp_ns, found, now=None, lux=None):
     """Build one detection_frame record from pixel boxes, clipping boxes to the image.
 
     Boxes that fall completely outside the image are dropped. The timestamp is the
     sensor's capture time in seconds when available, otherwise the local monotonic clock.
+    lux is libcamera's scene brightness estimate for the frame; it's added only when known.
     """
     if sensor_timestamp_ns:
         timestamp = sensor_timestamp_ns / 1e9
@@ -180,7 +181,7 @@ def make_event(frame_id, camera_id, width, height, sensor_timestamp_ns, found, n
             "confidence": round(min(max(float(conf), 0.0), 1.0), 3),
             "bbox": {"x": nx0, "y": ny0, "width": round(nx1 - nx0, 4), "height": round(ny1 - ny0, 4)},
         })
-    return {
+    event = {
         "type": RECORD_TYPE,
         "timestamp": timestamp,
         "frame_id": frame_id,
@@ -188,6 +189,9 @@ def make_event(frame_id, camera_id, width, height, sensor_timestamp_ns, found, n
         "image": {"width": width, "height": height},
         "detections": detections,
     }
+    if lux is not None:
+        event["lux"] = round(max(float(lux), 0.0), 1)
+    return event
 
 
 class MjpegStreamer:
@@ -406,7 +410,7 @@ def main():
         if found is None:
             return
         event = make_event(frame_id, args.camera_id, args.width, args.height,
-                           metadata.get("SensorTimestamp"), found)
+                           metadata.get("SensorTimestamp"), found, lux=metadata.get("Lux"))
         try:
             events.put_nowait(event)
         except queue.Full:
