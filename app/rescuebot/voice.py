@@ -215,18 +215,26 @@ class CameraVoice:
     """Speaks camera detections on its own thread.
 
     About twice a second it reads `camera_status()` (the dashboard's camera status
-    dict), adds bearings from the boxes, and passes the alert to `speaker.say()`,
-    which never blocks. It shares nothing with the control loop, so it can't delay
-    Stop, and any error is logged and skipped.
+    dict) and adds bearings from the boxes. It speaks only when a person (or other
+    detection) first appears: nothing more is said while someone stays in view,
+    and the next alert comes only after nothing has been seen for `gone_after_s`
+    seconds, so a brief detection dropout doesn't count as a new arrival.
+    `speaker.say()` never blocks. It shares nothing with the control loop, so it
+    can't delay Stop, and any error is logged and skipped.
     """
 
     def __init__(self, camera_status: Callable[[], dict], speaker: Speaker,
-                 interval_s=0.5, hfov_deg=CAMERA_HFOV_DEG, log=None):
+                 interval_s=0.5, hfov_deg=CAMERA_HFOV_DEG, gone_after_s=3.0,
+                 clock=time.monotonic, log=None):
         self.camera_status = camera_status
         self.speaker = speaker
         self.interval_s = interval_s
         self.hfov_deg = hfov_deg
+        self.gone_after_s = gone_after_s
+        self.clock = clock
         self.log = log or _stderr_log
+        self._present = False
+        self._last_seen = float("-inf")
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="rescuebot-camera-voice", daemon=True)
 
@@ -234,13 +242,21 @@ class CameraVoice:
         self._thread.start()
 
     def poll_once(self):
-        """Speak the current detections, if any. Returns the text passed to the speaker, or None."""
+        """Check the camera once. Returns the text passed to the speaker, or None."""
+        now = self.clock()
         status = self.camera_status()
-        if status.get("status") != "online":
+        text = None
+        if status.get("status") == "online":
+            text = alert_text(with_bearings(status.get("detections") or [], self.hfov_deg))
+        if not text:
+            if self._present and now - self._last_seen >= self.gone_after_s:
+                self._present = False
             return None
-        text = alert_text(with_bearings(status.get("detections") or [], self.hfov_deg))
-        if text:
-            self.speaker.say(text)
+        self._last_seen = now
+        if self._present:
+            return None
+        self._present = True
+        self.speaker.say(text)
         return text
 
     def _run(self):

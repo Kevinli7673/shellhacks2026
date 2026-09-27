@@ -184,16 +184,58 @@ class SpeakerTests(unittest.TestCase):
 
 
 class CameraVoiceTests(unittest.TestCase):
-    def test_poll_speaks_bearing_from_box(self):
-        camera = FakeCamera({"status": "online", "detections": [person(0.8)]})
+    def test_speaks_side_from_box_on_first_appearance(self):
+        for x, expected in ((0.8, "Person detected on the right."), (0.0, "Person detected on the left."),
+                            (0.4, "Person detected ahead.")):
+            with self.subTest(x=x):
+                speaker = RecordingSpeaker()
+                camera = FakeCamera({"status": "online", "detections": [person(x)]})
+                self.assertEqual(CameraVoice(camera.status, speaker).poll_once(), expected)
+                self.assertEqual(speaker.said, [expected])
+
+    def test_speaks_only_when_person_first_appears(self):
+        now = [0.0]
         speaker = RecordingSpeaker()
-        camera_voice = CameraVoice(camera.status, speaker)
-        self.assertEqual(camera_voice.poll_once(), "Person detected on the right.")
-        camera.current = {"status": "online", "detections": [person(0.0)]}
+        camera = FakeCamera({"status": "online", "detections": [person(0.4)]})
+        camera_voice = CameraVoice(camera.status, speaker, gone_after_s=3.0, clock=lambda: now[0])
+        empty = {"status": "online", "detections": []}
+
         camera_voice.poll_once()
-        camera.current = {"status": "online", "detections": []}
+        for _ in range(60):  # stays in view for 30 s, moving to the left: silent
+            now[0] += 0.5
+            camera.current = {"status": "online", "detections": [person(0.0)]}
+            self.assertIsNone(camera_voice.poll_once())
+
+        camera.current = empty  # brief dropout shorter than gone_after_s
+        now[0] += 2.5
+        camera_voice.poll_once()
+        camera.current = {"status": "online", "detections": [person(0.8)]}
+        now[0] += 0.5
         self.assertIsNone(camera_voice.poll_once())
-        self.assertEqual(speaker.said, ["Person detected on the right.", "Person detected on the left."])
+
+        camera.current = empty  # really gone
+        now[0] += 0.5
+        camera_voice.poll_once()
+        now[0] += 3.0
+        camera_voice.poll_once()
+        camera.current = {"status": "online", "detections": [person(0.8)]}
+        now[0] += 0.5
+        self.assertEqual(camera_voice.poll_once(), "Person detected on the right.")
+        self.assertEqual(speaker.said, ["Person detected ahead.", "Person detected on the right."])
+
+    def test_camera_going_offline_counts_as_gone_only_after_timeout(self):
+        now = [0.0]
+        speaker = RecordingSpeaker()
+        camera = FakeCamera({"status": "online", "detections": [person(0.4)]})
+        camera_voice = CameraVoice(camera.status, speaker, gone_after_s=3.0, clock=lambda: now[0])
+        camera_voice.poll_once()
+        camera.current = {"status": "stale", "detections": []}
+        now[0] += 1.0
+        camera_voice.poll_once()
+        camera.current = {"status": "online", "detections": [person(0.4)]}
+        now[0] += 0.5
+        self.assertIsNone(camera_voice.poll_once())
+        self.assertEqual(speaker.said, ["Person detected ahead."])
 
     def test_poll_ignores_offline_or_stale_camera(self):
         speaker = RecordingSpeaker()

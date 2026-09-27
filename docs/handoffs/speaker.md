@@ -48,6 +48,10 @@ because the amp can overdrive the speaker.
   status, and when the camera is `online` it adds `bearing_deg` to each
   detection from the bbox center (`x_to_bearing`, 66 degree FOV; ahead within
   10 degrees) and calls `Speaker.say(alert_text(...))`, which never blocks.
+  It speaks only when a detection first appears (user choice 2026-09-26, after
+  the first live run repeated "Person detected ahead" every 8 s). Nothing more
+  is said while someone stays in view; the next alert needs nothing seen for
+  3 s (`gone_after_s`), so brief detection dropouts are ignored.
 - web.py: `--voice` (or RESCUEBOT_VOICE=1), default off. It never touches the
   control loop or Stop. Camera status reads from the web handlers and the voice
   thread share one lock (`_LockedCamera`), because ReplayCameraBackend.status()
@@ -59,9 +63,10 @@ because the amp can overdrive the speaker.
   raise, offline camera is silent, dashboard starts/closes voice and Stop works.
 
 Validation 2026-09-26 on the Pi (Python 3.13, .venv):
-`.venv/bin/python -m pytest -q` -> 158 passed, 2 skipped, 1 warning (httpx
-deprecation), 192 subtests passed. Unit tests only; the dashboard has not yet
-been run with `--voice` on the robot.
+`.venv/bin/python -m pytest -q` -> 160 passed, 2 skipped, 1 warning (httpx
+deprecation), 195 subtests passed. Live run on the robot (--motor-backend bridge --camera-backend live --sensors
+live --voice): startup line, "ahead" and "on the left" were spoken (log);
+right side and first-appearance-only behavior not yet confirmed live.
 
 ## Open
 
