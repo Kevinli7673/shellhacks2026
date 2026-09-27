@@ -9,7 +9,7 @@ from .accessory_auto import AccessoryAutomation, alert_outputs
 from .autonomy import AUTONOMY_TIMEOUT_S, DEFAULT_AUTONOMY_SPEED_PERCENT, AutonomyControl
 from .autonomy_ipc import AutonomyHostEndpoint
 from .bridge_backend import BridgeMotorBackend
-from .control import ControlSnapshot, ManualControl
+from .control import ControlSnapshot, DriveIntent, ManualControl
 from .gazebo_backend import GazeboMotorBackend
 from .mecanum import mix_mecanum
 from .mock import MockMotorBackend
@@ -52,6 +52,7 @@ class RobotControlService:
         navigation_endpoint: NavigationHostEndpoint | None = None,
         autonomy_timeout_s: float = AUTONOMY_TIMEOUT_S,
         autonomy_speed_percent: int = DEFAULT_AUTONOMY_SPEED_PERCENT,
+        autonomy_min_pwm: int = 0,
     ) -> None:
         self.control = control or ManualControl()
         self.backend = backend or MockMotorBackend()
@@ -63,6 +64,7 @@ class RobotControlService:
         self.autonomy_endpoint = autonomy_endpoint
         self.navigation_endpoint = navigation_endpoint
         self.autonomy_speed_percent = max(10, min(100, int(autonomy_speed_percent)))
+        self.autonomy_min_pwm = max(0, min(255, int(autonomy_min_pwm)))
         self._arming_since: float | None = None
         self._last_snapshot: ControlSnapshot | None = None
         self._base = {"buzzer": False, "light": False}
@@ -151,12 +153,26 @@ class RobotControlService:
             self.control.stop("autonomy_timeout")
             return self.control.snapshot(now)
         speed_limit = round(self.control.pwm_ceiling * self.autonomy_speed_percent / 100)
+        wheels = mix_mecanum(motion.forward, motion.sideways, motion.turn, speed_limit)
+        floor = min(self.autonomy_min_pwm, speed_limit)
+        if 0 < max(abs(value) for value in wheels.as_dict().values()) < floor:
+            # Scale the whole intent so the strongest wheel reaches the stall
+            # floor; direction and wheel ratios are unchanged. The full-scale
+            # mix gives the unrounded strongest wheel as a fraction of the limit.
+            full = mix_mecanum(motion.forward, motion.sideways, motion.turn, 255)
+            scale = floor / (max(abs(value) for value in full.as_dict().values()) / 255 * speed_limit)
+            motion = DriveIntent(
+                max(-1.0, min(1.0, motion.forward * scale)),
+                max(-1.0, min(1.0, motion.sideways * scale)),
+                max(-1.0, min(1.0, motion.turn * scale)),
+            )
+            wheels = mix_mecanum(motion.forward, motion.sideways, motion.turn, speed_limit)
         return replace(
             snapshot,
             speed_percent=self.autonomy_speed_percent,
             speed_limit=speed_limit,
             intent=motion,
-            wheels=mix_mecanum(motion.forward, motion.sideways, motion.turn, speed_limit),
+            wheels=wheels,
             source="autonomy",
         )
 

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .accessory_auto import AccessoryAutomation
 from .bridge_backend import BridgeMotorBackend
-from .autonomy import DEFAULT_AUTONOMY_SPEED_PERCENT
+from .autonomy import DEFAULT_AUTONOMY_MIN_PWM, DEFAULT_AUTONOMY_SPEED_PERCENT
 from .autonomy_ipc import AutonomyHostEndpoint
 from .gazebo_backend import GazeboMotorBackend, default_sim_command_socket
 from .live_camera import (
@@ -111,6 +111,7 @@ def create_app(
     autonomy_status_socket: str | Path | None = None,
     allow_physical_autonomy: bool = False,
     autonomy_speed_percent: int = DEFAULT_AUTONOMY_SPEED_PERCENT,
+    autonomy_min_pwm: int = DEFAULT_AUTONOMY_MIN_PWM,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -132,6 +133,7 @@ def create_app(
                 "allow_autonomy": True,
                 "allow_physical_autonomy": True,
                 "autonomy_speed_percent": autonomy_speed_percent,
+                "autonomy_min_pwm": autonomy_min_pwm,
                 "autonomy_endpoint": AutonomyHostEndpoint(
                     autonomy_command_socket or ros_dir / "autonomy-command.sock",
                     autonomy_status_socket or ros_dir / "autonomy-status.sock",
@@ -397,6 +399,13 @@ def main() -> None:
         default=int(os.environ.get("RESCUEBOT_AUTONOMY_SPEED", DEFAULT_AUTONOMY_SPEED_PERCENT)),
         help="Top autonomy speed as a percent of the PWM ceiling, 10-100 (default: %(default)s).",
     )
+    parser.add_argument(
+        "--autonomy-min-pwm",
+        type=int,
+        default=int(os.environ.get("RESCUEBOT_AUTONOMY_MIN_PWM", DEFAULT_AUTONOMY_MIN_PWM)),
+        help="Real robot: scale weak autonomy commands up so the strongest wheel gets at least "
+        "this PWM (motors stall below it); 0 disables (default: %(default)s).",
+    )
     args = parser.parse_args()
     if args.allow_physical_autonomy and args.motor_backend != "bridge":
         parser.error("--allow-physical-autonomy needs --motor-backend bridge")
@@ -418,6 +427,7 @@ def main() -> None:
             autonomy_status_socket=args.autonomy_status_socket,
             allow_physical_autonomy=args.allow_physical_autonomy,
             autonomy_speed_percent=args.autonomy_speed,
+            autonomy_min_pwm=args.autonomy_min_pwm,
         ),
         host="0.0.0.0",
         port=8000,
