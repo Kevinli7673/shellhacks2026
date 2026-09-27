@@ -47,6 +47,7 @@ class RobotControlService:
         automation: AccessoryAutomation | None = None,
         *,
         allow_autonomy: bool = False,
+        allow_physical_autonomy: bool = False,
         autonomy_endpoint: AutonomyHostEndpoint | None = None,
         navigation_endpoint: NavigationHostEndpoint | None = None,
         autonomy_timeout_s: float = AUTONOMY_TIMEOUT_S,
@@ -57,6 +58,7 @@ class RobotControlService:
         self.arm_confirm_timeout_s = arm_confirm_timeout_s
         self.automation = automation
         self.allow_autonomy = allow_autonomy
+        self.allow_physical_autonomy = allow_physical_autonomy
         self.autonomy = AutonomyControl(autonomy_timeout_s)
         self.autonomy_endpoint = autonomy_endpoint
         self.navigation_endpoint = navigation_endpoint
@@ -73,6 +75,20 @@ class RobotControlService:
     @property
     def _bridge(self) -> BridgeMotorBackend | None:
         return self.backend if isinstance(self.backend, BridgeMotorBackend) else None
+
+    @property
+    def autonomy_available(self) -> bool:
+        """Autonomy may drive Gazebo, or the physical bridge only when explicitly allowed.
+
+        The physical path keeps every manual safeguard: Stop and any held key
+        cancel autonomy, firmware disarm or a stale bridge cancels it, and a
+        silent ROS source expires after AUTONOMY_TIMEOUT_S.
+        """
+        if not self.allow_autonomy:
+            return False
+        if isinstance(self.backend, GazeboMotorBackend):
+            return True
+        return self.allow_physical_autonomy and self._bridge is not None
 
     @property
     def arming(self) -> bool:
@@ -114,7 +130,7 @@ class RobotControlService:
         the original manual-only behavior until a separately gated host branch
         is created from physical acceptance.
         """
-        if not self.autonomy.active or not self.allow_autonomy or not isinstance(self.backend, GazeboMotorBackend):
+        if not self.autonomy.active or not self.autonomy_available:
             return snapshot
         if not snapshot.armed:
             self.autonomy.cancel(snapshot.fault or "motor_disarmed")
@@ -292,11 +308,9 @@ class RobotControlService:
         self.tick(now)
 
     def start_autonomy(self, session: str) -> str | None:
-        """Explicitly arm the simulation autonomy source for its next ROS intent."""
+        """Explicitly arm the autonomy source for its next ROS intent."""
         if (
-            not self.allow_autonomy
-            or self._bridge is not None
-            or not isinstance(self.backend, GazeboMotorBackend)
+            not self.autonomy_available
             or session != self.control.owner_session
             or not self.control.armed
             or self.control.has_movement
@@ -354,7 +368,8 @@ class RobotControlService:
         state: dict[str, object] = {
             "control": control,
             "autonomy": {
-                "available": self.allow_autonomy and isinstance(self.backend, GazeboMotorBackend),
+                "available": self.autonomy_available,
+                "physical": self.autonomy_available and self._bridge is not None,
                 "active": autonomy.active,
                 "mission": autonomy.mission,
                 "reason": autonomy.reason,
@@ -372,6 +387,6 @@ class RobotControlService:
                 **self.automation.snapshot().as_dict(),
                 "alert_playing": self._alert_started is not None,
             }
-        if self.allow_autonomy and isinstance(self.backend, GazeboMotorBackend) and self.navigation_endpoint is not None:
+        if self.autonomy_available and self.navigation_endpoint is not None:
             state["autonomy"]["navigation"] = self.navigation_endpoint.state(now)
         return state

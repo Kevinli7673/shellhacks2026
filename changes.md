@@ -271,6 +271,34 @@ Validation:
   then real person detections into ROS, Nav2 on the robot, and a gated drive
   path through the bridge with Stop and manual override on top.
 
+### 2026-09-27 EDT - Physical autonomy behind --allow-physical-autonomy
+
+- Workstream: autonomy (test/full-product)
+- Stage: physical autonomy, pre-acceptance
+- Branch/worktree: test/full-product, ~/rescuebot-full-product
+- Status: in progress (code only; not run on the robot)
+- Base commit: e25eead
+- Changes and affected files/interfaces: dashboard flag `--allow-physical-autonomy`
+  (env RESCUEBOT_ALLOW_PHYSICAL_AUTONOMY=1, bridge backend only) and
+  `--autonomy-speed` (app/rescuebot/web.py). RobotControlService.autonomy_available
+  (app/rescuebot/service.py) replaces the Gazebo-only checks, so Start autonomy,
+  navigation_goal (move forward/right a set distance) and start_search work on the
+  bridge when the flag is set. Autonomy sockets live in <run_dir>/ros so the ROS
+  container never sees the bridge socket. ROS: rescuebot_robot autonomy.launch.py
+  (mapping + Nav2 + Collision Monitor + mission manager + autonomy adapter),
+  ros_ws/docker/robot/run_autonomy.sh; navigation.launch.py gains use_sim_time,
+  slam and person_topic args; mission_manager ends a search on camera person
+  sightings (/rescuebot/people).
+- Reason and accepted design decisions: default stays manual-only. Stop, any held
+  key, firmware disarm, stale bridge, or a silent ROS source cancel autonomy.
+- Tests: `.venv/bin/python -m pytest -q tests` on the Pi: 232 passed, 2 skipped.
+  ROS package tests need ROS 2 Jazzy (not run).
+- Physical evidence: not performed. IMU unavailable on 2026-09-27 (shield I2C).
+- Known failures or limitations: yaw-only odometry, no wheel encoders.
+- Uncommitted work: none.
+- Next action: dashboard with the flag, run_autonomy.sh, wheels-off-ground
+  navigation_goal test, then floor test.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

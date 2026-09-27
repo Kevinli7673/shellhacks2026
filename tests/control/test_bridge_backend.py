@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from rescuebot.autonomy import AutonomyIntent
 from rescuebot.bridge_backend import BridgeMotorBackend
 from rescuebot.bridge_ipc import DatagramReceiver, DatagramSender
 from rescuebot.control import ManualControl
@@ -28,7 +29,7 @@ class FakeClock:
 class Rig:
     """Control service <-> real Unix sockets <-> in-process bridge + simulated firmware."""
 
-    def __init__(self, test: unittest.TestCase) -> None:
+    def __init__(self, test: unittest.TestCase, *, allow_physical_autonomy: bool = False) -> None:
         directory = Path(tempfile.mkdtemp(prefix="rb", dir="/tmp"))
         test.addCleanup(shutil.rmtree, directory, True)
         self.clock = FakeClock()
@@ -40,7 +41,10 @@ class Rig:
         for closer in (self.bridge_inbox.close, self.backend.close, self.bridge_outbox.close):
             test.addCleanup(closer)
         self.service = RobotControlService(
-            ManualControl(pwm_ceiling=100, input_timeout_s=0.250), self.backend
+            ManualControl(pwm_ceiling=100, input_timeout_s=0.250),
+            self.backend,
+            allow_autonomy=allow_physical_autonomy,
+            allow_physical_autonomy=allow_physical_autonomy,
         )
         self.session = "browser-one"
         self.held: list[str] = []
@@ -220,6 +224,53 @@ class WebMotorBackendTests(unittest.TestCase):
                 finally:
                     service.close()
                     status.close()
+
+
+class PhysicalAutonomyTests(unittest.TestCase):
+    def armed_rig(self, **kwargs) -> Rig:
+        rig = Rig(self, **kwargs)
+        rig.pump(3)
+        self.assertTrue(rig.enable())
+        rig.pump(3)
+        self.assertTrue(rig.firmware.armed)
+        return rig
+
+    def test_real_robot_stays_manual_only_by_default(self) -> None:
+        rig = self.armed_rig()
+        self.assertFalse(rig.state()["autonomy"]["available"])
+        self.assertIsNone(rig.service.start_autonomy(rig.session))
+
+    def test_allowed_autonomy_drives_the_bridge_until_a_key_takes_over(self) -> None:
+        rig = self.armed_rig(allow_physical_autonomy=True)
+        state = rig.state()["autonomy"]
+        self.assertTrue(state["available"])
+        self.assertTrue(state["physical"])
+        mission = rig.service.start_autonomy(rig.session)
+        assert mission is not None
+        rig.service.autonomy.receive(AutonomyIntent(mission, 1, rig.clock.now + 0.2, 1.0, 0.0, 0.0))
+        rig.pump(10)
+        self.assertEqual(rig.service._last_snapshot.source, "autonomy")
+        self.assertTrue(all(value > 0 for value in rig.firmware.outputs.values()))
+
+        rig.held = ["KeyS"]
+        rig.pump(10)
+        self.assertFalse(rig.service.autonomy.active)
+        self.assertEqual(rig.service.autonomy.status().reason, "manual_override")
+        self.assertTrue(all(value < 0 for value in rig.firmware.outputs.values()))
+
+    def test_silent_ros_source_disarms_the_real_robot(self) -> None:
+        rig = self.armed_rig(allow_physical_autonomy=True)
+        mission = rig.service.start_autonomy(rig.session)
+        assert mission is not None
+        rig.service.autonomy.receive(AutonomyIntent(mission, 1, rig.clock.now + 0.05, 1.0, 0.0, 0.0))
+        rig.pump(40)
+        self.assertFalse(rig.service.control.armed)
+        self.assertEqual(rig.service.control.fault, "autonomy_timeout")
+        self.assertEqual(rig.firmware.outputs, STOPPED)
+
+    def test_create_app_rejects_physical_autonomy_without_the_bridge(self) -> None:
+        with self.assertRaises(ValueError):
+            create_app(motor_backend="mock", allow_physical_autonomy=True)
 
 
 if __name__ == "__main__":

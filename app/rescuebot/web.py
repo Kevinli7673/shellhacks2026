@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .accessory_auto import AccessoryAutomation
 from .bridge_backend import BridgeMotorBackend
+from .autonomy import DEFAULT_AUTONOMY_SPEED_PERCENT
 from .autonomy_ipc import AutonomyHostEndpoint
 from .gazebo_backend import GazeboMotorBackend, default_sim_command_socket
 from .live_camera import (
@@ -108,6 +109,8 @@ def create_app(
     sim_command_socket: str | Path | None = None,
     autonomy_command_socket: str | Path | None = None,
     autonomy_status_socket: str | Path | None = None,
+    allow_physical_autonomy: bool = False,
+    autonomy_speed_percent: int = DEFAULT_AUTONOMY_SPEED_PERCENT,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -118,11 +121,31 @@ def create_app(
     elif motor_backend == "bridge":
         run_dir = default_run_dir()
         run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Off unless --allow-physical-autonomy: the robot stays manual-only.
+        autonomy_sockets: dict[str, Any] = {}
+        if allow_physical_autonomy:
+            # Its own folder, so the ROS container can mount only these
+            # sockets and never reach the bridge's serial command socket.
+            ros_dir = run_dir / "ros"
+            ros_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            autonomy_sockets = {
+                "allow_autonomy": True,
+                "allow_physical_autonomy": True,
+                "autonomy_speed_percent": autonomy_speed_percent,
+                "autonomy_endpoint": AutonomyHostEndpoint(
+                    autonomy_command_socket or ros_dir / "autonomy-command.sock",
+                    autonomy_status_socket or ros_dir / "autonomy-status.sock",
+                ),
+                "navigation_endpoint": NavigationHostEndpoint(
+                    ros_dir / "navigation-goal.sock", ros_dir / "navigation-status.sock",
+                ),
+            }
         control_service = RobotControlService(
             backend=BridgeMotorBackend(
                 bridge_command_socket or run_dir / "bridge-command.sock",
                 bridge_status_socket or run_dir / "bridge-status.sock",
-            )
+            ),
+            **autonomy_sockets,
         )
     elif motor_backend == "gazebo":
         run_dir = default_sim_command_socket().parent
@@ -140,6 +163,8 @@ def create_app(
         )
     else:
         raise ValueError("motor_backend must be mock, bridge, or gazebo")
+    if allow_physical_autonomy and motor_backend != "bridge" and service is None:
+        raise ValueError("allow_physical_autonomy needs motor_backend bridge")
     playback = SimulationPlayback() if isinstance(control_service.backend, GazeboMotorBackend) else None
     if camera is not None:
         camera_service = camera
@@ -259,10 +284,10 @@ def create_app(
                 elif message_type == "start_autonomy":
                     mission = control_service.start_autonomy(session)
                     response = {"type": "start_autonomy", "accepted": mission is not None}
-                elif message_type == "navigation_goal" and isinstance(control_service.backend, GazeboMotorBackend):
+                elif message_type == "navigation_goal" and control_service.autonomy_available:
                     accepted = control_service.navigation_goal(session, message.get("forward"), message.get("right"))
                     response = {"type": "navigation_goal", "accepted": accepted}
-                elif message_type == "start_search" and isinstance(control_service.backend, GazeboMotorBackend):
+                elif message_type == "start_search" and control_service.autonomy_available:
                     accepted = control_service.start_search(session)
                     response = {"type": "start_search", "accepted": accepted}
                 elif message_type == "stop":
@@ -359,7 +384,22 @@ def main() -> None:
         default=os.environ.get("RESCUEBOT_AUTO_ACCESSORIES") == "1",
         help="Sound the buzzer and flash the light when a person appears; light on in the dark.",
     )
+    parser.add_argument(
+        "--allow-physical-autonomy",
+        action="store_true",
+        default=os.environ.get("RESCUEBOT_ALLOW_PHYSICAL_AUTONOMY") == "1",
+        help="Let the ROS 2 navigation container drive the real robot (bridge backend only). "
+        "Manual keys and Stop still take over at once.",
+    )
+    parser.add_argument(
+        "--autonomy-speed",
+        type=int,
+        default=int(os.environ.get("RESCUEBOT_AUTONOMY_SPEED", DEFAULT_AUTONOMY_SPEED_PERCENT)),
+        help="Top autonomy speed as a percent of the PWM ceiling, 10-100 (default: %(default)s).",
+    )
     args = parser.parse_args()
+    if args.allow_physical_autonomy and args.motor_backend != "bridge":
+        parser.error("--allow-physical-autonomy needs --motor-backend bridge")
     if args.camera_backend == "replay" and args.replay_path is None:
         parser.error("--replay-path is required when --camera-backend replay")
 
@@ -376,6 +416,8 @@ def main() -> None:
             sim_command_socket=args.sim_command_socket,
             autonomy_command_socket=args.autonomy_command_socket,
             autonomy_status_socket=args.autonomy_status_socket,
+            allow_physical_autonomy=args.allow_physical_autonomy,
+            autonomy_speed_percent=args.autonomy_speed,
         ),
         host="0.0.0.0",
         port=8000,

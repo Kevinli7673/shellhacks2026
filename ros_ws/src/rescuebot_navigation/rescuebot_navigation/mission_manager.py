@@ -1,4 +1,8 @@
-"""Own simulation goals, map search, and cancellation through the host arbiter."""
+"""Own navigation goals, map search, and cancellation through the host arbiter.
+
+Simulation searches end at a synthetic target. On the physical robot
+(``person_topic`` set) they end when the AI Camera sees a person.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseArray, PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid
 import rclpy
@@ -74,6 +78,10 @@ class MissionManager(Node):
         self._target_enabled = self.declare_parameter("synthetic_target_enabled", True).value
         if not all(math.isfinite(v) for v in self._target):
             raise ValueError("Synthetic target coordinates must be finite")
+        # Physical robot: camera person sightings (PoseArray in base_link from
+        # rescuebot_robot's dashboard bridge) end the search instead.
+        self._person_topic = self.declare_parameter("person_topic", "").value
+        self._person_seen = None
         self._search_tree = str(Path(get_package_share_directory("rescuebot_navigation"))
                                 / "behavior_trees" / "search_viewpoint.xml")
         self._grid = None
@@ -103,6 +111,8 @@ class MissionManager(Node):
         self.create_subscription(PoseStamped, "/goal_pose", self._goal, 10)
         self.create_subscription(String, "/rescuebot/autonomy_status", self._status, 10)
         self.create_subscription(Twist, "/cmd_vel_safe", self._safe_velocity, 10)
+        if self._person_topic:
+            self.create_subscription(PoseArray, self._person_topic, self._people, 10)
         self.create_subscription(OccupancyGrid, "/map", self._map,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                             reliability=ReliabilityPolicy.RELIABLE))
@@ -116,6 +126,20 @@ class MissionManager(Node):
 
     def _safe_velocity(self, _message):
         self._last_safe_velocity = time.monotonic()
+
+    def _people(self, message):
+        if message.poses:
+            nearest = min(message.poses, key=lambda p: math.hypot(p.position.x, p.position.y))
+            self._person_seen = (time.monotonic(), nearest.position.x, nearest.position.y)
+
+    def _person_in_view(self, now, pose):
+        """Map position of a person the camera saw within the last second, if any."""
+        if self._person_seen is None or now - self._person_seen[0] > 1.0:
+            return None
+        _, x, y = self._person_seen
+        yaw = pose["yaw"]
+        return (pose["x"] + math.cos(yaw)*x - math.sin(yaw)*y,
+                pose["y"] + math.sin(yaw)*x + math.cos(yaw)*y)
 
     def _map(self, message):
         info = message.info
@@ -394,6 +418,11 @@ class MissionManager(Node):
             self._record_observation(position)
             self._collect_preparation()
             if self._search["phase"] != "exploring":
+                return
+            person = self._person_in_view(now, pose) if self._person_topic else None
+            if person is not None:
+                self._search.update(found=True, target={"x": person[0], "y": person[1], "yaw": 0.})
+                self._begin_return(now, "Camera saw a person; returning to start", found=True)
                 return
             # A 360-degree, 0.9 m synthetic proximity detector. Both range and
             # an entirely observed free ray are required; unknown cells and

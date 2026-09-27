@@ -1,4 +1,8 @@
-"""Launch the simulation mapping and goal-navigation lifecycle nodes."""
+"""Launch mapping and goal-navigation lifecycle nodes (simulation by default).
+
+The physical robot (rescuebot_robot autonomy.launch.py) passes use_sim_time:=false,
+slam:=false (it runs its own slam_toolbox) and person_topic:=/rescuebot/people.
+"""
 
 from copy import deepcopy
 from pathlib import Path
@@ -8,6 +12,7 @@ import yaml
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -36,6 +41,7 @@ def generate_launch_description():
             "stateful": True,
         },
     }
+    use_sim_time = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
     normal_tree = str(package_share / "behavior_trees" / "navigate_to_pose.xml")
     # Explicit nodes avoid unrelated docking/route servers and duplicate safety
     # filters as upstream navigation_launch.py evolves between Jazzy releases.
@@ -51,6 +57,10 @@ def generate_launch_description():
     ]
     return LaunchDescription([
         DeclareLaunchArgument("search_enabled", default_value="false", choices=["true", "false"]),
+        DeclareLaunchArgument("use_sim_time", default_value="true", choices=["true", "false"]),
+        DeclareLaunchArgument("slam", default_value="true", choices=["true", "false"]),
+        DeclareLaunchArgument("person_topic", default_value="",
+                              description="PoseArray of camera person sightings that ends a search."),
         DeclareLaunchArgument("synthetic_target_x", default_value="1.8"),
         DeclareLaunchArgument("synthetic_target_y", default_value="0.6"),
         DeclareLaunchArgument("synthetic_target_enabled", default_value="true", choices=["true", "false"]),
@@ -58,6 +68,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare("slam_toolbox"), "launch", "online_async_launch.py",
             ])),
+            condition=IfCondition(LaunchConfiguration("slam")),
             launch_arguments={
                 "use_sim_time": "true", "autostart": "true",
                 "slam_params_file": PathJoinSubstitution([share, "config", "slam_toolbox.yaml"]),
@@ -68,17 +79,18 @@ def generate_launch_description():
             parameters=[params, collision] + (
                 [search_parameters] if name == "controller_server" else
                 [{"default_nav_to_pose_bt_xml": normal_tree}] if name == "bt_navigator" else []
-            ), remappings=remappings,
+            ) + [{"use_sim_time": use_sim_time}], remappings=remappings,
         ) for package, name, remappings in nodes],
         Node(
             package="nav2_lifecycle_manager", executable="lifecycle_manager",
             name="lifecycle_manager_navigation", output="screen",
-            parameters=[{"use_sim_time": True, "autostart": True,
+            parameters=[{"use_sim_time": use_sim_time, "autostart": True,
                          "node_names": [name for _, name, _ in nodes]}],
         ),
         Node(package="rescuebot_navigation", executable="rescuebot_mission_manager", output="screen",
              parameters=[{
-                 "use_sim_time": True,
+                 "use_sim_time": use_sim_time,
+                 "person_topic": LaunchConfiguration("person_topic"),
                  "search_enabled": LaunchConfiguration("search_enabled"),
                  "synthetic_target_x": ParameterValue(LaunchConfiguration("synthetic_target_x"), value_type=float),
                  "synthetic_target_y": ParameterValue(LaunchConfiguration("synthetic_target_y"), value_type=float),
