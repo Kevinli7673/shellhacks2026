@@ -320,6 +320,58 @@ Validation:
   ROS. IMU unavailable, so heading is frozen.
 - Next action: wheels-off-ground set-distance goal.
 
+### 2026-09-27 05:40 EDT - Gemini + autonomy merged; real-robot moves, room search, IMU and reset diagnostics
+
+- Workstream: autonomy + Gemini (gemini-implementation, worktree ~/rescuebot-gemini)
+- Status: in progress (room search not yet run on the robot)
+- Base commit: 2928a3a (gemini-implementation) + origin/test/full-product aad5f44
+- Resulting commits: c1104fd (merge), baf1ff6, bd0ab82, 638c846, 703d9f9, 18cf9a0, 307501f. Not pushed.
+- Changes and affected files/interfaces:
+  - Merge: WASD driving works in the merged build. The earlier "controls don't
+    work" report had no code cause (motor path identical to test/full-product).
+  - service.py: on the bridge, autonomy drives one axis at a time (1.5x
+    hysteresis). Nav2's blended x/y/yaw mixed to 54/-17/7/30 PWM and two
+    wheels stalled. Dashboard runs --autonomy-speed 60 --autonomy-min-pwm 60;
+    the panel shows the configured speed (was a fixed "20%" text).
+  - Set-distance goals on the robot keep their heading (mission manager
+    goal_keeps_heading) and FollowPath never rotates in place first
+    (angular_dist_threshold 3.2, PreferForward.scale 0), so -0.5 reverses.
+    Room-search legs never strafe (SearchPath max/min_vel_y 0): strafing is
+    weak because of the robot's weight distribution (accepted design limit).
+    nav2_robot.yaml now loads after the generated search controller and uses
+    the /** wildcard for SearchPath, since wildcard entries outrank node names.
+  - Room search (real robot): camera sightings (bearing + LiDAR range on the
+    SLAM map) are grouped into distinct people (search.PeopleTracker: 0.7 m
+    merge, 5 frames to confirm); the search keeps covering the room (20 min
+    cap), then returns to start. navigation_ipc accepts search.people
+    [[id, x, y, sightings, seen_s_ago]]; app/rescuebot/search_report.py pairs
+    each person with Gemini's urgency/posture/summary; dashboard "Search room
+    & return" panel lists them.
+  - Firmware: the IMU is disabled after any task-watchdog reset until RESET or
+    power-on (existing design). New imu_diag line (1 Hz: enabled, ready, 0x28
+    probe, reset reason, wdt_stage = loop step that hung, from RTC memory);
+    the bridge logs it on change, plus status lines with loop_max_ms > 200.
+    A 0x29 I2C probe in the first version coincided with resets after arming
+    and was removed.
+  - tools/robot/start_robot.sh / stop_robot.sh: one-command start (bridge,
+    dashboard with all flags, fresh autonomy stack) with a health summary.
+- Tests: `PYTHONPATH=app pytest tests` 270 passed / 2 skipped; ROS
+  `pytest ros_ws/src/rescuebot_navigation/test` in rescuebot-robot:jazzy
+  58 passed (stale test_search_only_controller... fixed); firmware
+  `pio test -e native` 59/59.
+- Physical evidence: performed. Forward and backward set-distance goals reach
+  the goal; left/right strafe turns every wheel but moves poorly (weight
+  distribution). No bridge dropouts while arming after 703d9f9. Four full
+  restarts with start_robot.sh: no ESP32 reset.
+- Known failures or limitations: an intermittent ESP32 watchdog reset (seen
+  once after 703d9f9, during a restart) drops USB ("Motor bridge
+  unavailable") and turns the IMU off until RESET; cause unknown, wdt_stage
+  will name the step. slam_toolbox adds a scan every 0.4 s even when still
+  and slows after ~1.5 h: restart the stack (start_robot.sh) before a demo.
+  Search coverage assumes 0.9 m all-around sensing, but the camera faces
+  forward. Room search not yet run on the robot.
+- Next action: first real room search; read wdt_stage after any reset.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>
