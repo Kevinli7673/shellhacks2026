@@ -11,9 +11,18 @@ namespace {
 AccessoryConfig g_config;
 Adafruit_NeoPixel* g_jewel = nullptr;
 
+// No other firmware code uses LEDC, so channel 0 is free.
+constexpr uint8_t kBuzzerLedcChannel = 0;
+constexpr uint8_t kBuzzerLedcBits = 8;
+constexpr uint32_t kBuzzerDutyMax = (1u << kBuzzerLedcBits) - 1;
+
 void writeBuzzer(bool on) {
-    bool level = on == g_config.buzzer_active_high;
-    digitalWrite(g_config.buzzer_pin, level ? HIGH : LOW);
+    uint32_t idle = g_config.buzzer_active_high ? 0 : kBuzzerDutyMax;
+    uint32_t sound = (kBuzzerDutyMax + 1) * g_config.buzzer_duty_percent / 100;
+    if (!g_config.buzzer_active_high) {
+        sound = kBuzzerDutyMax - sound;
+    }
+    ledcWrite(kBuzzerLedcChannel, on ? sound : idle);
 }
 
 void writeLight(bool on) {
@@ -21,7 +30,8 @@ void writeLight(bool on) {
         return;
     }
     if (on) {
-        g_jewel->fill(Adafruit_NeoPixel::Color(255, 255, 255, 255));
+        uint8_t level = g_config.light_level;
+        g_jewel->fill(Adafruit_NeoPixel::Color(level, level, level, level));
     } else {
         g_jewel->clear();
     }
@@ -31,7 +41,8 @@ void writeLight(bool on) {
 
 void AccessoryOutputs::begin(const AccessoryConfig& config) {
     g_config = config;
-    pinMode(g_config.buzzer_pin, OUTPUT);
+    ledcSetup(kBuzzerLedcChannel, g_config.buzzer_tone_hz, kBuzzerLedcBits);
+    ledcAttachPin(g_config.buzzer_pin, kBuzzerLedcChannel);
     writeBuzzer(false);
     static Adafruit_NeoPixel jewel(g_config.light_pixels, g_config.light_pin, NEO_GRBW + NEO_KHZ800);
     g_jewel = &jewel;
