@@ -168,6 +168,7 @@ body[data-drive="arming"] .gallery-bar { box-shadow: inset 0 -3px 0 var(--tally-
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas:
     "program desk"
+    "wall wall"
     "chain chain";
   gap: 1.25rem;
   max-width: 1600px;
@@ -177,6 +178,7 @@ body[data-drive="arming"] .gallery-bar { box-shadow: inset 0 -3px 0 var(--tally-
 .program { grid-area: program; min-width: 0; }
 .desk { grid-area: desk; min-width: 0; }
 .chain { grid-area: chain; min-width: 0; }
+.wall { grid-area: wall; min-width: 0; }
 
 /* ---------- Program monitor ---------- */
 
@@ -225,8 +227,8 @@ body[data-drive="armed"] .monitor { --tally-color: var(--tally-red); }
   color: var(--ink);
 }
 .slate-message { color: var(--ink-2); font-size: var(--t-md); max-width: 34ch; margin: 0 auto; }
-body[data-camera="online"] .slate { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease), visibility 0s 200ms; }
-body[data-camera="stale"] .slate-title { color: var(--tally-amber); }
+body[data-camera="online"] .program .slate { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease), visibility 0s 200ms; }
+body[data-camera="stale"] .program .slate-title { color: var(--tally-amber); }
 
 .umd-tag {
   position: absolute;
@@ -262,7 +264,7 @@ body[data-camera="stale"] .slate-title { color: var(--tally-amber); }
   border-radius: 2px;
   box-shadow: 0 6px 14px -6px oklch(0 0 0 / 0.6);
 }
-body:not([data-camera="online"]) .lower-third { display: none; }
+body:not([data-camera="online"]) .program .lower-third { display: none; }
 
 .camera-video {
   position: absolute;
@@ -576,21 +578,143 @@ body[data-drive="armed"] .keycluster-arrows .keycap.lit[data-key^="ArrowR"] {
 .readings dt { color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; white-space: nowrap; }
 .readings dd { font-family: var(--mono); color: var(--ink); text-align: right; white-space: nowrap; }
 
+/* ---------- Monitor wall: webcam, LiDAR, microphone ---------- */
+
+body[data-sensors="off"] .wall { display: none; }
+
+.wall {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(9rem, 11rem);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+/* Preview monitors: a bezel and keyline, no tally ring (the tally belongs to the program monitor). */
+.aux-monitor {
+  background: var(--bezel);
+  border: 1px solid var(--desk-line);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+}
+.aux-screen { aspect-ratio: 16 / 9; }
+.aux-screen[data-status="online"] .slate { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease), visibility 0s 200ms; }
+.aux-screen[data-status="stale"] .slate-title { color: var(--ink-2); }
+.aux-slate-title { font-size: var(--t-xl); }
+.aux-screen .slate-message { font-size: var(--t-sm); }
+.aux-screen .umd-tag { top: 0.5rem; font-size: var(--t-xs); padding: 0.3rem 0.5rem; }
+.aux-screen .source-tag { left: 0.5rem; }
+.aux-screen .camera-tag { right: 0.5rem; }
+.aux-screen .camera-video { object-fit: contain; background: oklch(0 0 0); }
+
+.lidar-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.aux-lower-third {
+  left: 0.5rem;
+  bottom: 0.5rem;
+  font-size: var(--t-sm);
+  padding: 0.3rem 0.6rem;
+}
+.aux-screen:not([data-status="online"]) .aux-lower-third { display: none; }
+.lidar-scale {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.55rem;
+  z-index: 2;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.aux-screen:not([data-status="online"]) .lidar-scale { display: none; }
+
+.mic-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(6rem, 1fr) auto auto;
+  gap: 0.6rem;
+  background: var(--bezel);
+  border: 1px solid var(--desk-line);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  min-width: 0;
+}
+.mic-tag { position: static; justify-self: start; font-size: var(--t-xs); padding: 0.3rem 0.5rem; }
+.mic-state { font-size: var(--t-lg); font-weight: 800; color: var(--ink-3); line-height: 1.15; }
+.mic-panel[data-hearing="true"] .mic-state { color: var(--ink); }
+
+/* A vertical peak meter: fill for the 100 ms RMS level, a hairline for the peak,
+   and a dashed tick for the "hearing sound" threshold. */
+.meter {
+  --level: 0;
+  --peak: 0;
+  --threshold: 0.44;
+  position: relative;
+  justify-self: center;
+  width: 2.25rem;
+  min-height: 6rem;
+  background: var(--screen);
+  border: 1px solid var(--desk-line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.meter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--level) * 100%);
+  background: var(--ink-3);
+  transition: height 90ms linear;
+}
+.mic-panel[data-hearing="true"] .meter-fill { background: var(--ink); }
+.meter-peak {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--peak) * 100%);
+  height: 2px;
+  background: var(--ink);
+}
+.meter-threshold {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--threshold) * 100%);
+  border-top: 1px dashed var(--ink-2);
+}
+.mic-panel:not([data-status="online"]) .meter-fill,
+.mic-panel:not([data-status="online"]) .meter-peak { visibility: hidden; }
+
+.mic-level { font-family: var(--mono); font-size: var(--t-md); color: var(--ink); text-align: center; }
+.mic-unit { font-size: var(--t-xs); color: var(--ink-3); }
+.mic-message { font-size: var(--t-xs); color: var(--ink-3); line-height: 1.35; }
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1500px) {
   .chain { grid-template-columns: 1fr; }
+  .wall { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .mic-panel {
+    grid-column: 1 / -1;
+    grid-template-columns: auto auto minmax(8rem, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 1rem;
+  }
+  .mic-panel .mic-message { grid-column: 1 / -1; }
+  .meter { justify-self: stretch; width: auto; min-height: 0; height: 1.5rem; }
+  .meter-fill { top: 0; right: auto; width: calc(var(--level) * 100%); height: auto; transition: width 90ms linear; }
+  .meter-peak { top: 0; bottom: 0; right: auto; left: calc(var(--peak) * 100%); width: 2px; height: auto; }
+  .meter-threshold { top: 0; bottom: 0; right: auto; left: calc(var(--threshold) * 100%); border-top: 0; border-left: 1px dashed var(--ink-2); }
   .telemetry { border-left: 0; border-top: 1px solid var(--desk-line); padding: 1rem 0 0; }
 }
 
 @media (max-width: 900px) {
   .gallery {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "program" "desk" "chain";
+    grid-template-areas: "program" "desk" "wall" "chain";
     padding: 1rem 1rem 6.5rem;
   }
   .gallery-bar { flex-wrap: wrap; padding: 0.5rem 1rem; }
   .chain-links { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0.5rem; }
+  .wall { grid-template-columns: minmax(0, 1fr); }
   .chain-node:nth-child(3) { padding-left: 0; }
   .chain-node:nth-child(3)::before, .chain-node:nth-child(3)::after { display: none; }
   .actions {
@@ -616,6 +740,9 @@ body[data-drive="armed"] .keycluster-arrows .keycap.lit[data-key^="ArrowR"] {
   .telemetry-caption { max-width: none; }
   .umd-tag { font-size: var(--t-xs); }
   .lower-third { font-size: var(--t-md); }
+  .aux-lower-third { font-size: var(--t-xs); }
+  .mic-panel { grid-template-columns: auto minmax(0, 1fr); }
+  .mic-panel .meter { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
