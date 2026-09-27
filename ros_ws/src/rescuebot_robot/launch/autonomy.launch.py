@@ -45,6 +45,10 @@ def generate_launch_description() -> LaunchDescription:
             output="screen",
             # Nav2's top speeds (nav2.yaml) map to the dashboard's full
             # autonomy speed (--autonomy-speed percent of the PWM ceiling).
-            arguments=["--max-vx", "0.08", "--max-vy", "0.08", "--max-wz", "0.24"],
+            # A full mixer turn moves each wheel as fast as full forward, so
+            # max-wz = 0.08 m/s / 0.21 m (half wheelbase + half track, from
+            # rescuebot_description: 0.22 m, 0.20 m). 0.24 made turns 1.6x
+            # too strong relative to translation.
+            arguments=["--max-vx", "0.08", "--max-vy", "0.08", "--max-wz", "0.38"],
         ),
     ])
