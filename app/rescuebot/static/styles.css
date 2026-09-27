@@ -797,3 +797,21 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
 .map-legend .counted { background: var(--map-person); border-radius: 50%; border: 0; width: 1rem; height: 1rem;
   font: 600 0.6rem/1rem var(--sans); font-style: normal; color: var(--ink); text-align: center; }
 .map-legend-note { margin: 0.1rem 0.25rem 0; font-size: var(--t-xs); color: var(--ink-3); }
+
+.gemini-total {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.25rem 0.75rem; align-items: center;
+  padding: 0.6rem 0.75rem; border: 1px solid var(--desk-line); border-radius: var(--radius); background: var(--desk-raised);
+}
+.gemini-total-count { margin: 0; font-size: var(--t-sm); color: var(--ink-2); }
+.gemini-total-count #gemini-total { font: 700 var(--t-xl) var(--display); color: var(--ink); margin-right: 0.25rem; }
+.gemini-total-since { margin: 0; grid-column: 1; font-size: var(--t-xs); color: var(--ink-3); }
+.gemini-reset {
+  grid-column: 2; grid-row: 1 / span 2; padding: 0.4rem 0.7rem; font: inherit; font-size: var(--t-xs);
+  color: var(--ink); background: transparent; border: 1px solid var(--desk-line); border-radius: 6px; cursor: pointer;
+}
+.gemini-reset:disabled { color: var(--ink-3); cursor: default; }
+.gemini-roster { grid-column: 1 / -1; margin: 0.25rem 0 0; padding-left: 0; list-style: none; font-size: var(--t-sm); }
+.gemini-roster:empty { display: none; }
+.gemini-roster li { padding: 0.2rem 0; border-top: 1px solid var(--desk-line); overflow-wrap: anywhere; }
+.gemini-roster li[data-urgency="high"] { color: var(--tally-red); font-weight: 700; }
+.gemini-roster li[data-urgency="medium"] { color: var(--tally-amber); }

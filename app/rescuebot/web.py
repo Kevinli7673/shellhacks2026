@@ -373,6 +373,13 @@ def create_app(
                 elif message_type == "start_search" and control_service.autonomy_available:
                     accepted = control_service.start_search(session)
                     response = {"type": "start_search", "accepted": accepted}
+                elif message_type == "gemini_reset_count":
+                    # Only the driving operator may zero the mission's people count.
+                    accepted = (gemini_triage is not None
+                                and session == control_service.control.owner_session)
+                    if accepted:
+                        gemini_triage.reset_session()
+                    response = {"type": "gemini_reset_count", "accepted": accepted}
                 elif message_type == "gemini_assess":
                     # Read-only camera analysis: never affects driving, so no owner check.
                     accepted = gemini_triage is not None and gemini_triage.request()

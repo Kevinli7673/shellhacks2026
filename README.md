@@ -75,8 +75,15 @@ stay off until someone arms them again.
   - whether they **need help**, and how urgently (none, low, medium, or high),
   - their posture, any hazards, a short summary, and a recommended action.
 
-  The "Gemini triage" panel shows the assessed frame, the answer, and earlier
-  results, and has an **Ask Gemini now** button. Every assessment is saved
+  Gemini also keeps a **total unique people** count for the whole time the
+  robot is on. Each request lists the people seen so far (a short appearance
+  note for each), and Gemini says whether each person in view is new, someone
+  already seen, or unclear (for example only legs visible). Only new people
+  add to the total. The operator can reset it to zero before a mission.
+
+  The "Gemini triage" panel shows the running total and everyone found, the
+  assessed frame, the answer, and earlier results, and has an **Ask Gemini
+  now** button. Every assessment is saved
   (image and JSON) under `~/rescuebot_runs/gemini/`. Gemini only looks at pictures; it never controls the robot.
 - **Voice** (`--voice`): the robot speaks through its own speaker, using
   ElevenLabs text-to-speech with a local fallback. It says things like how

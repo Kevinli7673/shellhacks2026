@@ -76,6 +76,12 @@
             <span class="gemini-urgency" id="gemini-urgency" data-urgency="none">No assessment</span>
           </div>
           <p class="gemini-status" id="gemini-status" role="status">Waiting for a person to appear.</p>
+          <div class="gemini-total">
+            <p class="gemini-total-count"><span id="gemini-total">0</span> <span id="gemini-total-label">unique people found</span></p>
+            <p class="gemini-total-since" id="gemini-total-since">since the robot started</p>
+            <button id="gemini-reset" class="gemini-reset" type="button" disabled>Reset count</button>
+            <ol class="gemini-roster" id="gemini-roster" aria-label="Everyone found so far"></ol>
+          </div>
           <div class="gemini-result" id="gemini-result" hidden>
             <img id="gemini-image" class="gemini-image" alt="Camera frame Gemini assessed">
             <div class="gemini-text">

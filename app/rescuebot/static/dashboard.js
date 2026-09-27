@@ -528,6 +528,19 @@ function updateGemini(gemini, camera) {
       element("gemini-image").src = "/api/gemini/snapshot.jpg?k=" + encodeURIComponent(key);
     }
   }
+  const session = gemini.session || { total_unique: 0, people: [] };
+  setText("gemini-total", String(session.total_unique));
+  setText("gemini-total-label", session.total_unique === 1 ? "unique person found" : "unique people found");
+  setText("gemini-total-since", session.since ? "since " + session.since.slice(11, 16) + " · each person counted once" : "since the robot started");
+  element("gemini-reset").disabled = !connected || !canControl || session.total_unique === 0;
+  element("gemini-roster").replaceChildren(...session.people.map((person) => {
+    const li = document.createElement("li");
+    li.textContent = "#" + person.id + " · " + (person.appearance || "no description")
+      + " · first seen " + person.first_seen.slice(11, 16)
+      + (person.sightings > 1 ? " · seen " + person.sightings + "×, last " + person.last_seen.slice(11, 16) : "");
+    li.dataset.urgency = person.urgency;
+    return li;
+  }));
   const history = element("gemini-history");
   history.replaceChildren(...gemini.history.map((item) => {
     const li = document.createElement("li");
@@ -806,6 +819,7 @@ element("enable-button").addEventListener("click", () => send({ type: "enable" }
 element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
 element("search-button").addEventListener("click", () => send({ type: "start_search" }));
 element("stop-button").addEventListener("click", clearAndStop);
+element("gemini-reset").addEventListener("click", () => send({ type: "gemini_reset_count" }));
 element("gemini-button").addEventListener("click", () => {
   element("gemini-button").disabled = true;
   send({ type: "gemini_assess" });

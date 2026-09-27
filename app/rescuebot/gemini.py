@@ -48,6 +48,8 @@ DEFAULT_SNAPSHOT_URL = "http://127.0.0.1:8081/snapshot.jpg"
 DEFAULT_SAVE_DIR = Path.home() / "rescuebot_runs" / "gemini"
 URGENCY = ("none", "low", "medium", "high")
 POSTURES = ("standing", "sitting", "lying", "unclear", "none")
+MATCHES = ("new", "known", "unclear")
+MAX_ROSTER = 30  # people remembered per session; keeps the prompt short
 
 PROMPT = """You are the triage assistant on Rescuebot, a small search-and-rescue robot \
 that scouts dangerous buildings (fire, smoke, possible collapse) ahead of human rescuers. \
@@ -69,6 +71,14 @@ help), high (appears injured, unresponsive, trapped, or in immediate danger).
 - posture of the most important person: standing, sitting, lying, unclear, or none.
 - hazards: visible dangers such as fire, smoke, water, debris, exposed wires, or sharp objects. \
 Empty if none.
+- people: one entry per unique person counted above, left to right. For each:
+  - appearance: what tells this person apart, in at most 12 words (clothing colors, hair, \
+build, anything distinctive). Never guess identity, age, or ethnicity.
+  - where: left, ahead, or right.
+  - match: "known" if they are clearly one of the people already seen (give that number in \
+known_id), "new" if they clearly are not, or "unclear" if too little is visible to tell (for \
+example only legs, far away, or too dark). When in doubt between known and new, use unclear.
+  - known_id: the matching person's number when match is "known", otherwise 0.
 - summary: one or two plain sentences for the rescue team.
 - recommended_action: one short instruction for the rescue team.
 - spoken_alert: what you, speaking as the robot, say out loud to the rescue team through \
@@ -90,9 +100,22 @@ RESPONSE_SCHEMA = {
         "summary": {"type": "STRING"},
         "recommended_action": {"type": "STRING"},
         "spoken_alert": {"type": "STRING"},
+        "people": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "appearance": {"type": "STRING"},
+                    "where": {"type": "STRING", "enum": ["left", "ahead", "right"]},
+                    "match": {"type": "STRING", "enum": list(MATCHES)},
+                    "known_id": {"type": "INTEGER"},
+                },
+                "required": ["appearance", "where", "match", "known_id"],
+            },
+        },
     },
     "required": ["unique_people", "people_note", "needs_help", "urgency", "posture", "hazards",
-                 "summary", "recommended_action", "spoken_alert"],
+                 "summary", "recommended_action", "spoken_alert", "people"],
 }
 
 
@@ -122,6 +145,25 @@ def normalize(raw: Any) -> dict[str, Any]:
     summary = _text(raw.get("summary"), 400)
     if not summary:
         raise GeminiError("Gemini returned no summary")
+    seen = []
+    for item in raw.get("people") if isinstance(raw.get("people"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        match = item.get("match") if item.get("match") in MATCHES else "unclear"
+        try:
+            known_id = int(item.get("known_id") or 0)
+        except (TypeError, ValueError):
+            known_id = 0
+        if match == "known" and known_id <= 0:
+            match = "unclear"
+        seen.append({
+            "appearance": _text(item.get("appearance"), 100),
+            "where": item.get("where") if item.get("where") in ("left", "ahead", "right") else "ahead",
+            "match": match,
+            "known_id": known_id if match == "known" else 0,
+        })
+        if len(seen) >= 12:
+            break
     return {
         "unique_people": people,
         "people_note": _text(raw.get("people_note"), 160),
@@ -132,7 +174,18 @@ def normalize(raw: Any) -> dict[str, Any]:
         "summary": summary,
         "recommended_action": _text(raw.get("recommended_action"), 200),
         "spoken_alert": _text(raw.get("spoken_alert"), 200),
+        "people": seen,
     }
+
+
+def roster_text(roster: list[dict[str, Any]]) -> str:
+    """The people already seen this session, so Gemini can tell new from known."""
+    if not roster:
+        return "No one has been seen yet this session, so every clearly visible person is new."
+    lines = [f"#{p['id']}: {p['appearance'] or 'no description'} (last seen {p['last_where']})"
+             for p in roster[-MAX_ROSTER:]]
+    return ("People already seen this session (the robot may have moved since, so position is "
+            "only a hint; match by appearance):\n" + "\n".join(lines))
 
 
 def context_text(detections: list[dict[str, Any]], hfov_deg: float = CAMERA_HFOV_DEG) -> str:
@@ -260,6 +313,11 @@ class GeminiTriage:
     answer changed. If Gemini
     fails on a new sighting, the fixed detector alert is spoken instead, so the
     robot never goes silent about a person.
+
+    It also keeps a roster of every distinct person seen since it started (or
+    since `reset_session()`): each request lists the roster, and Gemini says
+    whether each visible person is new, a known person, or unclear. Only "new"
+    grows the total, so a partial or dark view never adds a person.
     """
 
     def __init__(self, camera_status: Callable[[], dict], snapshot: Callable[[], bytes],
@@ -293,6 +351,8 @@ class GeminiTriage:
         self._latest_jpeg: bytes | None = None
         self._history: list[dict[str, Any]] = []
         self._calls = 0
+        self._roster: list[dict[str, Any]] = []
+        self._session_started = datetime.now().isoformat(timespec="seconds")
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="rescuebot-gemini", daemon=True)
 
@@ -355,9 +415,11 @@ class GeminiTriage:
             self._assessed_boxes = max(self._assessed_boxes, boxes)
             self._calls += 1
         started = self.clock()
+        with self._lock:
+            roster = [dict(p) for p in self._roster]
         try:
             jpeg = self.snapshot()
-            result = self.analyze(jpeg, context_text(detections))
+            result = self.analyze(jpeg, context_text(detections) + "\n\n" + roster_text(roster))
         except GeminiError as e:
             self._fail(str(e), trigger, detections)
             return
@@ -374,13 +436,43 @@ class GeminiTriage:
         }
         with self._lock:
             previous = self._latest
+            result["new_people"] = self._update_roster(result.get("people") or [], result)
             self._state, self._message = "watching", "Latest assessment is below."
             self._latest, self._latest_jpeg, self._latest_at = result, jpeg, self.clock()
             self._history = [result, *self._history][:5]
-        self.log(f"[gemini] {result['unique_people']} unique, {result['urgency']}: {result['summary']}")
+        self.log(f"[gemini] {result['unique_people']} unique, {result['urgency']}"
+                 f"{', new: ' + ', '.join(f'#{i}' for i in result['new_people']) if result['new_people'] else ''}"
+                 f", total {len(self._roster)}: {result['summary']}")
         self._save(result, jpeg)
         if self.speaker is not None and self._worth_saying(trigger, result, previous):
             self.speaker.say(result["spoken_alert"] or result["summary"])
+
+    def _update_roster(self, people: list[dict[str, Any]], result: dict[str, Any]) -> list[int]:
+        """Add new people and refresh known ones. Caller holds the lock. Returns new ids."""
+        new_ids = []
+        known = {p["id"]: p for p in self._roster}
+        for person in people:
+            if person["match"] == "known" and person["known_id"] in known:
+                entry = known[person["known_id"]]
+                entry.update(last_seen=result["time"], last_where=person["where"],
+                             sightings=entry["sightings"] + 1, urgency=result["urgency"])
+                if person["appearance"]:
+                    entry["appearance"] = person["appearance"]
+            elif person["match"] == "new" and len(self._roster) < 999:
+                entry = {"id": len(self._roster) + 1, "appearance": person["appearance"],
+                         "first_seen": result["time"], "last_seen": result["time"],
+                         "last_where": person["where"], "sightings": 1, "urgency": result["urgency"]}
+                self._roster.append(entry)
+                known[entry["id"]] = entry
+                new_ids.append(entry["id"])
+        return new_ids
+
+    def reset_session(self) -> None:
+        """Start the total unique-people count again from zero."""
+        with self._lock:
+            self._roster = []
+            self._session_started = datetime.now().isoformat(timespec="seconds")
+        self.log("[gemini] total unique people reset to 0")
 
     @staticmethod
     def _worth_saying(trigger: str, result: dict[str, Any], previous: dict[str, Any] | None) -> bool:
@@ -433,6 +525,11 @@ class GeminiTriage:
                     {k: item[k] for k in ("time", "urgency", "needs_help", "unique_people", "summary")}
                     for item in self._history[1:]
                 ],
+                "session": {
+                    "since": self._session_started,
+                    "total_unique": len(self._roster),
+                    "people": [dict(p) for p in self._roster[-50:]],  # newest 50
+                },
             }
 
     def _run(self) -> None:

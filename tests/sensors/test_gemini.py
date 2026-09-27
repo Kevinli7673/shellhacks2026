@@ -25,7 +25,14 @@ GOOD = {
     "hazards": ["smoke"], "summary": "A person is lying on the floor near smoke.",
     "recommended_action": "Send a team to the robot's position now.",
     "spoken_alert": "Person down ahead. Send help now.",
+    "people": [{"appearance": "red hoodie, dark jeans", "where": "ahead", "match": "new", "known_id": 0}],
 }
+
+
+def seen(*people):
+    """A Gemini reply whose people list is `people`: (match, known_id, appearance, where)."""
+    return {**GOOD, "unique_people": len(people),
+            "people": [{"match": m, "known_id": k, "appearance": a, "where": w} for m, k, a, w in people]}
 
 
 def person(x=0.4, confidence=0.8):
@@ -338,6 +345,88 @@ class TriageTests(unittest.TestCase):
         status = triage.status()
         self.assertEqual((status["state"], status["message"], status["can_ask"]), ("unavailable", "no key", False))
         triage.close()
+
+
+class SessionCountTests(unittest.TestCase):
+    def make(self, replies):
+        self.contexts = []
+        replies = iter(replies)
+
+        def analyze(jpeg, context):
+            self.contexts.append(context)
+            return next(replies)
+
+        clock = Clock()
+        triage = GeminiTriage(FakeCamera([person()]).status, lambda: JPEG, analyze, clock=clock,
+                              save_dir=None, min_gap_s=8, log=lambda m: None)
+        return triage, clock
+
+    def assess(self, triage, clock):
+        clock.t += 10
+        self.assertTrue(triage.request())
+        triage.poll_once()
+
+    def test_normalize_keeps_only_valid_people(self):
+        out = normalize({**GOOD, "people": [
+            {"appearance": " blue  coat ", "where": "left", "match": "new", "known_id": 7},
+            {"appearance": "legs", "where": "under", "match": "maybe", "known_id": 1},
+            {"appearance": "grey shirt", "where": "right", "match": "known", "known_id": 0},
+            "not a person",
+        ]})
+        self.assertEqual(out["people"], [
+            {"appearance": "blue coat", "where": "left", "match": "new", "known_id": 0},
+            {"appearance": "legs", "where": "ahead", "match": "unclear", "known_id": 0},
+            {"appearance": "grey shirt", "where": "right", "match": "unclear", "known_id": 0},
+        ])
+        self.assertEqual(normalize({"summary": "Empty room."})["people"], [])
+
+    def test_total_counts_each_person_once_across_the_session(self):
+        triage, clock = self.make([
+            seen(("new", 0, "red hoodie", "left")),
+            seen(("known", 1, "red hoodie, dark jeans", "ahead"), ("new", 0, "yellow vest", "right")),
+            seen(("unclear", 0, "only legs visible", "ahead")),
+            seen(("known", 9, "someone", "left")),  # unknown id: ignored, not counted
+        ])
+        for _ in range(4):
+            self.assess(triage, clock)
+        self.assertIn("No one has been seen yet", self.contexts[0])
+        session = triage.status()["session"]
+        self.assertEqual(session["total_unique"], 2)
+        first, second = session["people"]
+        self.assertEqual((first["id"], first["appearance"], first["sightings"]), (1, "red hoodie, dark jeans", 2))
+        self.assertEqual((second["id"], second["appearance"], second["sightings"]), (2, "yellow vest", 1))
+        # Later requests tell Gemini who has already been seen.
+        self.assertIn("#1: red hoodie", self.contexts[1])
+        self.assertIn("#2: yellow vest", self.contexts[3])
+        self.assertEqual(triage.status()["latest"]["new_people"], [])
+
+    def test_reset_starts_the_count_from_zero(self):
+        triage, clock = self.make([seen(("new", 0, "red hoodie", "left")), seen(("new", 0, "green cap", "ahead"))])
+        self.assess(triage, clock)
+        self.assertEqual(triage.status()["session"]["total_unique"], 1)
+        triage.reset_session()
+        session = triage.status()["session"]
+        self.assertEqual((session["total_unique"], session["people"]), (0, []))
+        self.assess(triage, clock)
+        self.assertNotIn("red hoodie", self.contexts[1])
+        self.assertEqual([p["id"] for p in triage.status()["session"]["people"]], [1])
+
+    def test_only_the_driving_browser_can_reset(self):
+        triage = GeminiTriage(FakeCamera([person()]).status, lambda: JPEG, lambda j, c: dict(GOOD),
+                              save_dir=None, log=lambda m: None)
+        triage.poll_once()
+        app = create_app(gemini_triage=triage)
+        with TestClient(app) as client, \
+                client.websocket_connect("/ws/control") as owner, client.websocket_connect("/ws/control") as viewer:
+            owner.receive_json(), viewer.receive_json()
+            owner.send_json({"type": "claim"})
+            owner.receive_json(), owner.receive_json()
+            viewer.send_json({"type": "gemini_reset_count"})
+            self.assertEqual(viewer.receive_json(), {"type": "gemini_reset_count", "accepted": False})
+            self.assertEqual(triage.status()["session"]["total_unique"], 1)
+            owner.send_json({"type": "gemini_reset_count"})
+            self.assertEqual(owner.receive_json(), {"type": "gemini_reset_count", "accepted": True})
+            self.assertEqual(owner.receive_json()["data"]["gemini"]["session"]["total_unique"], 0)
 
 
 class DashboardTests(unittest.TestCase):
