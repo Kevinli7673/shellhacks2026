@@ -153,6 +153,15 @@ class IpcTests(unittest.TestCase):
         with self.assertRaises(IpcError):
             BridgeStatus.decode(b'{"sent_at":1}')
 
+    def test_status_mcu_temperature_round_trip_and_validation(self) -> None:
+        status = BridgeStatus(1.5, True, False, False, None, None, mcu_temp_c=41.5)
+        self.assertEqual(BridgeStatus.decode(status.encode()), status)
+        base = b'{"sent_at":1,"transport_connected":true,"armed":false,"arm_pending":false,"fault":null,"ack_age_ms":null'
+        self.assertIsNone(BridgeStatus.decode(base + b"}").mcu_temp_c)
+        for bad in (b'"hot"', b"true", b"500"):
+            with self.subTest(mcu_temp_c=bad), self.assertRaises(IpcError):
+                BridgeStatus.decode(base + b',"mcu_temp_c":' + bad + b"}")
+
 
 class BridgeHarness:
     def __init__(self, hardware_ceiling: int = 255) -> None:
@@ -182,6 +191,31 @@ class BridgeHarness:
 class MotorBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.h = BridgeHarness()
+
+    def firmware_says(self, line: bytes) -> BridgeStatus:
+        self.h.transport._pending.extend(line + b"\n")
+        return self.h.step()
+
+    def test_reports_mcu_temperature_from_the_firmware_status_line(self) -> None:
+        self.assertIsNone(self.h.status.mcu_temp_c)
+        status = self.firmware_says(
+            b'{"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3,"mcu_temp_c":43.27}'
+        )
+        self.assertEqual(status.mcu_temp_c, 43.3)
+        # Older firmware, an unreadable sensor, or a nonsense value: no reading.
+        for line in (
+            b'{"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3}',
+            b'{"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3,"mcu_temp_c":null}',
+            b'{"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3,"mcu_temp_c":900}',
+        ):
+            with self.subTest(line=line):
+                self.firmware_says(b'{"type":"status","mcu_temp_c":40}')
+                self.assertIsNone(self.firmware_says(line).mcu_temp_c)
+
+    def test_mcu_temperature_clears_when_the_link_drops(self) -> None:
+        self.firmware_says(b'{"type":"status","mcu_temp_c":40.0}')
+        self.h.transport.connected = False
+        self.assertIsNone(self.h.step().mcu_temp_c)
 
     def test_start_connects_disarmed_and_drive_alone_never_arms(self) -> None:
         self.assertTrue(self.h.status.transport_connected)

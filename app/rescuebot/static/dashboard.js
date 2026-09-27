@@ -466,6 +466,10 @@ function updateChain(data) {
   const imu = bridge ? motor.imu : null;
   setText("t-imu", imu && imu.available && imu.heading !== null ? imu.heading.toFixed(1) + "° · cal " + imu.calibration : "—");
   setText("t-dropped", bridge ? String(motor.dropped_commands) : "—");
+  // The ESP32-S2 is rated to 85 °C ambient; its die reads well above the room.
+  const temp = bridge && typeof motor.mcu_temp_c === "number" ? motor.mcu_temp_c : null;
+  setText("mcu-temp", temp === null ? "—" : temp.toFixed(1) + " °C");
+  element("mcu-temp").dataset.state = temp !== null && temp >= 75 ? "hot" : "";
 }
 
 // Buttons show the state the firmware (or mock) confirmed, not the request.

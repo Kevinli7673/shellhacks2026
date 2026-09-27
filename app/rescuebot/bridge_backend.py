@@ -159,6 +159,7 @@ class BridgeMotorBackend:
             "status_age_ms": None if age is None else round(age * 1000),
             "transport_connected": bool(self.status and self.status.transport_connected),
             "imu": None if self.status is None else self.status.imu,
+            "mcu_temp_c": None if self.status is None else self.status.mcu_temp_c,
             "dropped_commands": self._sender.dropped_count,
             "accessories": {**self.accessories, "available": self.healthy(now)},
         }

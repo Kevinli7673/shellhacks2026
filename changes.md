@@ -372,6 +372,29 @@ Validation:
   forward. Room search not yet run on the robot.
 - Next action: first real room search; read wdt_stage after any reset.
 
+### 2026-09-27 09:15 EDT - QT Py temperature on the dashboard
+
+- Workstream: dashboard/firmware
+- Branch/worktree: main (~/rescuebot-gemini)
+- Status: done, uncommitted on main
+- Base commit: f35dd03
+- Changes and affected files/interfaces: firmware status line gains
+  `mcu_temp_c` (ESP32-S2 on-die sensor via arduino-esp32 `temperatureRead()`,
+  one decimal, null when unreadable). motor_bridge.py reads it from the status
+  line and sends it as the new optional BridgeStatus field `mcu_temp_c`
+  (validated -40..150 °C, None on link loss or older firmware); the bridge
+  backend exposes `motor.mcu_temp_c`, and the dashboard shows "MCU temp" at
+  the right end of the Motor speed row (amber at 75 °C and above). The W/A/S/D
+  and arrow keycaps moved from the bottom of the desk panel to just under
+  Enable driving / Stop.
+- Tests: `pio test -e native` 59/59; `PYTHONPATH=app pytest -q tests` 278
+  passed, 2 skipped.
+- Physical evidence: performed. Flashed via by-id port; dashboard showed
+  33.8-35.8 °C at room temperature, no slow-loop log lines.
+- Known failures or limitations: the on-die sensor is approximate (about
+  ±1-2 °C) and reads chip temperature, not the room's.
+- Next action: none.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

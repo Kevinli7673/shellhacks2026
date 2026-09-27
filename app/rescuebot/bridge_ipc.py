@@ -131,6 +131,8 @@ class BridgeStatus:
     rejected_commands: int = 0
     imu: dict[str, Any] | None = None
     accessories: dict[str, bool] = field(default_factory=lambda: {"buzzer": False, "light": False})
+    # The QT Py's on-die temperature in °C; None until firmware reports one.
+    mcu_temp_c: float | None = None
 
     def encode(self) -> bytes:
         return json.dumps(self.__dict__, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -154,6 +156,8 @@ class BridgeStatus:
             or not all(isinstance(value, bool) for value in accessories.values())
         ):
             raise IpcError("bad accessories")
+        if status.mcu_temp_c is not None:
+            _finite(status.mcu_temp_c, "mcu_temp_c", -40.0, 150.0)
         return status
 
 

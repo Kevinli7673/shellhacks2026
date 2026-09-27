@@ -169,8 +169,10 @@ void sendImuDiagnostics() {
 }
 
 void sendStatus() {
+    // The ESP32-S2's on-die sensor (arduino-esp32 starts and stops it per read).
+    float mcu_temp_c = temperatureRead();
     size_t n = rescuebot::buildStatus(g_out_buf, sizeof(g_out_buf), g_motors_ready, g_rx_dropped,
-                                      g_loop_max_ms);
+                                      g_loop_max_ms, mcu_temp_c);
     sendLine(g_out_buf, n);
     sendImuDiagnostics();
     g_loop_max_ms = 0;

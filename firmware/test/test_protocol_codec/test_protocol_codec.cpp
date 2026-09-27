@@ -8,6 +8,7 @@
 
 #include <ArduinoJson.h>
 
+#include <cmath>
 #include <cstring>
 
 #include "protocol_messages.h"
@@ -205,12 +206,15 @@ void test_build_fault(void) {
 
 void test_build_status(void) {
     char buf[128];
-    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), true, 0, 3) > 0);
+    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), true, 0, 3, 41.5f) > 0);
     TEST_ASSERT_EQUAL_STRING(
-        R"({"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3})", buf);
-    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), false, 42, 120) > 0);
+        R"({"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3,"mcu_temp_c":41.5})",
+        buf);
+    // An unreadable sensor (NAN) is reported as null, never as invalid JSON.
+    TEST_ASSERT_TRUE(buildStatus(buf, sizeof(buf), false, 42, 120, NAN) > 0);
     TEST_ASSERT_EQUAL_STRING(
-        R"({"type":"status","motor_shield":false,"rx_dropped":42,"loop_max_ms":120})", buf);
+        R"({"type":"status","motor_shield":false,"rx_dropped":42,"loop_max_ms":120,"mcu_temp_c":null})",
+        buf);
 }
 
 void test_build_rx_reject_truncates_and_escapes(void) {

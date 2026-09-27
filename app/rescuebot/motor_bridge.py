@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import select
 import signal
 import sys
 import time
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from .bridge_ipc import (
     ArbiterCommand,
@@ -124,6 +125,8 @@ class MotorBridge:
         self.rejected_commands = 0
         self._diagnostic_tail = b""
         self._last_imu_diag = b""
+        # The QT Py's on-die temperature from its 1 Hz status line.
+        self.mcu_temp_c: float | None = None
         self.fault: str | None = None
 
     # -- transport ---------------------------------------------------------
@@ -164,6 +167,7 @@ class MotorBridge:
             self._transport_lost()
 
     def _transport_lost(self) -> None:
+        self.mcu_temp_c = None
         self.transport.close()
         self.link.disconnect()
         self._drive = None
@@ -189,9 +193,14 @@ class MotorBridge:
             if b'"rx_reject"' in line:
                 print(f"[bridge] firmware rejected: {line.decode('utf-8', 'replace')}",
                       file=sys.stderr, flush=True)
-            elif b'"type":"status"' in line and self._slow_loop(line):
-                print(f"[bridge] firmware slow loop: {line.decode('utf-8', 'replace')}",
-                      file=sys.stderr, flush=True)
+            elif b'"type":"status"' in line:
+                status = self._status_fields(line)
+                self.mcu_temp_c = self._temperature(status)
+                loop_max_ms = status.get("loop_max_ms")
+                if isinstance(loop_max_ms, int) and loop_max_ms > 200:
+                    # A firmware loop pass over 200 ms: the chip resets itself at 3 s.
+                    print(f"[bridge] firmware slow loop: {line.decode('utf-8', 'replace')}",
+                          file=sys.stderr, flush=True)
             elif b'"imu_diag"' in line and line != self._last_imu_diag:
                 # Sent every second; log only changes.
                 self._last_imu_diag = line
@@ -199,12 +208,22 @@ class MotorBridge:
                       file=sys.stderr, flush=True)
 
     @staticmethod
-    def _slow_loop(line: bytes) -> bool:
-        """A firmware loop pass over 200 ms: the chip resets itself at 3 s."""
+    def _status_fields(line: bytes) -> dict[str, Any]:
         try:
-            return int(json.loads(line).get("loop_max_ms", 0)) > 200
-        except (ValueError, TypeError, AttributeError):
-            return False
+            record = json.loads(line)
+        except ValueError:
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    @staticmethod
+    def _temperature(status: dict[str, Any]) -> float | None:
+        """mcu_temp_c when it is a plausible reading; older firmware omits it."""
+        value = status.get("mcu_temp_c")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value) or not -40.0 <= value <= 150.0:
+            return None
+        return round(float(value), 1)
 
     # -- arbiter commands --------------------------------------------------
 
@@ -309,6 +328,7 @@ class MotorBridge:
                 "calibration": imu.calibration,
             },
             accessories=snapshot.accessories,
+            mcu_temp_c=self.mcu_temp_c,
         )
 
     def shutdown(self) -> None:

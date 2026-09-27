@@ -78,13 +78,14 @@ size_t buildAccessoriesAck(char* out, size_t out_size, const char* session, uint
 size_t buildImuTelemetry(char* out, size_t out_size, uint32_t timestamp_ms, bool available,
                           double heading_deg, uint8_t calibration);
 size_t buildFault(char* out, size_t out_size, const char* reason);
-// Diagnostic reports. The Pi bridge does not parse these (unknown types are
+// Diagnostic reports. The protocol parser does not accept these (unknown types are
 // counted as rejected lines and ignored).
-// {"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3}:
-// shield presence, USB receive bytes dropped since boot, and the longest
-// loop() pass since the previous status.
+// {"type":"status","motor_shield":true,"rx_dropped":0,"loop_max_ms":3,"mcu_temp_c":41.5}:
+// shield presence, USB receive bytes dropped since boot, the longest loop()
+// pass since the previous status, and the ESP32-S2's internal temperature
+// sensor (null when unreadable). The bridge reads mcu_temp_c for the dashboard.
 size_t buildStatus(char* out, size_t out_size, bool motor_shield, uint32_t rx_dropped,
-                    uint32_t loop_max_ms);
+                    uint32_t loop_max_ms, float mcu_temp_c);
 // {"type":"rx_reject","len":N,"line":"..."}: the start of a line that was
 // rejected as malformed or oversized, truncated to max_chars.
 size_t buildRxReject(char* out, size_t out_size, const char* line, size_t length,

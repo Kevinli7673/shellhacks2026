@@ -438,6 +438,10 @@ button:disabled { cursor: not-allowed; }
 .speed .desk-label { white-space: nowrap; }
 #speed-value { font-family: var(--display); font-size: var(--t-xl); font-weight: 700; }
 .speed-pwm { font-family: var(--mono); font-size: var(--t-sm); color: var(--ink-2); white-space: nowrap; }
+/* The QT Py's temperature, pushed to the right end of the speed row. */
+.speed-temp { margin-left: auto; display: flex; align-items: baseline; gap: 0.75rem; white-space: nowrap; }
+#mcu-temp { font-family: var(--display); font-size: var(--t-xl); font-weight: 700; }
+#mcu-temp[data-state="hot"] { color: var(--tally-amber); }
 
 /* ---------- Keycap panel ---------- */
 
@@ -447,8 +451,6 @@ button:disabled { cursor: not-allowed; }
   justify-content: start;
   gap: 1.25rem 2.5rem;
   align-items: start;
-  border-top: 1px solid var(--desk-line);
-  padding-top: 1.25rem;
 }
 .keycluster {
   display: grid;

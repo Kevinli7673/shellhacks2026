@@ -210,12 +210,18 @@ size_t buildFault(char* out, size_t out_size, const char* reason) {
 }
 
 size_t buildStatus(char* out, size_t out_size, bool motor_shield, uint32_t rx_dropped,
-                    uint32_t loop_max_ms) {
+                    uint32_t loop_max_ms, float mcu_temp_c) {
     StaticJsonDocument<kJsonCapacity> doc;
     doc["type"] = "status";
     doc["motor_shield"] = motor_shield;
     doc["rx_dropped"] = rx_dropped;
     doc["loop_max_ms"] = loop_max_ms;
+    if (std::isfinite(mcu_temp_c)) {
+        // Whole tenths keep the line short; the sensor is only good to ~1 C.
+        doc["mcu_temp_c"] = std::round(mcu_temp_c * 10.0f) / 10.0f;
+    } else {
+        doc["mcu_temp_c"] = nullptr;
+    }
     size_t n = serializeJson(doc, out, out_size);
     return n < out_size ? n : 0;
 }
