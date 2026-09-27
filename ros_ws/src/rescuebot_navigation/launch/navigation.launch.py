@@ -84,10 +84,12 @@ def generate_launch_description():
         ),
         *[Node(
             package=package, executable=name, name=name, output="screen",
-            parameters=[params, collision, robot_params] + (
+            # robot_params loads after the derived search controller, so the
+            # physical robot can override SearchPath as well as FollowPath.
+            parameters=[params, collision] + (
                 [search_parameters] if name == "controller_server" else
                 [{"default_nav_to_pose_bt_xml": normal_tree}] if name == "bt_navigator" else []
-            ) + [{"use_sim_time": use_sim_time}], remappings=remappings,
+            ) + [robot_params, {"use_sim_time": use_sim_time}], remappings=remappings,
         ) for package, name, remappings in nodes],
         Node(
             package="nav2_lifecycle_manager", executable="lifecycle_manager",

@@ -187,7 +187,7 @@ def test_search_only_controller_derives_unchanged_caps_and_collision_settings():
         module.generate_launch_description()
     controller = next(node for node in nodes if node.get("name") == "controller_server")
     normal = module.yaml.safe_load((package / "config/nav2.yaml").read_text())["controller_server"]["ros__parameters"]
-    overrides = controller["parameters"][-1]
+    overrides = next(p for p in controller["parameters"] if isinstance(p, dict) and "SearchPath" in p)
     search = overrides["SearchPath"]
     expected = module.deepcopy(normal["FollowPath"])
     expected["rotate_to_goal_heading"] = False
