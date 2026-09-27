@@ -103,12 +103,55 @@ void configureI2cBus() {
 uint32_t g_last_imu_ms = 0;
 uint32_t g_last_imu_attempt_ms = 0;
 
+// USBCDC::write() retries forever while the host has not drained the 64-byte
+// TX FIFO, with no timeout. When the Pi stopped reading for ~3 s, the loop
+// watchdog reset the chip mid-write (wdt_stage 12), dropping USB and turning
+// the IMU off. Write only what fits, and give up on a line after
+// kTxBudgetMs: a lost ack or telemetry line is safe (the bridge disarms on
+// missing acks), a frozen loop is not.
+constexpr uint32_t kTxBudgetMs = 25;
+uint32_t g_tx_dropped = 0;   // lines abandoned because the host was not reading
+bool g_tx_partial = false;   // the last line was cut off; terminate it first
+
+bool writeBounded(const uint8_t* data, size_t len, uint32_t started_ms) {
+    size_t sent = 0;
+    while (sent < len) {
+        int space = Serial.availableForWrite();
+        if (space > 0) {
+            size_t chunk = len - sent < static_cast<size_t>(space) ? len - sent : static_cast<size_t>(space);
+            size_t n = Serial.write(data + sent, chunk);
+            if (n == 0) {
+                return false;  // host disconnected
+            }
+            sent += n;
+        } else if (millis() - started_ms >= kTxBudgetMs) {
+            return false;
+        } else {
+            delay(1);
+        }
+    }
+    return true;
+}
+
 void sendLine(const char* text, size_t len) {
     if (len == 0) {
         return;
     }
-    Serial.write(reinterpret_cast<const uint8_t*>(text), len);
-    Serial.write('\n');
+    uint32_t started_ms = millis();
+    static const uint8_t kNewline = '\n';
+    if (g_tx_partial) {
+        // The bridge rejects the cut-off line as malformed and resyncs here.
+        if (!writeBounded(&kNewline, 1, started_ms)) {
+            ++g_tx_dropped;
+            return;
+        }
+        g_tx_partial = false;
+    }
+    if (!writeBounded(reinterpret_cast<const uint8_t*>(text), len, started_ms) ||
+        !writeBounded(&kNewline, 1, started_ms)) {
+        ++g_tx_dropped;
+        g_tx_partial = true;
+    }
 }
 
 // Why the IMU is unavailable: disabled after a watchdog reset (reset_reason
@@ -116,10 +159,10 @@ void sendLine(const char* text, size_t len) {
 void sendImuDiagnostics() {
     int n = snprintf(g_diag_buf, sizeof(g_diag_buf),
                      "{\"type\":\"imu_diag\",\"enabled\":%s,\"ready\":%s,\"probe_0x28\":%u,"
-                     "\"reset_reason\":%d,\"wdt_stage\":%u}",
+                     "\"reset_reason\":%d,\"wdt_stage\":%u,\"tx_dropped\":%lu}",
                      g_imu_enabled ? "true" : "false", g_imu_ready ? "true" : "false",
                      static_cast<unsigned>(g_imu.lastProbe()), static_cast<int>(esp_reset_reason()),
-                     static_cast<unsigned>(g_wdt_stage));
+                     static_cast<unsigned>(g_wdt_stage), static_cast<unsigned long>(g_tx_dropped));
     if (n > 0 && static_cast<size_t>(n) < sizeof(g_diag_buf)) {
         sendLine(g_diag_buf, static_cast<size_t>(n));
     }
