@@ -481,6 +481,7 @@ function updateNavigation(autonomy, drive) {
   element("simulation-navigation").hidden = !autonomy.available;
   if (!autonomy.available) return;
   element("navigation-title").textContent = autonomy.physical ? "Robot autonomy" : "Simulation autonomy";
+  setText("autonomy-speed-note", autonomy.speed_percent ? `Autonomy motor speed: up to ${autonomy.speed_percent}%.` : "");
   const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
   const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
   const search = nav.search;

@@ -16,6 +16,7 @@ stable serial-by-id path selects the real ESP32-S2 transport.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import select
@@ -188,11 +189,22 @@ class MotorBridge:
             if b'"rx_reject"' in line:
                 print(f"[bridge] firmware rejected: {line.decode('utf-8', 'replace')}",
                       file=sys.stderr, flush=True)
+            elif b'"type":"status"' in line and self._slow_loop(line):
+                print(f"[bridge] firmware slow loop: {line.decode('utf-8', 'replace')}",
+                      file=sys.stderr, flush=True)
             elif b'"imu_diag"' in line and line != self._last_imu_diag:
                 # Sent every second; log only changes.
                 self._last_imu_diag = line
                 print(f"[bridge] firmware IMU: {line.decode('utf-8', 'replace')}",
                       file=sys.stderr, flush=True)
+
+    @staticmethod
+    def _slow_loop(line: bytes) -> bool:
+        """A firmware loop pass over 200 ms: the chip resets itself at 3 s."""
+        try:
+            return int(json.loads(line).get("loop_max_ms", 0)) > 200
+        except (ValueError, TypeError, AttributeError):
+            return False
 
     # -- arbiter commands --------------------------------------------------
 

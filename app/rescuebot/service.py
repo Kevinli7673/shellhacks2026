@@ -415,6 +415,7 @@ class RobotControlService:
                 "mission": autonomy.mission,
                 "reason": autonomy.reason,
                 "rejected_commands": None if self.autonomy_endpoint is None else self.autonomy_endpoint.rejected_commands,
+                "speed_percent": self.autonomy_speed_percent,
             },
             "motor": motor,
             "camera": {
