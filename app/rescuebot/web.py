@@ -8,6 +8,7 @@ import argparse
 import os
 from pathlib import Path
 import secrets
+import threading
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -25,6 +26,7 @@ from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .sensors import OffSensors, Sensors, create_sensors
 from .service import RobotControlService
+from .voice import STARTUP_PHRASE, CameraVoice, Speaker, alert_text
 
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -40,7 +42,7 @@ async def _control_loop(service: RobotControlService) -> None:
 def _dashboard_state(
     service: RobotControlService,
     session: str | None,
-    camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend,
+    camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend | _LockedCamera,
     sensors: Sensors | None = None,
 ) -> dict[str, object]:
     state = service.state()
@@ -53,6 +55,29 @@ def _dashboard_state(
         "can_control": control["owner_session"] in (None, session),
         **state,
     }
+
+
+class _LockedCamera:
+    """Serializes camera status reads between the web handlers and the voice thread."""
+
+    def __init__(self, camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend) -> None:
+        self._camera = camera
+        self._lock = threading.Lock()
+
+    def status(self) -> dict[str, object]:
+        with self._lock:
+            return self._camera.status()
+
+
+def _create_camera_voice(camera: _LockedCamera) -> CameraVoice:
+    if not os.environ.get("ELEVENLABS_API_KEY"):
+        print("Warning: ELEVENLABS_API_KEY isn't set; only cached phrases use ElevenLabs.", flush=True)
+    speaker = Speaker()
+    speaker.say(STARTUP_PHRASE)
+    speaker.prepare(
+        [alert_text([{"label": "person", "bearing_deg": bearing}]) for bearing in (0, 20, -20)]
+    )
+    return CameraVoice(camera.status, speaker)
 
 
 def create_app(
@@ -69,6 +94,8 @@ def create_app(
     bridge_status_socket: str | Path | None = None,
     sensors_mode: str = "off",
     sensors: Sensors | None = None,
+    voice: bool = False,
+    camera_voice: CameraVoice | None = None,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -104,11 +131,16 @@ def create_app(
     else:
         raise ValueError("camera_backend must be mock, replay, or live")
     sensor_service = sensors if sensors is not None else create_sensors(sensors_mode)
+    camera_status_source = _LockedCamera(camera_service)
+    if camera_voice is None and voice:
+        camera_voice = _create_camera_voice(camera_status_source)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         camera_service.start()
         sensor_service.start()
+        if camera_voice is not None:
+            camera_voice.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
         try:
             yield
@@ -118,6 +150,8 @@ def create_app(
                 await app.state.control_loop
             control_service.stop("dashboard_shutdown")
             control_service.close()
+            if camera_voice is not None:
+                camera_voice.close()
             camera_service.close()
             sensor_service.close()
 
@@ -125,6 +159,7 @@ def create_app(
     app.state.control_service = control_service
     app.state.camera_service = camera_service
     app.state.sensor_service = sensor_service
+    app.state.camera_voice = camera_voice
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -133,7 +168,7 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_service, sensor_service)
+        return _dashboard_state(control_service, None, camera_status_source, sensor_service)
 
     @app.get("/api/lidar")
     async def lidar() -> dict[str, object]:
@@ -144,7 +179,7 @@ def create_app(
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_service, sensor_service)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service)}
         )
 
         try:
@@ -183,7 +218,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service, sensor_service)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)
@@ -232,6 +267,12 @@ def main() -> None:
         default=os.environ.get("RESCUEBOT_SENSORS", "off"),
         help="live: show the LiDAR scan, read by its own process.",
     )
+    parser.add_argument(
+        "--voice",
+        action="store_true",
+        default=os.environ.get("RESCUEBOT_VOICE") == "1",
+        help="Speak camera detections (ElevenLabs, espeak-ng fallback) on its own thread.",
+    )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
         parser.error("--replay-path is required when --camera-backend replay")
@@ -244,6 +285,7 @@ def main() -> None:
             video_port=args.video_port,
             motor_backend=args.motor_backend,
             sensors_mode=args.sensors,
+            voice=args.voice,
         ),
         host="0.0.0.0",
         port=8000,

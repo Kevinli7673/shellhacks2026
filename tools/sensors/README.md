@@ -11,7 +11,7 @@ agrees to bring them in.
 | File | Purpose |
 |---|---|
 | `rescue_sensors.py` | Runs `../../ai_camera_detect.py`, records webcam video and photos, records lidar scans, and adds a bearing and lidar distance to each detection. |
-| `voice_alerts.py` | ElevenLabs spoken alerts (`rescue_sensors.py --voice`), cached as MP3s in `~/.cache/rescuebot_voice/`. |
+| `voice_alerts.py` | Shim for `app/rescuebot/voice.py`: ElevenLabs spoken alerts (`rescue_sensors.py --voice`), cached as MP3s in `~/.cache/rescuebot_voice/`. |
 | `find_offset.py` | Finds `--lidar-offset` by comparing a run without a person in front of the camera to one with a person 1 m ahead. |
 | `plot_scan.py` | Plots the last lidar scan of a run with the AI Camera's view shaded. |
 
