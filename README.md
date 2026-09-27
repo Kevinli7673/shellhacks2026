@@ -60,7 +60,8 @@ stay off until someone arms them again.
   (for example "Nearest 0.90 m · 25° right").
 - **Live map:** the SLAM map of the room, drawn around the robot as it moves.
   It shows recent person sightings and the people counted during a room search,
-  and has zoom (1.5–12 m across) and heading-up or north-up views.
+  has zoom (1.5–12 m across) and heading-up or north-up views, and a color key
+  under it.
 - **Robot state:** the signal chain from browser to firmware with a status lamp
   for each link, the four wheel speeds the firmware acknowledged, IMU heading,
   and link timing.
@@ -75,8 +76,8 @@ stay off until someone arms them again.
   - their posture, any hazards, a short summary, and a recommended action.
 
   The "Gemini triage" panel shows the assessed frame, the answer, and earlier
-  results, and has an **Ask Gemini now** button. Every assessment is saved to
-  disk. Gemini only looks at pictures; it never controls the robot.
+  results, and has an **Ask Gemini now** button. Every assessment is saved
+  (image and JSON) under `~/rescuebot_runs/gemini/`. Gemini only looks at pictures; it never controls the robot.
 - **Voice** (`--voice`): the robot speaks through its own speaker, using
   ElevenLabs text-to-speech with a local fallback. It says things like how
   many people it sees, where they are, and whether they need help. With Gemini
@@ -87,7 +88,8 @@ stay off until someone arms them again.
     The buttons only show "On" once the robot confirms it.
   - **Automatic** (`--auto-accessories`): when a person first appears, the
     buzzer sounds for 2 s and the light flashes 5 times. When the camera sees
-    that the room is dark (below 10 lux for 5 s), the light turns on.
+    that the room is dark (below 10 lux for 5 s), the light turns on, and it
+    turns off again once the room is bright (above 40 lux for 5 s).
 
 ### Map and search on its own (opt-in)
 
@@ -112,20 +114,22 @@ stay off until someone arms them again.
 | Raspberry Pi AI Camera (Sony IMX500) | Person detection on the sensor, plus annotated video |
 | Slamtec RPLIDAR C1 | 360° scans for the LiDAR view, SLAM mapping, and obstacle avoidance |
 | Adafruit QT Py ESP32-S2 | Robot controller: arming, watchdog, mecanum mixing, motors, IMU, buzzer, light |
-| Adafruit Motor Shield V2 (I2C 0x60) | Drives the four DC motors |
-| Four mecanum wheels and DC motors | Omnidirectional drive |
+| Hiwonder mecanum wheel chassis | Frame, four mecanum wheels, and four DC gear motors |
+| Adafruit Motor/Stepper/Servo Shield for Arduino v2.3 (I2C 0x60) | Drives the four DC motors |
+| 6 × AA battery pack | Motor power, through the motor shield |
+| Energizer 10,000 mAh 22.5 W USB-C power bank | Powers the Raspberry Pi |
 | Bosch BNO055 (I2C 0x28) | Heading, used for odometry during SLAM |
 | MAX98357A I2S amplifier + 1 W speaker | The robot's voice |
 | Buzzer on QT Py A3 (GPIO 8) | Alert tone (a 2 kHz square wave, so passive buzzers work too) |
 | Adafruit NeoPixel Jewel 7 (RGBW) on QT Py RX (GPIO 16) | Alert flashes and the light for dark rooms |
 
-_TODO (Pi): add the motor model and voltage, the battery or power supply for
-the motors and for the Pi, and the chassis._
-
 **Motor wiring:** front-left = M2, front-right = M4, rear-left = M1 (inverted),
 rear-right = M3 (inverted). The "front" is the camera end. Wiring differences
 are corrected only in `firmware/include/chassis_config.h`, never in the mixing
-math. The motor output is capped at 60/255 PWM.
+math. The firmware caps motor output at 60/255 PWM (`hardware_pwm_ceiling`).
+The dashboard's speed limit is its speed percentage of 180, so every dashboard
+speed above about 33% (manual or `--autonomy-speed`) reaches the same 60 PWM
+top speed.
 
 ## How it works
 
@@ -232,15 +236,26 @@ tools/robot/stop_robot.sh
    buzzer/light, and physical autonomy enabled.
 3. A fresh ROS 2 autonomy stack.
 
-It then prints a health summary. Open `http://<pi-address>:8000/` in a browser
-on the same network.
+It stops anything it started before, waits for navigation to be ready, and then
+prints a health summary. Open `http://<pi-address>:8000/` in a browser on the
+same network. Logs and pid files go to `~/rescuebot-logs/`.
+
+`start_robot.sh` settings (environment variables):
+- `RESCUEBOT_PYTHON`: the Python to use (default `.venv/bin/python` in the
+  checkout). It always runs this checkout's code (`PYTHONPATH=app`).
+- `RESCUEBOT_SERIAL_DEVICE`: the QT Py port (default: the Adafruit QT Py
+  ESP32-S2 entry under `/dev/serial/by-id/`).
+- `RESCUEBOT_AUTONOMY_SPEED` and `RESCUEBOT_AUTONOMY_MIN_PWM`: both default
+  to 60.
+- `RESCUEBOT_LOG_DIR`: where logs go.
 
 - **API keys:** `GEMINI_API_KEY` for Gemini triage and `ELEVENLABS_API_KEY` for
   ElevenLabs voice. Set them in the environment or as `export` lines in
   `~/.bashrc`. Without them, those features say so on the dashboard; voice
   falls back to espeak-ng.
-- **Before a demo:** SLAM slows down after an hour or two of mapping, so run
-  `start_robot.sh` again to start a fresh map.
+- **Before a demo:** SLAM adds a scan every 0.4 s even when the robot is still,
+  and slows down after an hour or two ("Waiting for Collision Monitor" on the
+  dashboard). Run `start_robot.sh` again to start a fresh map.
 - **First drive:** raise the chassis so the wheels are off the ground, then
   Enable driving and check each key.
 
@@ -263,11 +278,13 @@ USB adapter by mistake.
 ### Firmware
 
 The firmware is a PlatformIO project in `firmware/` (board
-`adafruit_qtpy_esp32s2`). Flash it with:
+`adafruit_qtpy_esp32s2`). Stop the motor bridge first (it holds the port), then
+flash it with:
 
 ```bash
+tools/robot/stop_robot.sh
 cd firmware
-pio run -e esp32-s2 -t upload --upload-port /dev/ttyACM0
+pio run -e esp32-s2 -t upload --upload-port /dev/serial/by-id/usb-Adafruit_QT_Py_ESP32-S2_...-if00
 ```
 
 It boots disarmed. If the upload can't connect: hold BOOT, tap RESET, and
@@ -294,21 +311,44 @@ Open `http://localhost:8000/`. Other modes:
 
 ## Tests
 
+The tests need two packages that the dashboard itself doesn't:
+
 ```bash
+.venv/bin/pip install pytest httpx                  # httpx is used by FastAPI's test client
 PYTHONPATH=app .venv/bin/python -m pytest tests     # Python: control, protocol, sensors, autonomy, web
 cd firmware && pio test -e native                   # firmware logic on the host: mixing, protocol, watchdog, wiring
 cd firmware && pio run -e esp32-s2                  # firmware build for the QT Py
 ```
+
+`PYTHONPATH=app` makes the tests use this checkout's code even if the venv's
+editable install points at another checkout.
 
 - **Optional integration tests:** with `RESCUEBOT_INTEGRATION=1`, two more
   tests run. `tests/integration/test_browser.py` drives the real dashboard in
   headless Chrome with real key presses. `test_firmware_link.py` compiles the
   firmware logic and talks to it over a virtual serial port through the real
   bridge.
-- **ROS package tests** run inside the ROS 2 image (see the `ros_ws` READMEs).
+  They need Chrome or Chromium, and `clang++` or `g++`. Both use their own
+  temporary sockets and a simulated serial port, never the robot.
+- **ROS package tests** run inside the robot's ROS 2 image. After
+  `ros_ws/docker/robot/run_autonomy.sh` has built `rescuebot-robot:jazzy`:
 
-_TODO (Pi): confirm the exact test commands, any extra test dependencies, and
-the latest pass counts on `main`._
+  ```bash
+  docker run --rm -v "$PWD:/src:ro" -w /src/ros_ws/src/rescuebot_navigation \
+    -e PYTHONPATH=/src/ros_ws/src/rescuebot_navigation:/src/app rescuebot-robot:jazzy \
+    bash -c "source /opt/ros/jazzy/setup.bash && python3 -m pytest -q -p no:cacheprovider test"
+  ```
+
+Latest results on `main` (Raspberry Pi 5, Python 3.13, pytest 9.1, PlatformIO
+6.2), 2026-09-27:
+
+| Suite | Result |
+|---|---|
+| Python `tests/` | 271 passed, 2 skipped (the two integration tests) |
+| Python with `RESCUEBOT_INTEGRATION=1` (`tests/integration`) | 2 passed |
+| Firmware `pio test -e native` | 59/59 passed |
+| Firmware `pio run -e esp32-s2` | builds (RAM 8.6%, flash 22.2%) |
+| ROS `rescuebot_navigation` tests (at `7fa55a9`; `main` differs only in the README) | 58 passed |
 
 ## Repository layout
 
@@ -329,11 +369,25 @@ the latest pass counts on `main`._
 
 - **Verified on the real robot:**
   - Manual driving in every direction, with the verified wheel mapping.
-  - Arming and watchdogs.
-  - Person detection, LiDAR, voice, the buzzer and light.
+  - Arming, Stop, and the browser-timeout stop.
+  - Person detection, LiDAR, voice, and the manual buzzer and light buttons.
   - Gemini triage with the live camera.
-  - SLAM mapping.
+  - SLAM mapping, and the live map on the dashboard.
   - Forward and backward set-distance autonomy goals.
+  - IMU heading: available, and no controller resets since the USB-write fix
+    (`fadea2e`), over about 1.8 hours of mostly idle running.
+- **Not yet verified on the real robot:**
+  - A full room search, end to end (search, count people, return).
+  - Left and right set-distance goals: the wheels turn, but the robot barely
+    moves (see weak strafing).
+  - The automatic dark-room light, and the automatic person alert since the
+    light was rewired.
+  - The acceptance runbook's USB-unplug, fault, and 15-minute endurance tests.
+- **Controller resets:** the ESP32 used to reset itself (3 s loop watchdog)
+  when the Pi paused reading USB. That showed as "Motor bridge unavailable",
+  and the IMU stayed off until RESET. Since `fadea2e` the firmware drops a
+  line instead of waiting. If it happens again, the bridge log shows the
+  `imu_diag` line with `reset_reason` and `wdt_stage` (the loop step that hung).
 - **No wheel encoders:** SLAM is the only position source. Drive slowly while
   mapping, and a jump in localization stops a search.
 - **Weak strafing:** strafing moves poorly because of the robot's weight
@@ -343,20 +397,25 @@ the latest pass counts on `main`._
 - **Room search assumptions:** coverage assumes about 0.9 m of all-around
   sensing, but the camera only faces forward.
 - **Autonomy is new:** it's opt-in and should be run with a spotter.
-
-_TODO (Pi): update this list with the latest physical results. For example: has
-a full room search run end to end on the robot? Does the IMU now stay
-available? Have any watchdog resets happened since `fadea2e`?_
+- **Pi power:** the 22.5 W power bank can't supply the 5 A a Raspberry Pi 5
+  asks for, so the Pi limits its USB ports' total current. With the camera,
+  LiDAR, controller, and speaker all running, it has reported undervoltage
+  before. A 27 W (5 V, 5 A) supply avoids this.
+- **Autonomy speed floor:** `--autonomy-min-pwm` is applied before the
+  firmware's 60 PWM cap. At `--autonomy-speed` above about 33%, the firmware
+  scales small commands down again, so slow approach commands can fall below
+  the speed at which the wheels turn.
 
 ## Team
 
 - Shade Rahman: dashboard, control service, motor bridge, serial protocol,
-  integration and hardware bring-up
+  integration and hardware bring-up, and physical ROS 2 mapping and autonomy
+  (committed under the a1vcm account)
 - Isabelle Mathew: ESP32-S2 firmware, buzzer and light
-- _TODO (Pi): name for GitHub user a1vcm_ (a1vcm): AI Camera
-  detection, LiDAR and sensor tools, speaker and voice, Gemini triage, physical
-  ROS 2 mapping and autonomy
-- Kevin Li: repository owner
+- a1vcm (GitHub): AI Camera detection, LiDAR and sensor tools, speaker and
+  voice, Gemini triage, and help with the hardware
+- Kevin Li: repository owner, and the robot's hardware (chassis, motors,
+  wiring)
 
 ## Project documents
 
