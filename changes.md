@@ -246,6 +246,31 @@ Validation:
   DARK_LUX/BRIGHT_LUX in app/rescuebot/accessory_auto.py if the light's own
   glow makes it toggle.
 
+### 2026-09-27 EDT - Physical robot ROS 2 mapping (read-only)
+
+- Workstream: full stack, branch test/full-product (worktree ~/rescuebot-full-product).
+- Status: running on the Pi; user asked for physical autonomy, starting with
+  ROS 2 on the Pi and real-LiDAR mapping while driving manually.
+- New ROS package `ros_ws/src/rescuebot_robot` and slim Docker image
+  `ros_ws/docker/robot/` (ROS 2 Jazzy ros-base + slam_toolbox; the Pi runs
+  Debian 13, which has no ROS 2 packages). See ros_ws/docker/robot/README.md.
+- Design decision: the ROS side reads the running dashboard's HTTP API
+  (`/api/lidar`, `/api/state` IMU heading) instead of opening the LiDAR or
+  ESP32 ports, so the dashboard keeps both and nothing in ROS can command
+  motors. No wheel encoders: odometry carries only BNO055 yaw; slam_toolbox
+  adds scans on a 0.4 s timer and scan matching finds the translation.
+- Autonomy remains gated to `--motor-backend gazebo`; no drive path from ROS
+  to the physical robot exists yet.
+- Tests: rescuebot_robot conversions 8/8 (host and inside the image). Live:
+  /scan ~3.7 Hz from the dashboard feed, map served on :8090, container
+  ~10% CPU, dashboard unaffected.
+- Physical evidence: first stationary map looked plausible. Scan
+  orientation (clockwise bins mirrored to ROS counterclockwise) and IMU yaw
+  sign still need a slow manual turn to confirm.
+- Next action: drive slowly around the room and check the map stays sharp;
+  then real person detections into ROS, Nav2 on the robot, and a gated drive
+  path through the bridge with Stop and manual override on top.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

@@ -1,0 +1,34 @@
+# slam_toolbox for the physical robot (RPLIDAR C1 via the dashboard, 1-degree bins).
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: false
+    mode: mapping
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    scan_topic: /scan
+    # No wheel encoders: odom carries only the IMU heading and never moves in
+    # x/y, so travel-distance gating would never add a scan while driving
+    # straight. Add scans on a timer and let the scan matcher find the motion.
+    minimum_travel_distance: 0.0
+    minimum_travel_heading: 0.0
+    minimum_time_interval: 0.4
+    throttle_scans: 1
+    scan_queue_size: 1
+    # Dashboard scans arrive up to ~0.3 s old over HTTP.
+    transform_timeout: 0.5
+    tf_buffer_duration: 30.0
+    transform_publish_period: 0.05
+    map_update_interval: 2.0
+    resolution: 0.05
+    max_laser_range: 10.0
+    use_scan_matching: true
+    use_scan_barycenter: true
+    # Search a wider window around the (motionless) odometry prediction.
+    correlation_search_space_dimension: 0.8
+    correlation_search_space_resolution: 0.01
+    # Keep loop closure local until mapping is validated on the robot.
+    loop_search_maximum_distance: 2.0
+    loop_match_minimum_response_coarse: 0.45
+    loop_match_minimum_response_fine: 0.55
+    stack_size_to_use: 40000000

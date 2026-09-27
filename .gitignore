@@ -12,3 +12,4 @@ firmware/.pio/
 
 # Local IDE state, not part of the project.
 .idea/
+maps/
