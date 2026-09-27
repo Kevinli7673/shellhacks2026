@@ -408,14 +408,14 @@ Latest results on `main` (Raspberry Pi 5, Python 3.13, pytest 9.1, PlatformIO
 
 ## Team
 
-- Shade Rahman: dashboard, control service, motor bridge, serial protocol,
-  integration and hardware bring-up, and physical ROS 2 mapping and autonomy
-  (committed under the a1vcm account)
-- Isabelle Mathew: ESP32-S2 firmware, buzzer and light
+- Shade Rahman (shadyyr): dashboard, control service, motor bridge, serial
+  protocol, integration and hardware bring-up, and physical ROS 2 mapping and
+  autonomy (committed under the a1vcm account)
+- Isabelle Mathew (imathew2008): ESP32-S2 firmware, buzzer and light
 - Alvaro Canseco-Martinez (a1vcm): AI Camera detection, LiDAR and sensor
   tools, speaker and voice, Gemini triage, and help with the hardware
-- Kevin Li: repository owner, and the robot's hardware (chassis, motors,
-  wiring)
+- Kevin Li (Kevinli7673): repository owner, and the robot's hardware (chassis,
+  motors, wiring)
 
 ## Project documents
 
