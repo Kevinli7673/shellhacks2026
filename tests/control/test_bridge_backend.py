@@ -258,6 +258,28 @@ class PhysicalAutonomyTests(unittest.TestCase):
         self.assertEqual(rig.service.autonomy.status().reason, "manual_override")
         self.assertTrue(all(value < 0 for value in rig.firmware.outputs.values()))
 
+    def test_weak_autonomy_command_is_scaled_up_to_the_stall_floor(self) -> None:
+        rig = self.armed_rig(allow_physical_autonomy=True)
+        rig.service.autonomy_min_pwm = 45
+        rig.service.autonomy_speed_percent = 30  # speed limit 30 of this rig's 100 ceiling
+        mission = rig.service.start_autonomy(rig.session)
+        assert mission is not None
+        # The 0.03 rad/s turn Nav2 sent on the bench: 0.125 of full turn.
+        rig.service.autonomy.receive(AutonomyIntent(mission, 1, rig.clock.now + 0.2, 0.0, 0.0, 0.125))
+        rig.pump(10)
+        snapshot = rig.service._last_snapshot
+        self.assertEqual(snapshot.source, "autonomy")
+        # Floor is capped at the autonomy speed limit (30), direction kept.
+        self.assertEqual(snapshot.wheels.as_dict(), {"fl": 30, "fr": -30, "rl": 30, "rr": -30})
+        self.assertEqual(rig.firmware.outputs, {"fl": 30, "fr": -30, "rl": 30, "rr": -30})
+
+        rig.service.autonomy_speed_percent = 60
+        rig.service.autonomy.receive(AutonomyIntent(mission, 2, rig.clock.now + 0.2, 0.25, 0.0, 0.0))
+        rig.pump(10)
+        wheels = rig.service._last_snapshot.wheels.as_dict()
+        self.assertEqual(max(map(abs, wheels.values())), 45)
+        self.assertTrue(all(value > 0 for value in wheels.values()))
+
     def test_silent_ros_source_disarms_the_real_robot(self) -> None:
         rig = self.armed_rig(allow_physical_autonomy=True)
         mission = rig.service.start_autonomy(rig.session)

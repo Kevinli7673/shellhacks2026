@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import sys
 import time
 from typing import Callable, Protocol
 
@@ -120,6 +121,7 @@ class MotorBridge:
         self._last_drive_sent_at: float | None = None
         self._last_connect_attempt: float | None = None
         self.rejected_commands = 0
+        self._diagnostic_tail = b""
         self.fault: str | None = None
 
     # -- transport ---------------------------------------------------------
@@ -173,8 +175,18 @@ class MotorBridge:
             self._transport_lost()
             return
         if data:
+            self._log_rejects(data)
             for reply in self.link.receive(data, now):
                 self._write(reply)
+
+    def _log_rejects(self, data: bytes) -> None:
+        """Print the firmware's rx_reject echo: the exact line it could not parse."""
+        *lines, self._diagnostic_tail = (self._diagnostic_tail + data).split(b"\n")
+        self._diagnostic_tail = self._diagnostic_tail[-1024:]
+        for line in lines:
+            if b'"rx_reject"' in line:
+                print(f"[bridge] firmware rejected: {line.decode('utf-8', 'replace')}",
+                      file=sys.stderr, flush=True)
 
     # -- arbiter commands --------------------------------------------------
 

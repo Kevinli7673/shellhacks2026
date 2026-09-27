@@ -17,6 +17,8 @@ from .control import DriveIntent
 
 AUTONOMY_TIMEOUT_S = 0.250
 DEFAULT_AUTONOMY_SPEED_PERCENT = 20
+# Real motors stall at low PWM; autonomy scales weak commands up to this.
+DEFAULT_AUTONOMY_MIN_PWM = 45
 
 
 def _motion_axis(value: float, name: str) -> float:
