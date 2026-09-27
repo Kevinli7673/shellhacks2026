@@ -12,6 +12,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <esp_attr.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 
@@ -63,6 +64,18 @@ bool g_imu_enabled = true;
 
 char g_out_buf[256];
 bool g_imu_ready = false;
+
+// Which step of loop() is running. Kept in RTC memory, which a watchdog reset
+// does not clear, so after a reset imu_diag reports the step that hung
+// (wdt_stage; 0 = not a watchdog reset). Diagnostic only.
+enum Stage : uint32_t {
+    kStageIdle = 1, kStageHandleLine, kStageReply, kStageMotorWrite, kStageAccessories,
+    kStageRxReject, kStageTick, kStageMotorBegin, kStageImuBegin, kStageStatus,
+    kStageImuRead, kStageImuSend, kStageSetup,
+};
+RTC_NOINIT_ATTR uint32_t g_stage;
+uint32_t g_wdt_stage = 0;
+inline void stage(Stage s) { g_stage = s; }
 // The shield must be initialized before any write reaches it; without this,
 // MotorShield holds no motor handles and every write is silently dropped.
 bool g_motors_ready = false;
@@ -103,9 +116,10 @@ void sendLine(const char* text, size_t len) {
 void sendImuDiagnostics() {
     int n = snprintf(g_diag_buf, sizeof(g_diag_buf),
                      "{\"type\":\"imu_diag\",\"enabled\":%s,\"ready\":%s,\"probe_0x28\":%u,"
-                     "\"reset_reason\":%d}",
+                     "\"reset_reason\":%d,\"wdt_stage\":%u}",
                      g_imu_enabled ? "true" : "false", g_imu_ready ? "true" : "false",
-                     static_cast<unsigned>(g_imu.lastProbe()), static_cast<int>(esp_reset_reason()));
+                     static_cast<unsigned>(g_imu.lastProbe()), static_cast<int>(esp_reset_reason()),
+                     static_cast<unsigned>(g_wdt_stage));
     if (n > 0 && static_cast<size_t>(n) < sizeof(g_diag_buf)) {
         sendLine(g_diag_buf, static_cast<size_t>(n));
     }
@@ -145,6 +159,8 @@ void setup() {
     esp_task_wdt_init(kLoopWatchdogTimeoutS, true);
     enableLoopWDT();
     g_imu_enabled = esp_reset_reason() != ESP_RST_TASK_WDT;
+    g_wdt_stage = esp_reset_reason() == ESP_RST_TASK_WDT ? g_stage : 0;
+    stage(kStageSetup);
 
     Serial.setRxBufferSize(kSerialRxBufferBytes);
     Serial.onEvent(ARDUINO_USB_CDC_RX_OVERFLOW_EVENT, onRxOverflow);
@@ -171,18 +187,24 @@ void setup() {
 
 void loop() {
     uint32_t now_ms = millis();
+    stage(kStageIdle);
 
     while (Serial.available() > 0) {
         char c = static_cast<char>(Serial.read());
         if (g_line_reader.feed(c)) {
+            stage(kStageHandleLine);
             size_t n = g_controller.handleLine(g_line_reader.line(), g_line_reader.length(),
                                                 g_line_reader.overflowed(), now_ms, g_out_buf,
                                                 sizeof(g_out_buf));
+            stage(kStageReply);
             sendLine(g_out_buf, n);
+            stage(kStageMotorWrite);
             applyControllerOutputs();
+            stage(kStageAccessories);
             g_accessories.apply(g_controller.accessories());
             if (n > 0 && (std::strstr(g_out_buf, "\"malformed_packet\"") != nullptr ||
                           std::strstr(g_out_buf, "\"oversized_packet\"") != nullptr)) {
+                stage(kStageRxReject);
                 size_t m = rescuebot::buildRxReject(g_diag_buf, sizeof(g_diag_buf),
                                                     g_line_reader.line(), g_line_reader.length(),
                                                     kRxRejectMaxChars);
@@ -192,6 +214,7 @@ void loop() {
         }
     }
 
+    stage(kStageTick);
     {
         size_t n = g_controller.tick(now_ms, g_out_buf, sizeof(g_out_buf));
         if (n > 0) {
@@ -200,6 +223,7 @@ void loop() {
         }
     }
 
+    stage(kStageMotorBegin);
     if (!g_motors_ready && now_ms - g_last_motor_attempt_ms >= kMotorRetryIntervalMs) {
         g_motors_ready = g_motors.begin();
         configureI2cBus();
@@ -208,6 +232,7 @@ void loop() {
 
     // Only while disarmed: a begin() that finds the sensor blocks ~1 s, longer
     // than the 500 ms drive watchdog.
+    stage(kStageImuBegin);
     if (g_imu_enabled && !g_imu_ready && !g_controller.armed() &&
         now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {
         g_imu_ready = g_imu.begin();
@@ -215,6 +240,7 @@ void loop() {
         g_last_imu_attempt_ms = now_ms;
     }
 
+    stage(kStageStatus);
     if (now_ms - g_last_status_ms >= kStatusIntervalMs) {
         g_last_status_ms = now_ms;
         sendStatus();
@@ -222,7 +248,9 @@ void loop() {
 
     if (now_ms - g_last_imu_ms >= kImuIntervalMs) {
         g_last_imu_ms = now_ms;
+        stage(kStageImuRead);
         ImuReading reading = g_imu_ready ? g_imu.read() : ImuReading{};
+        stage(kStageImuSend);
         size_t n = rescuebot::buildImuTelemetry(g_out_buf, sizeof(g_out_buf), now_ms,
                                                  reading.available, reading.heading_deg,
                                                  reading.calibration);
