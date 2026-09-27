@@ -23,6 +23,7 @@ from .live_camera import (
 )
 from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
+from .sensors import DEFAULT_WEBCAM_PORT, OffSensors, Sensors, create_sensors
 from .service import RobotControlService
 
 
@@ -40,9 +41,11 @@ def _dashboard_state(
     service: RobotControlService,
     session: str | None,
     camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend,
+    sensors: Sensors | None = None,
 ) -> dict[str, object]:
     state = service.state()
     state["camera"] = camera.status()
+    state["sensors"] = (sensors or OffSensors()).status()
     control = state["control"]
     assert isinstance(control, dict)
     return {
@@ -64,6 +67,9 @@ def create_app(
     motor_backend: str = "mock",
     bridge_command_socket: str | Path | None = None,
     bridge_status_socket: str | Path | None = None,
+    sensors_mode: str = "off",
+    sensors: Sensors | None = None,
+    webcam_port: int = DEFAULT_WEBCAM_PORT,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -98,10 +104,12 @@ def create_app(
         )
     else:
         raise ValueError("camera_backend must be mock, replay, or live")
+    sensor_service = sensors if sensors is not None else create_sensors(sensors_mode, webcam_port=webcam_port)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         camera_service.start()
+        sensor_service.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
         try:
             yield
@@ -112,10 +120,12 @@ def create_app(
             control_service.stop("dashboard_shutdown")
             control_service.close()
             camera_service.close()
+            sensor_service.close()
 
     app = FastAPI(title="Rescuebot Dashboard", lifespan=lifespan)
     app.state.control_service = control_service
     app.state.camera_service = camera_service
+    app.state.sensor_service = sensor_service
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -124,14 +134,18 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_service)
+        return _dashboard_state(control_service, None, camera_service, sensor_service)
+
+    @app.get("/api/lidar")
+    async def lidar() -> dict[str, object]:
+        return sensor_service.lidar()
 
     @app.websocket("/ws/control")
     async def control_socket(websocket: WebSocket) -> None:
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_service, sensor_service)}
         )
 
         try:
@@ -170,7 +184,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_service, sensor_service)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)
@@ -213,6 +227,18 @@ def main() -> None:
         default=os.environ.get("RESCUEBOT_MOTOR_BACKEND", "mock"),
         help="bridge: send commands to a separately started rescuebot.motor_bridge process.",
     )
+    parser.add_argument(
+        "--sensors",
+        choices=("off", "mock", "live"),
+        default=os.environ.get("RESCUEBOT_SENSORS", "off"),
+        help="live: show the USB webcam, its microphone level, and the LiDAR, each read by its own process.",
+    )
+    parser.add_argument(
+        "--webcam-port",
+        type=int,
+        default=int(os.environ.get("RESCUEBOT_WEBCAM_PORT", DEFAULT_WEBCAM_PORT)),
+        help="Port for the USB webcam's MJPEG video with --sensors live (default: %(default)s).",
+    )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
         parser.error("--replay-path is required when --camera-backend replay")
@@ -224,6 +250,8 @@ def main() -> None:
             camera_args=args.camera_args,
             video_port=args.video_port,
             motor_backend=args.motor_backend,
+            sensors_mode=args.sensors,
+            webcam_port=args.webcam_port,
         ),
         host="0.0.0.0",
         port=8000,

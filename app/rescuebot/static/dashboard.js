@@ -120,6 +120,196 @@ function updateCamera(camera) {
   }
 }
 
+// ---------- Monitor wall: webcam, LiDAR, microphone ----------
+
+const LIDAR_CAMERA_FOV_DEG = 66;  // AI Camera horizontal field of view, drawn as a wedge
+const METER_FLOOR_DBFS = -70;
+let sensorsMode = "off";
+let lidarStatus = "offline";
+let lidarScan = null;
+let micPeak = { value: METER_FLOOR_DBFS, at: 0 };
+
+function streamUrl(video) {
+  return window.location.protocol + "//" + window.location.hostname + ":" + video.port + video.path;
+}
+
+function setStream(img, wanted) {
+  if (wanted && img.dataset.src !== wanted) {
+    img.dataset.src = wanted;
+    img.src = wanted;
+  } else if (!wanted && img.dataset.src) {
+    delete img.dataset.src;
+    img.removeAttribute("src");  // closes the stream connection
+  }
+  img.hidden = !wanted;
+}
+
+function statusLamp(status) {
+  return status === "online" ? "ok" : status === "stale" ? "warn" : "off";
+}
+
+function meterFraction(dbfs) {
+  if (typeof dbfs !== "number") return 0;
+  return Math.min(1, Math.max(0, (dbfs - METER_FLOOR_DBFS) / -METER_FLOOR_DBFS));
+}
+
+function describeBearing(angle) {
+  const signed = angle > 180 ? angle - 360 : angle;
+  if (Math.abs(signed) <= 10) return "ahead";
+  if (Math.abs(signed) >= 170) return "behind";
+  return Math.abs(signed) + "° " + (signed > 0 ? "right" : "left");
+}
+
+function updateWebcam(webcam) {
+  const screen = element("webcam-video").closest(".aux-screen");
+  screen.dataset.status = webcam.status;
+  setStream(element("webcam-video"), webcam.video && webcam.status === "online" ? streamUrl(webcam.video) : null);
+  setLamp(document.querySelector('[data-lamp="webcam"]'), statusLamp(webcam.status));
+  setText("webcam-status", webcam.status === "online" && webcam.fps ? "Live · " + Math.round(webcam.fps) + " fps" : titleCase(webcam.status));
+  setText("webcam-slate-title", webcam.status === "stale" ? "Signal stale" : "No signal");
+  setText("webcam-message", webcam.message);
+}
+
+function updateMic(audio) {
+  const panel = document.querySelector(".mic-panel");
+  const online = audio.status === "online";
+  panel.dataset.status = audio.status;
+  panel.dataset.hearing = audio.hearing ? "true" : "false";
+  setLamp(document.querySelector('[data-lamp="mic"]'), statusLamp(audio.status));
+  setText("mic-state", !online ? (audio.status === "stale" ? "Stale" : "Off") : audio.hearing ? "Hearing sound" : "Quiet");
+  setText("mic-dbfs", online && typeof audio.rms_dbfs === "number" ? audio.rms_dbfs.toFixed(0) : "—");
+  setText("mic-message", online ? "Level only; audio is not recorded or played." : audio.message);
+
+  const now = performance.now();
+  if (online && typeof audio.peak_dbfs === "number" && (audio.peak_dbfs >= micPeak.value || now - micPeak.at > 1500)) {
+    micPeak = { value: audio.peak_dbfs, at: now };
+  }
+  const meter = element("mic-meter");
+  meter.style.setProperty("--level", meterFraction(online ? audio.rms_dbfs : null));
+  meter.style.setProperty("--peak", meterFraction(online ? micPeak.value : null));
+  meter.style.setProperty("--threshold", meterFraction(audio.threshold_dbfs));
+  meter.setAttribute("aria-valuenow", online && typeof audio.rms_dbfs === "number" ? String(audio.rms_dbfs) : "-90");
+}
+
+function updateLidarStatus(lidar) {
+  lidarStatus = lidar.status;
+  const screen = element("lidar-canvas").closest(".aux-screen");
+  screen.dataset.status = lidar.status;
+  setLamp(document.querySelector('[data-lamp="lidar"]'), statusLamp(lidar.status));
+  setText("lidar-status", titleCase(lidar.status));
+  setText("lidar-slate-title", lidar.status === "stale" ? "Signal stale" : "No signal");
+  setText("lidar-message", lidar.message);
+  const nearest = lidar.nearest;
+  setText("lidar-nearest", nearest ? "Nearest " + (nearest.mm / 1000).toFixed(2) + " m · " + describeBearing(nearest.angle) : "No obstacles");
+}
+
+function updateSensors(sensors) {
+  sensorsMode = sensors.mode;
+  document.body.dataset.sensors = sensors.mode;
+  if (sensors.mode === "off") return;
+  updateWebcam(sensors.webcam);
+  updateMic(sensors.audio);
+  updateLidarStatus(sensors.lidar);
+}
+
+function drawLidar() {
+  const canvas = element("lidar-canvas");
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width, h = rect.height, cx = w / 2, cy = h / 2;
+  ctx.clearRect(0, 0, w, h);
+  if (!lidarScan || !lidarScan.bins) return;
+
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue("--ink").trim();
+  const ink3 = css.getPropertyValue("--ink-3").trim();
+  const line = css.getPropertyValue("--desk-line").trim();
+
+  // Scale so most readings fit: the 90th-percentile distance, rounded up to whole meters.
+  const readings = lidarScan.bins.filter((mm) => mm > 0).sort((a, b) => a - b);
+  const p90 = readings.length ? readings[Math.floor(readings.length * 0.9)] : 2000;
+  const rangeM = Math.min(8, Math.max(2, Math.ceil(p90 / 1000)));
+  const radius = Math.min(w, h) / 2 - 14;
+  const pxPerMm = radius / (rangeM * 1000);
+  const ringStep = rangeM > 4 ? 2 : 1;
+  const toXY = (angleDeg, mm) => {
+    const a = (angleDeg * Math.PI) / 180;
+    return [cx + Math.sin(a) * mm * pxPerMm, cy - Math.cos(a) * mm * pxPerMm];
+  };
+
+  // AI Camera field of view, pointing forward.
+  ctx.fillStyle = "oklch(1 0 0 / 0.05)";
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, radius, -Math.PI / 2 - (LIDAR_CAMERA_FOV_DEG / 2) * Math.PI / 180, -Math.PI / 2 + (LIDAR_CAMERA_FOV_DEG / 2) * Math.PI / 180);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 1;
+  for (let m = ringStep; m <= rangeM; m += ringStep) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, m * 1000 * pxPerMm, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+  ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+  ctx.stroke();
+
+  ctx.fillStyle = ink;
+  lidarScan.bins.forEach((mm, angle) => {
+    if (mm <= 0 || mm > rangeM * 1000) return;
+    const [x, y] = toXY(angle + 0.5, mm);
+    ctx.fillRect(x - 1.25, y - 1.25, 2.5, 2.5);
+  });
+
+  // The robot, about 30 cm x 25 cm, with a notch marking the front (camera end).
+  const rw = Math.max(10, 250 * pxPerMm), rh = Math.max(12, 300 * pxPerMm);
+  ctx.fillStyle = ink3;
+  ctx.fillRect(cx - rw / 2, cy - rh / 2, rw, rh);
+  ctx.fillStyle = ink;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - rh / 2 - 6);
+  ctx.lineTo(cx - 5, cy - rh / 2);
+  ctx.lineTo(cx + 5, cy - rh / 2);
+  ctx.closePath();
+  ctx.fill();
+
+  const nearest = lidarScan.nearest;
+  if (nearest && nearest.mm <= rangeM * 1000) {
+    const [x, y] = toXY(nearest.angle + 0.5, nearest.mm);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  setText("lidar-scale", "Rings " + ringStep + " m");
+}
+
+async function refreshLidar() {
+  if (sensorsMode === "off" || lidarStatus === "offline") {
+    if (lidarScan) { lidarScan = null; drawLidar(); }
+    return;
+  }
+  try {
+    const response = await fetch("/api/lidar", { cache: "no-store" });
+    if (!response.ok) return;
+    lidarScan = await response.json();
+    drawLidar();
+  } catch (_error) {
+    // LiDAR display only; driving never depends on it.
+  }
+}
+
 function driveState(control) {
   if (control.arming) return "arming";
   return control.armed ? "armed" : "disabled";
@@ -200,6 +390,7 @@ function updateDashboard(data) {
 
   updateCamera(camera);
   updateChain(data);
+  if (data.sensors) updateSensors(data.sensors);
 
   for (const wheel of ["fl", "fr", "rl", "rr"]) {
     const value = motor.wheels[wheel];
@@ -310,5 +501,7 @@ window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();
 }, 50);
 window.setInterval(refreshState, 100);
+window.setInterval(refreshLidar, 200);
+window.addEventListener("resize", drawLidar);
 
 connect();
