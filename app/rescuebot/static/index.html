@@ -77,22 +77,7 @@
         </div>
       </section>
 
-      <section class="wall" aria-label="Webcam, LiDAR, and microphone">
-        <div class="aux-monitor">
-          <div class="screen aux-screen">
-            <img id="webcam-video" class="camera-video" alt="Live webcam video" hidden>
-            <div class="slate" id="webcam-slate">
-              <p class="slate-title aux-slate-title" id="webcam-slate-title">No signal</p>
-              <p class="slate-message" id="webcam-message">Webcam is not enabled.</p>
-            </div>
-            <span class="umd-tag source-tag">Cam 2 · Webcam</span>
-            <span class="umd-tag camera-tag">
-              <span class="lamp" data-lamp="webcam" aria-hidden="true"></span>
-              <span id="webcam-status">Offline</span>
-            </span>
-          </div>
-        </div>
-
+      <section class="wall" aria-label="LiDAR">
         <div class="aux-monitor">
           <div class="screen aux-screen lidar-screen">
             <canvas id="lidar-canvas" class="lidar-canvas" role="img" aria-label="LiDAR scan seen from above, robot front pointing up"></canvas>
@@ -108,21 +93,6 @@
             <p class="lower-third aux-lower-third" id="lidar-nearest">No obstacles</p>
             <span class="lidar-scale" id="lidar-scale" aria-hidden="true"></span>
           </div>
-        </div>
-
-        <div class="mic-panel" aria-labelledby="mic-state">
-          <span class="umd-tag mic-tag">
-            <span class="lamp" data-lamp="mic" aria-hidden="true"></span>
-            <span>Mic · Webcam</span>
-          </span>
-          <p class="mic-state" id="mic-state">Off</p>
-          <div class="meter" id="mic-meter" role="meter" aria-label="Microphone level" aria-valuemin="-90" aria-valuemax="0" aria-valuenow="-90">
-            <span class="meter-fill" id="mic-fill"></span>
-            <span class="meter-peak" id="mic-peak"></span>
-            <span class="meter-threshold" id="mic-threshold"></span>
-          </div>
-          <p class="mic-level"><span id="mic-dbfs">—</span> <span class="mic-unit">dBFS</span></p>
-          <p class="mic-message" id="mic-message">Microphone is not enabled.</p>
         </div>
       </section>
 

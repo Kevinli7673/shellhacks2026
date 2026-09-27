@@ -1,12 +1,9 @@
-"""Webcam, microphone, and LiDAR panels: parsers, child processes, and dashboard wiring."""
+"""LiDAR panel: parser, child processes, and dashboard wiring."""
 
 from __future__ import annotations
 
-import io
 import json
-import math
 from pathlib import Path
-import struct
 import subprocess
 import sys
 import tempfile
@@ -14,10 +11,9 @@ import textwrap
 import time
 import unittest
 
-from rescuebot import audio_level, lidar_scan, webcam_stream
+from rescuebot import lidar_scan
 from rescuebot.sensor_process import SensorProcess
 from rescuebot.sensors import (
-    HEARING_THRESHOLD_DBFS,
     PACKAGE_ROOT,
     LiveSensors,
     MockSensors,
@@ -88,68 +84,15 @@ class LidarScanTest(unittest.TestCase):
         self.assertEqual(records[0]["bins"][0], 1500)
         self.assertEqual(records[1]["nearest"]["mm"], 1501)
 
+    def test_tool_output_before_scans_is_reported(self):
+        text = "SLAMTEC LIDAR S/N: 1234\nError, cannot bind to the specified serial port /dev/x.\n"
+        records = run_module("rescuebot.lidar_scan", ["--stdin"], text.encode())
+        self.assertEqual(records, [{"type": "sensor_message", "message": "LiDAR tool: SLAMTEC LIDAR S/N: 1234"}])
+
     def test_missing_tool_reports_a_message(self):
         records = run_module("rescuebot.lidar_scan", ["--bin", "/nonexistent/ultra_simple"], b"")
         self.assertEqual(records[0]["type"], "sensor_message")
         self.assertIn("not found", records[0]["message"])
-
-
-class AudioLevelTest(unittest.TestCase):
-    def test_levels(self):
-        self.assertEqual(audio_level.chunk_levels(b"\x00\x00" * 1600), (-90.0, -90.0))
-        full = struct.pack("<2h", 32767, -32768) * 800
-        rms, peak = audio_level.chunk_levels(full)
-        self.assertAlmostEqual(rms, 0.0, delta=0.1)
-        self.assertAlmostEqual(peak, 0.0, delta=0.1)
-        tone = struct.pack(f"<{1600}h", *(int(3277 * math.sin(i / 5)) for i in range(1600)))
-        rms, _ = audio_level.chunk_levels(tone)
-        self.assertAlmostEqual(rms, -23.0, delta=0.5)  # 0.1 of full scale, sine RMS
-
-    def test_finds_webcam_card(self):
-        cards = textwrap.dedent("""\
-             0 [vc4hdmi0       ]: vc4-hdmi - vc4-hdmi-0
-                                  vc4-hdmi-0
-             2 [BRIO           ]: USB-Audio - Logitech BRIO
-                                  Logitech BRIO at usb-xhci-hcd.0-1, super speed
-            """)
-        self.assertEqual(audio_level.find_webcam_card(cards), "BRIO")
-        self.assertIsNone(audio_level.find_webcam_card(" 0 [vc4hdmi0 ]: vc4-hdmi - vc4-hdmi-0\n"))
-
-    def test_process_prints_a_level_per_100ms(self):
-        quiet = b"\x00\x00" * 1600
-        loud = struct.pack("<2h", 16000, -16000) * 800
-        records = run_module("rescuebot.audio_level", ["--stdin"], quiet + loud)
-        self.assertEqual([r["type"] for r in records], ["audio_level", "audio_level"])
-        self.assertLess(records[0]["rms_dbfs"], HEARING_THRESHOLD_DBFS)
-        self.assertGreater(records[1]["rms_dbfs"], HEARING_THRESHOLD_DBFS)
-
-
-def fake_jpeg(width: int, height: int, body: bytes = b"\x01\x02") -> bytes:
-    sof = b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, height, width, 1) + b"\x01\x11\x00"
-    return b"\xff\xd8" + sof + b"\xff\xda\x00\x02" + body + b"\xff\xd9"
-
-
-class WebcamStreamTest(unittest.TestCase):
-    def test_split_jpegs_across_reads_and_garbage(self):
-        a, b = fake_jpeg(640, 360), fake_jpeg(320, 180, b"\xff\x00\x05")
-        stream = io.BufferedReader(io.BytesIO(b"junk" + a + b"\x00" + b), buffer_size=7)
-        frames = list(webcam_stream.split_jpegs(stream, read_size=5))
-        self.assertEqual(frames, [a, b])
-        self.assertEqual(webcam_stream.jpeg_size(a), (640, 360))
-
-    def test_latest_frame_hands_out_only_the_newest(self):
-        latest = webcam_stream.LatestFrame()
-        latest.publish(b"one")
-        latest.publish(b"two")
-        sequence, frame = latest.wait_newer(0, timeout=0.1)
-        self.assertEqual((sequence, frame), (2, b"two"))
-        self.assertEqual(latest.wait_newer(2, timeout=0.05), (2, b"two"))  # nothing newer: times out
-
-    def test_command_scales_and_drops_audio(self):
-        cmd = webcam_stream.build_command("/dev/video9", "1280x720", 15, 640)
-        self.assertIn("-an", cmd)
-        self.assertIn("fps=15,scale=640:-2", cmd)
-        self.assertEqual(cmd[-1], "pipe:1")
 
 
 FAKE_SENSOR = textwrap.dedent('''
@@ -220,12 +163,10 @@ class DashboardSensorsTest(unittest.TestCase):
     def test_state_includes_sensors_and_defaults_to_off(self):
         camera = MockCameraBackend()
         self.assertEqual(_dashboard_state(RobotControlService(), None, camera)["sensors"], {"mode": "off"})
-        state = _dashboard_state(RobotControlService(), None, camera, MockSensors())
-        sensors = state["sensors"]
-        self.assertEqual(sensors["mode"], "mock")
+        sensors = _dashboard_state(RobotControlService(), None, camera, MockSensors())["sensors"]
+        self.assertEqual(set(sensors), {"mode", "lidar"})
         self.assertEqual(sensors["lidar"]["status"], "online")
         self.assertNotIn("bins", sensors["lidar"])  # the full scan stays out of the 10 Hz state
-        self.assertEqual(sensors["audio"]["threshold_dbfs"], HEARING_THRESHOLD_DBFS)
 
     def test_mock_lidar_scan(self):
         scan = MockSensors().lidar()
@@ -240,37 +181,18 @@ class DashboardSensorsTest(unittest.TestCase):
         self.assertIn("/api/lidar", {route.path for route in app.routes})
         self.assertIsInstance(create_app().state.sensor_service, OffSensors)
 
-    def test_live_sensors_without_hardware_report_why(self):
-        # On a machine without the webcam, microphone, or LiDAR, each panel goes
-        # offline with the child's explanation instead of failing the dashboard.
-        sensors = LiveSensors(webcam_port=0)
-        sensors.webcam = SensorProcess(
-            "Webcam", [sys.executable, "-m", "rescuebot.webcam_stream", "--port", "0", "--device", "/nonexistent/video"],
-            "webcam_status", env={"PYTHONPATH": PACKAGE_ROOT, "PATH": "/nonexistent"},
-        )
+    def test_live_lidar_without_hardware_reports_why(self):
+        # Without the LiDAR tool, the panel goes offline with the child's
+        # explanation instead of failing the dashboard.
+        sensors = LiveSensors()
         sensors.lidar_process = SensorProcess(
             "LiDAR", [sys.executable, "-m", "rescuebot.lidar_scan", "--bin", "/nonexistent/ultra_simple"],
             "lidar_scan", env={"PYTHONPATH": PACKAGE_ROOT},
         )
-        sensors.audio = SensorProcess(
-            "Microphone", [sys.executable, "-m", "rescuebot.audio_level", "--device", "hw:9"],
-            "audio_level", env={"PYTHONPATH": PACKAGE_ROOT, "PATH": "/nonexistent"},
-        )
         sensors.start()
         self.addCleanup(sensors.close)
-
-        def all_explained():
-            status = sensors.status()
-            return all(
-                status[name]["status"] == "offline" and "not" in status[name]["message"]
-                for name in ("webcam", "audio", "lidar")
-            )
-
-        self.assertTrue(wait_for(all_explained, timeout=10))
-        status = sensors.status()
-        self.assertIn("ffmpeg", status["webcam"]["message"])
-        self.assertIn("arecord", status["audio"]["message"])
-        self.assertIn("not found", status["lidar"]["message"])
+        self.assertTrue(wait_for(lambda: "not found" in sensors.status()["lidar"]["message"], timeout=10))
+        self.assertEqual(sensors.status()["lidar"]["status"], "offline")
         self.assertIsNone(sensors.lidar()["bins"])
 
 

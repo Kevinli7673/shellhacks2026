@@ -122,10 +122,18 @@ def run(lines: Iterable[str], offset_deg: float, max_rate: float) -> None:
     assembler = ScanAssembler()
     min_interval = 1.0 / max_rate if max_rate > 0 else 0.0
     last_emit = 0.0
+    last_note = 0.0
     scans = 0
     for line in lines:
         parsed = parse_line(line)
         if parsed is None:
+            # Until scans arrive, pass ultra_simple's own words (connection
+            # errors, health status) to the dashboard, at most once a second.
+            text = line.strip()
+            now = time.monotonic()
+            if text and scans == 0 and now - last_note >= 1.0:
+                last_note = now
+                message(f"LiDAR tool: {text[:160]}")
             continue
         done = assembler.add(*parsed)
         if done is None:
@@ -168,9 +176,10 @@ def main(argv: list[str] | None = None) -> int:
     child = subprocess.Popen(
         build_command(binary, port, args.baud),
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,  # its errors explain a missing scan
         stdin=subprocess.DEVNULL,
         text=True,
+        errors="replace",
         bufsize=1,
     )
 
