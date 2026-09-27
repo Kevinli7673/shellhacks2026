@@ -659,6 +659,68 @@ Private details (username, network, device serial numbers) are omitted.
   - Merge into test/integration and run RESCUEBOT_INTEGRATION=1 there,
     where firmware/ and the serial transport are present.
 
+### 2026-09-26 EDT - Webcam, microphone level, and LiDAR panels
+
+- Commit: feature/dashboard-sensors (branched from test/integration 9e648ff).
+- Scope decision: the user asked for the Logitech webcam view, proof that its
+  microphone hears sound, and a LiDAR display on the dashboard now. The LiDAR
+  is display-only: no mapping, SLAM, autonomy, or motor input. The integrator
+  should record this exception in changes.md and IMPLEMENTATION_PLAN.md.
+- Changed files and interfaces:
+  - New child-process sensor readers, each printing JSON lines; none imports
+    control, motor, or arming code:
+    - rescuebot.webcam_stream: ffmpeg (v4l2 MJPEG in, 640 px, 15 fps, no
+      audio) served as MJPEG at :8082/stream.mjpg, newest frame only.
+      Device: RESCUEBOT_WEBCAM_DEVICE, else /dev/v4l/by-id/*Brio*video-index0,
+      else the first USB camera.
+    - rescuebot.audio_level: arecord (16 kHz mono) reduced to RMS and peak
+      dBFS every 100 ms. Audio is never stored or sent. Device:
+      RESCUEBOT_AUDIO_DEVICE, else the webcam card in /proc/asound/cards.
+    - rescuebot.lidar_scan: Slamtec ultra_simple (RESCUEBOT_LIDAR_BIN,
+      default ~/rplidar_sdk/output/Linux/Release/ultra_simple) on the
+      CP2102N by-id path (RESCUEBOT_LIDAR_PORT), 360 one-degree nearest-
+      distance bins, at most 5 scans/s. RESCUEBOT_LIDAR_OFFSET rotates angles
+      so 0 is the robot's front. It never opens the ESP32-S2 port.
+  - sensor_process.py: runs one reader, keeps its newest record, reports
+    online/stale/offline with the child's own reason.
+  - sensors.py: off/mock/live sensor sets. web.py: --sensors off|mock|live
+    (RESCUEBOT_SENSORS, default off), --webcam-port (default 8082),
+    "sensors" in /api/state, and GET /api/lidar for the full scan (kept out
+    of the 10 Hz state).
+  - Dashboard: a monitor wall between the main monitor and the signal chain:
+    Cam 2 webcam, a top-down LiDAR scope (robot at center, front up, AI
+    Camera wedge, nearest obstacle), and a microphone meter that reads
+    "Hearing sound" above -50 dBFS. Hidden when sensors are off. Camera-only
+    CSS rules were scoped to the main monitor.
+- Run on the Pi (after the motor bridge, unchanged):
+
+      .venv/bin/rescuebot-dashboard --motor-backend bridge --camera-backend live --sensors live
+
+  Requires ffmpeg, arecord (alsa-utils), stdbuf (coreutils), and the built
+  rplidar_sdk. The browser must reach ports 8081 and 8082 on the Pi.
+- Tests and results (macOS, Python 3.14):
+  - PYTHONPATH=app .venv/bin/python -m unittest discover -s tests: 148 run,
+    2 skipped (opt-in integration tests).
+  - With RESCUEBOT_INTEGRATION=1: the real-browser test passes; the firmware
+    link test skipped (pyserial not in this venv; unaffected by this change).
+  - New tests (tests/sensors/test_dashboard_sensors.py, 20): LiDAR parsing,
+    scan assembly, binning, offset, and nearest; audio dBFS math and card
+    detection; JPEG splitting and newest-frame delivery; child processes via
+    stdin fixtures; online/stale/offline and exit reasons; live sensors on a
+    machine without the devices report why; dashboard wiring.
+  - Headless Chrome screenshots with --sensors mock at 1600 and 1280 px.
+- Mock or physical coverage:
+  - Mock and fixtures only. Not yet run with the real Brio, microphone, or
+    RPLIDAR on the Pi.
+- Known limitations:
+  - The LiDAR mounting offset is 0 until measured (tools/sensors/find_offset.py).
+  - The webcam and a1vcm's tools/sensors/rescue_sensors.py cannot both own
+    the Brio or the LiDAR at once.
+  - The hearing threshold (-50 dBFS) is a first guess; tune it on the Pi.
+- Next action:
+  - On the Pi: install any missing tools, run with --sensors live, and check
+    each panel (video, "Hearing sound" when talking, LiDAR walls).
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
