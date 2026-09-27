@@ -87,3 +87,18 @@ def test_png_is_valid():
 
 def test_world_to_cell():
     assert world_to_cell(0.0, 0.0, -1.0, -2.0, 0.05) == (20, 40)
+
+
+def test_person_bearing_and_range():
+    from rescuebot_robot.conversions import bearing_range_to_xy, range_at_bearing, x_to_bearing
+    assert x_to_bearing(0.5) == 0.0
+    assert x_to_bearing(1.0) == pytest.approx(33.0)
+    assert x_to_bearing(0.0) == pytest.approx(-33.0)
+    bins = [0] * 360
+    bins[20], bins[22], bins[358] = 3000, 2500, 1200
+    assert range_at_bearing(bins, 20.4) == 2.5
+    assert range_at_bearing(bins, -1.0) == 1.2  # wraps around 0
+    assert range_at_bearing(bins, 90.0) is None
+    assert range_at_bearing(None, 0.0) is None
+    x, y = bearing_range_to_xy(90.0, 2.0)  # right of the robot = -y
+    assert x == pytest.approx(0.0, abs=1e-9) and y == pytest.approx(-2.0)

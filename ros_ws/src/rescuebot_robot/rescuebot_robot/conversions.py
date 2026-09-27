@@ -103,3 +103,33 @@ def encode_png(width: int, height: int, rgb_rows: Sequence[bytes]) -> bytes:
 
 def world_to_cell(x: float, y: float, origin_x: float, origin_y: float, resolution: float) -> tuple[int, int]:
     return int(math.floor((x - origin_x) / resolution)), int(math.floor((y - origin_y) / resolution))
+
+
+CAMERA_HFOV_DEG = 66.0  # Raspberry Pi AI Camera; same value as app/rescuebot/voice.py
+PERSON_RGB = (30, 90, 230)
+
+
+def x_to_bearing(x_norm: float, hfov_deg: float = CAMERA_HFOV_DEG) -> float:
+    """Image x (0 = left edge, 1 = right) -> degrees, right (clockwise) positive.
+
+    Same formula as app/rescuebot/voice.py x_to_bearing.
+    """
+    half_width = math.tan(math.radians(hfov_deg / 2))
+    return math.degrees(math.atan((x_norm - 0.5) * 2 * half_width))
+
+
+def range_at_bearing(bins: Sequence[int] | None, bearing_deg: float, window_deg: int = 3,
+                     range_max_m: float = 12.0) -> float | None:
+    """Nearest LiDAR distance (m) within +/- window_deg of a clockwise bearing, or None."""
+    if not bins or len(bins) != BIN_COUNT:
+        return None
+    center = int(math.floor(bearing_deg)) % BIN_COUNT
+    readings = [bins[(center + d) % BIN_COUNT] for d in range(-window_deg, window_deg + 1)]
+    metres = [mm / 1000.0 for mm in readings if isinstance(mm, (int, float)) and 0 < mm <= range_max_m * 1000]
+    return min(metres) if metres else None
+
+
+def bearing_range_to_xy(bearing_deg: float, range_m: float) -> tuple[float, float]:
+    """Clockwise bearing + range -> (x forward, y left) in base_link (REP 103)."""
+    angle = -math.radians(bearing_deg)
+    return range_m * math.cos(angle), range_m * math.sin(angle)

@@ -5,6 +5,9 @@ ESP32 link (via rescuebot.motor_bridge). This node only polls its HTTP API:
 
 - GET /api/lidar -> sensor_msgs/LaserScan on /scan (frame "laser")
 - GET /api/state -> motor.imu.heading -> odom -> base_link TF and /odom
+- GET /api/state -> camera person detections -> /rescuebot/person_detections
+  (JSON: bearing, confidence, LiDAR range) and /rescuebot/people (PoseArray
+  in base_link, only people with a LiDAR range at their bearing)
 
 The robot has no wheel encoders, so odometry carries heading only (x = y = 0);
 slam_toolbox's scan matcher finds the translation. This node has no way to
@@ -21,21 +24,25 @@ import time
 import urllib.error
 import urllib.request
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import Pose, PoseArray, TransformStamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from .conversions import (
     BIN_COUNT,
     SCAN_ANGLE_INCREMENT,
     SCAN_ANGLE_MIN,
+    bearing_range_to_xy,
     bins_to_ranges,
     heading_to_yaw,
+    range_at_bearing,
+    x_to_bearing,
     yaw_to_quaternion,
 )
 
@@ -59,6 +66,8 @@ class DashboardBridge(Node):
 
         self.scan_pub = self.create_publisher(LaserScan, "scan", qos_profile_sensor_data)
         self.odom_pub = self.create_publisher(Odometry, "odom", 10)
+        self.detections_pub = self.create_publisher(String, "rescuebot/person_detections", 10)
+        self.people_pub = self.create_publisher(PoseArray, "rescuebot/people", 10)
         self.tf = TransformBroadcaster(self)
         self.static_tf = StaticTransformBroadcaster(self)
         # The dashboard's bins are already in robot coordinates (lidar_scan --offset).
@@ -66,6 +75,7 @@ class DashboardBridge(Node):
             self.get_clock().now(), self.base_frame, self.laser_frame, laser_x, laser_y, laser_z, 0.0))
 
         self._last_bins: list[int] | None = None
+        self._had_people = False
         self._heading_ref: float | None = None
         self._yaw = 0.0
         self._warned: set[str] = set()
@@ -120,6 +130,38 @@ class DashboardBridge(Node):
         odom.pose.covariance[0] = odom.pose.covariance[7] = 1e6
         odom.pose.covariance[35] = 0.05
         self.odom_pub.publish(odom)
+        self._publish_people(now, (state or {}).get("camera") or {})
+
+    # -- camera person detections ----------------------------------------------
+
+    def _publish_people(self, now, camera: dict) -> None:
+        detections = camera.get("detections") if camera.get("status") == "online" else []
+        people = []
+        poses = PoseArray()
+        poses.header.stamp = now.to_msg()
+        poses.header.frame_id = self.base_frame
+        for det in detections or []:
+            bbox = det.get("bbox") if isinstance(det, dict) else None
+            if det.get("label") != "person" or not isinstance(bbox, dict):
+                continue
+            try:
+                bearing = x_to_bearing(float(bbox["x"]) + float(bbox["width"]) / 2)
+            except (KeyError, TypeError, ValueError):
+                continue
+            distance = range_at_bearing(self._last_bins, bearing, range_max_m=self.range_max)
+            people.append({"bearing_deg": round(bearing, 1), "confidence": det.get("confidence"),
+                           "range_m": None if distance is None else round(distance, 2)})
+            if distance is not None:
+                x, y = bearing_range_to_xy(bearing, distance)
+                pose = Pose()
+                pose.position.x, pose.position.y = x, y
+                pose.orientation.w = 1.0
+                poses.poses.append(pose)
+        if not people and not self._had_people:
+            return  # stay quiet while nobody is in view
+        self._had_people = bool(people)
+        self.detections_pub.publish(String(data=json.dumps({"people": people})))
+        self.people_pub.publish(poses)
 
     # -- LiDAR -----------------------------------------------------------------
 
