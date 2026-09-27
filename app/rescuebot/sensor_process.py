@@ -1,6 +1,6 @@
 """Run one auxiliary sensor as an isolated child process and keep its newest record.
 
-The webcam, microphone, and LiDAR readers each run as their own child process
+Auxiliary sensor readers such as the LiDAR run as their own child process
 (IMPLEMENTATION_PLAN.md section 2: sensor and camera work stays outside the
 control-service and motor-bridge processes). The child prints one JSON object
 per line on stdout. The dashboard keeps only the newest record of the expected

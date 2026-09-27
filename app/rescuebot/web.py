@@ -23,7 +23,7 @@ from .live_camera import (
 )
 from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
-from .sensors import DEFAULT_WEBCAM_PORT, OffSensors, Sensors, create_sensors
+from .sensors import OffSensors, Sensors, create_sensors
 from .service import RobotControlService
 
 
@@ -69,7 +69,6 @@ def create_app(
     bridge_status_socket: str | Path | None = None,
     sensors_mode: str = "off",
     sensors: Sensors | None = None,
-    webcam_port: int = DEFAULT_WEBCAM_PORT,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -104,7 +103,7 @@ def create_app(
         )
     else:
         raise ValueError("camera_backend must be mock, replay, or live")
-    sensor_service = sensors if sensors is not None else create_sensors(sensors_mode, webcam_port=webcam_port)
+    sensor_service = sensors if sensors is not None else create_sensors(sensors_mode)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -231,13 +230,7 @@ def main() -> None:
         "--sensors",
         choices=("off", "mock", "live"),
         default=os.environ.get("RESCUEBOT_SENSORS", "off"),
-        help="live: show the USB webcam, its microphone level, and the LiDAR, each read by its own process.",
-    )
-    parser.add_argument(
-        "--webcam-port",
-        type=int,
-        default=int(os.environ.get("RESCUEBOT_WEBCAM_PORT", DEFAULT_WEBCAM_PORT)),
-        help="Port for the USB webcam's MJPEG video with --sensors live (default: %(default)s).",
+        help="live: show the LiDAR scan, read by its own process.",
     )
     args = parser.parse_args()
     if args.camera_backend == "replay" and args.replay_path is None:
@@ -251,7 +244,6 @@ def main() -> None:
             video_port=args.video_port,
             motor_backend=args.motor_backend,
             sensors_mode=args.sensors,
-            webcam_port=args.webcam_port,
         ),
         host="0.0.0.0",
         port=8000,

@@ -120,38 +120,12 @@ function updateCamera(camera) {
   }
 }
 
-// ---------- Monitor wall: webcam, LiDAR, microphone ----------
+// ---------- LiDAR scope ----------
 
 const LIDAR_CAMERA_FOV_DEG = 66;  // AI Camera horizontal field of view, drawn as a wedge
-const METER_FLOOR_DBFS = -70;
 let sensorsMode = "off";
 let lidarStatus = "offline";
 let lidarScan = null;
-let micPeak = { value: METER_FLOOR_DBFS, at: 0 };
-
-function streamUrl(video) {
-  return window.location.protocol + "//" + window.location.hostname + ":" + video.port + video.path;
-}
-
-function setStream(img, wanted) {
-  if (wanted && img.dataset.src !== wanted) {
-    img.dataset.src = wanted;
-    img.src = wanted;
-  } else if (!wanted && img.dataset.src) {
-    delete img.dataset.src;
-    img.removeAttribute("src");  // closes the stream connection
-  }
-  img.hidden = !wanted;
-}
-
-function statusLamp(status) {
-  return status === "online" ? "ok" : status === "stale" ? "warn" : "off";
-}
-
-function meterFraction(dbfs) {
-  if (typeof dbfs !== "number") return 0;
-  return Math.min(1, Math.max(0, (dbfs - METER_FLOOR_DBFS) / -METER_FLOOR_DBFS));
-}
 
 function describeBearing(angle) {
   const signed = angle > 180 ? angle - 360 : angle;
@@ -160,42 +134,11 @@ function describeBearing(angle) {
   return Math.abs(signed) + "° " + (signed > 0 ? "right" : "left");
 }
 
-function updateWebcam(webcam) {
-  const screen = element("webcam-video").closest(".aux-screen");
-  screen.dataset.status = webcam.status;
-  setStream(element("webcam-video"), webcam.video && webcam.status === "online" ? streamUrl(webcam.video) : null);
-  setLamp(document.querySelector('[data-lamp="webcam"]'), statusLamp(webcam.status));
-  setText("webcam-status", webcam.status === "online" && webcam.fps ? "Live · " + Math.round(webcam.fps) + " fps" : titleCase(webcam.status));
-  setText("webcam-slate-title", webcam.status === "stale" ? "Signal stale" : "No signal");
-  setText("webcam-message", webcam.message);
-}
-
-function updateMic(audio) {
-  const panel = document.querySelector(".mic-panel");
-  const online = audio.status === "online";
-  panel.dataset.status = audio.status;
-  panel.dataset.hearing = audio.hearing ? "true" : "false";
-  setLamp(document.querySelector('[data-lamp="mic"]'), statusLamp(audio.status));
-  setText("mic-state", !online ? (audio.status === "stale" ? "Stale" : "Off") : audio.hearing ? "Hearing sound" : "Quiet");
-  setText("mic-dbfs", online && typeof audio.rms_dbfs === "number" ? audio.rms_dbfs.toFixed(0) : "—");
-  setText("mic-message", online ? "Level only; audio is not recorded or played." : audio.message);
-
-  const now = performance.now();
-  if (online && typeof audio.peak_dbfs === "number" && (audio.peak_dbfs >= micPeak.value || now - micPeak.at > 1500)) {
-    micPeak = { value: audio.peak_dbfs, at: now };
-  }
-  const meter = element("mic-meter");
-  meter.style.setProperty("--level", meterFraction(online ? audio.rms_dbfs : null));
-  meter.style.setProperty("--peak", meterFraction(online ? micPeak.value : null));
-  meter.style.setProperty("--threshold", meterFraction(audio.threshold_dbfs));
-  meter.setAttribute("aria-valuenow", online && typeof audio.rms_dbfs === "number" ? String(audio.rms_dbfs) : "-90");
-}
-
 function updateLidarStatus(lidar) {
   lidarStatus = lidar.status;
   const screen = element("lidar-canvas").closest(".aux-screen");
   screen.dataset.status = lidar.status;
-  setLamp(document.querySelector('[data-lamp="lidar"]'), statusLamp(lidar.status));
+  setLamp(document.querySelector('[data-lamp="lidar"]'), lidar.status === "online" ? "ok" : lidar.status === "stale" ? "warn" : "off");
   setText("lidar-status", titleCase(lidar.status));
   setText("lidar-slate-title", lidar.status === "stale" ? "Signal stale" : "No signal");
   setText("lidar-message", lidar.message);
@@ -206,10 +149,7 @@ function updateLidarStatus(lidar) {
 function updateSensors(sensors) {
   sensorsMode = sensors.mode;
   document.body.dataset.sensors = sensors.mode;
-  if (sensors.mode === "off") return;
-  updateWebcam(sensors.webcam);
-  updateMic(sensors.audio);
-  updateLidarStatus(sensors.lidar);
+  if (sensors.mode !== "off") updateLidarStatus(sensors.lidar);
 }
 
 function drawLidar() {

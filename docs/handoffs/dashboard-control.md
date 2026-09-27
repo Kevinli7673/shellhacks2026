@@ -721,6 +721,29 @@ Private details (username, network, device serial numbers) are omitted.
   - On the Pi: install any missing tools, run with --sensors live, and check
     each panel (video, "Hearing sound" when talking, LiDAR walls).
 
+### 2026-09-26 EDT - LiDAR only; webcam and microphone panels removed
+
+- Commit: feature/dashboard-sensors.
+- Decision: the user asked to drop the Logitech webcam video and microphone
+  meter and keep the LiDAR. rescuebot.webcam_stream and rescuebot.audio_level
+  were removed with their tests, the panels, and --webcam-port.
+- Changed files and interfaces:
+  - --sensors live now starts only rescuebot.lidar_scan; /api/state
+    "sensors" is {mode, lidar}; /api/lidar is unchanged.
+  - Layout: with the LiDAR on, the scope sits under the program monitor and
+    the signal chain moves beside it, stacked in two columns.
+  - lidar_scan merges ultra_simple's stderr into its stdout and, until the
+    first scan, shows its lines on the panel ("LiDAR tool: ..."), so a port or
+    connection error is visible instead of "Waiting for scans".
+- Tests and results (macOS): PYTHONPATH=app .venv/bin/python -m unittest
+  discover -s tests: 143 run, 2 skipped. Headless Chrome with --sensors mock
+  at 1600 and 1280 px.
+- Mock or physical coverage: mock only. On the Pi the LiDAR panel showed
+  "Waiting for scans" (ultra_simple printed no scan lines); cause not yet
+  known.
+- Next action: rerun with this build on the Pi and read the panel's
+  "LiDAR tool:" message.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>
