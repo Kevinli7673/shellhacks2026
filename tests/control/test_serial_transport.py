@@ -7,7 +7,7 @@ import unittest
 from rescuebot.bridge_ipc import ArbiterCommand
 from rescuebot.motor_bridge import MotorBridge, build_transport
 from rescuebot.serial_link import MotorLink
-from rescuebot.serial_protocol import BAUD_RATE, ControlCommand, parse_command
+from rescuebot.serial_protocol import BAUD_RATE, AccessoryCommand, ControlCommand, parse_command
 from rescuebot.serial_transport import PySerialTransport, SerialTransportError, stable_serial_device
 
 
@@ -200,8 +200,12 @@ class SerialBridgeSafetyTests(unittest.TestCase):
         self.assertFalse(status.arm_pending)
         self.assertEqual(bridge.link.session, "pi-second")
         self.assertEqual(len(factory.ports), 2)
-        self.assertEqual(len(factory.ports[1].writes), 1)
+        # A new session starts disarmed, then switches the buzzer and light off.
+        self.assertEqual(len(factory.ports[1].writes), 2)
         self.assertEqual(parse_command(factory.ports[1].writes[0][:-1]).type, "disarm")
+        accessories = parse_command(factory.ports[1].writes[1][:-1])
+        self.assertIsInstance(accessories, AccessoryCommand)
+        self.assertEqual((accessories.buzzer, accessories.light), (False, False))
 
 
 if __name__ == "__main__":
