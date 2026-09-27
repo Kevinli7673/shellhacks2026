@@ -24,7 +24,11 @@ class MockMotorBackend:
         self.wheels = WheelOutputs.stopped()
         self.last_reason = "uninitialized"
         self.events: deque[MockMotorEvent] = deque(maxlen=history_size)
+        self.accessories = {"buzzer": False, "light": False}
         self.apply(self.wheels, "boot")
+
+    def set_accessories(self, buzzer: bool, light: bool) -> None:
+        self.accessories = {"buzzer": buzzer, "light": light}
 
     def apply(self, wheels: WheelOutputs, reason: str = "manual") -> None:
         if wheels == self.wheels and reason == self.last_reason:
@@ -40,4 +44,5 @@ class MockMotorBackend:
             "wheels": self.wheels.as_dict(),
             "last_reason": self.last_reason,
             "event_count": len(self.events),
+            "accessories": {**self.accessories, "available": self.healthy},
         }

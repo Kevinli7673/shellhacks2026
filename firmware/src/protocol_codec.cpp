@@ -65,6 +65,14 @@ bool readSpeedLimit(JsonVariantConst v, int* out) {
     return true;
 }
 
+bool readBool(JsonVariantConst v, bool* out) {
+    if (!v.is<bool>()) {
+        return false;
+    }
+    *out = v.as<bool>();
+    return true;
+}
+
 bool readSeq(JsonVariantConst v, uint64_t* out) {
     if (!v.is<int>()) {
         return false;
@@ -119,6 +127,13 @@ InboundMessage parseInbound(const char* line, size_t length) {
         bool ok = copySessionField(doc["session"], msg.arm_disarm.session) &&
                   readSeq(doc["seq"], &msg.arm_disarm.seq);
         msg.malformed = !ok;
+    } else if (std::strcmp(type_str, "accessories") == 0) {
+        msg.type = InboundType::ACCESSORIES;
+        bool ok = copySessionField(doc["session"], msg.accessories.session) &&
+                  readSeq(doc["seq"], &msg.accessories.seq) &&
+                  readBool(doc["buzzer"], &msg.accessories.buzzer) &&
+                  readBool(doc["light"], &msg.accessories.light);
+        msg.malformed = !ok;
     } else {
         msg.malformed = true;
     }
@@ -155,6 +170,18 @@ size_t buildDisarmAck(char* out, size_t out_size, const char* session, uint64_t 
     doc["session"] = session;
     doc["seq"] = seq;
     doc["armed"] = false;
+    size_t n = serializeJson(doc, out, out_size);
+    return n < out_size ? n : 0;
+}
+
+size_t buildAccessoriesAck(char* out, size_t out_size, const char* session, uint64_t seq,
+                            bool buzzer, bool light) {
+    StaticJsonDocument<kJsonCapacity> doc;
+    doc["type"] = "accessories_ack";
+    doc["session"] = session;
+    doc["seq"] = seq;
+    doc["buzzer"] = buzzer;
+    doc["light"] = light;
     size_t n = serializeJson(doc, out, out_size);
     return n < out_size ? n : 0;
 }

@@ -3,7 +3,8 @@
 The arbiter sends its full current intent every control tick: "drive" while
 armed or waiting for the arm confirmation (zero axes while waiting), "stop"
 otherwise, plus a one-shot "arm" on explicit Enable Driving. Sending "stop"
-while an arm is pending cancels that arm.
+while an arm is pending cancels that arm. A one-shot "accessories" carries
+the requested buzzer/light state and never affects arming or driving.
 Resending "stop" every tick means a dropped datagram is repaired on the next
 tick, and the bridge's freshness deadline covers anything longer.
 
@@ -29,7 +30,7 @@ from typing import Any
 from .serial_protocol import MAX_PWM
 
 
-COMMAND_KINDS = ("drive", "stop", "arm")
+COMMAND_KINDS = ("drive", "stop", "arm", "accessories")
 MAX_DATAGRAM_BYTES = 1024
 _ID_MAX = 64
 _REASON_MAX = 32
@@ -64,10 +65,14 @@ class ArbiterCommand:
     sideways: float = 0.0
     turn: float = 0.0
     speed_limit: int = 0
+    buzzer: bool = False
+    light: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in COMMAND_KINDS:
             raise IpcError(f"unknown kind {self.kind!r}")
+        if not isinstance(self.buzzer, bool) or not isinstance(self.light, bool):
+            raise IpcError("buzzer and light must be booleans")
         _short_text(self.arbiter, "arbiter", _ID_MAX)
         if isinstance(self.seq, bool) or not isinstance(self.seq, int) or self.seq <= 0:
             raise IpcError("seq must be a positive integer")
@@ -95,6 +100,8 @@ class ArbiterCommand:
                 "sideways": self.sideways,
                 "turn": self.turn,
                 "speed_limit": self.speed_limit,
+                "buzzer": self.buzzer,
+                "light": self.light,
             },
             separators=(",", ":"),
             allow_nan=False,
@@ -123,6 +130,7 @@ class BridgeStatus:
     arbiter: str | None = None
     rejected_commands: int = 0
     imu: dict[str, Any] | None = None
+    accessories: dict[str, bool] = field(default_factory=lambda: {"buzzer": False, "light": False})
 
     def encode(self) -> bytes:
         return json.dumps(self.__dict__, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -139,6 +147,13 @@ class BridgeStatus:
             raise IpcError("bad status flags")
         if status.fault is not None:
             _short_text(status.fault, "fault", _REASON_MAX)
+        accessories = status.accessories
+        if (
+            not isinstance(accessories, dict)
+            or set(accessories) != {"buzzer", "light"}
+            or not all(isinstance(value, bool) for value in accessories.values())
+        ):
+            raise IpcError("bad accessories")
         return status
 
 

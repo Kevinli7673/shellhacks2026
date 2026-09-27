@@ -188,6 +188,21 @@ void runCase(JsonObjectConst test_case, uint32_t default_watchdog_ms, int defaul
                            outputs.rear_right);
             failures.emplace_back(msg);
         }
+
+        if (step.containsKey("accessories")) {
+            JsonObjectConst expected_acc = step["accessories"].as<JsonObjectConst>();
+            const auto& acc = controller.accessories();
+            bool expected_buzzer = expected_acc["buzzer"].as<bool>();
+            bool expected_light = expected_acc["light"].as<bool>();
+            if (expected_buzzer != acc.buzzer || expected_light != acc.light) {
+                char msg[192];
+                std::snprintf(msg, sizeof(msg),
+                               "%s: accessories mismatch (expected buzzer=%d light=%d, got "
+                               "buzzer=%d light=%d)",
+                               context, expected_buzzer, expected_light, acc.buzzer, acc.light);
+                failures.emplace_back(msg);
+            }
+        }
     }
 }
 

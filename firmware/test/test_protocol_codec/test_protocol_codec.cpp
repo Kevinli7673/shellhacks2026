@@ -12,6 +12,7 @@
 
 #include "protocol_messages.h"
 
+using rescuebot::buildAccessoriesAck;
 using rescuebot::buildArmAck;
 using rescuebot::buildDisarmAck;
 using rescuebot::buildDriveAck;
@@ -66,6 +67,26 @@ void test_valid_disarm_packet_parses(void) {
     auto msg = parseInbound(line, lineLen(line));
     TEST_ASSERT_FALSE(msg.malformed);
     TEST_ASSERT_EQUAL(InboundType::DISARM, msg.type);
+}
+
+void test_valid_accessories_packet_parses(void) {
+    const char* line =
+        R"({"type":"accessories","session":"abc123","seq":3,"buzzer":true,"light":false})";
+    auto msg = parseInbound(line, lineLen(line));
+    TEST_ASSERT_FALSE(msg.malformed);
+    TEST_ASSERT_EQUAL(InboundType::ACCESSORIES, msg.type);
+    TEST_ASSERT_EQUAL_STRING("abc123", msg.accessories.session);
+    TEST_ASSERT_EQUAL_UINT64(3, msg.accessories.seq);
+    TEST_ASSERT_TRUE(msg.accessories.buzzer);
+    TEST_ASSERT_FALSE(msg.accessories.light);
+}
+
+void test_accessories_flags_must_be_booleans(void) {
+    const char* numeric =
+        R"({"type":"accessories","session":"abc123","seq":3,"buzzer":1,"light":false})";
+    TEST_ASSERT_TRUE(parseInbound(numeric, lineLen(numeric)).malformed);
+    const char* missing = R"({"type":"accessories","session":"abc123","seq":3,"buzzer":true})";
+    TEST_ASSERT_TRUE(parseInbound(missing, lineLen(missing)).malformed);
 }
 
 void test_garbage_is_malformed(void) {
@@ -166,6 +187,15 @@ void test_build_disarm_ack(void) {
                               buf);
 }
 
+void test_build_accessories_ack(void) {
+    char buf[128];
+    size_t n = buildAccessoriesAck(buf, sizeof(buf), "abc123", 7, false, true);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING(
+        R"({"type":"accessories_ack","session":"abc123","seq":7,"buzzer":false,"light":true})",
+        buf);
+}
+
 void test_build_fault(void) {
     char buf[128];
     size_t n = buildFault(buf, sizeof(buf), "watchdog_expired");
@@ -231,6 +261,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_drive_packet_tolerates_unknown_extra_fields);
     RUN_TEST(test_valid_arm_packet_parses);
     RUN_TEST(test_valid_disarm_packet_parses);
+    RUN_TEST(test_valid_accessories_packet_parses);
+    RUN_TEST(test_accessories_flags_must_be_booleans);
     RUN_TEST(test_garbage_is_malformed);
     RUN_TEST(test_unknown_type_is_malformed);
     RUN_TEST(test_missing_required_field_is_malformed);
@@ -244,6 +276,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_build_drive_ack_matches_frozen_shape);
     RUN_TEST(test_build_arm_ack);
     RUN_TEST(test_build_disarm_ack);
+    RUN_TEST(test_build_accessories_ack);
     RUN_TEST(test_build_fault);
     RUN_TEST(test_build_status);
     RUN_TEST(test_build_rx_reject_truncates_and_escapes);

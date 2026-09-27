@@ -597,6 +597,30 @@ the dashboard/control side should correct that sentence.
   flashing or hardware testing.
 - Next action: see "Next action" above.
 
+### 2026-09-26 EDT - Buzzer and light accessories (firmware side)
+
+- Branch: test/full-stack/feature-light-buzzer (full-stack feature; the Pi
+  and dashboard side is recorded in changes.md History).
+- Commit: uncommitted at time of writing.
+- Changed files and interfaces: new `accessories` inbound message and
+  `accessories_ack` (protocol_messages.h, protocol_codec.cpp);
+  `Controller::accessories()` with stale-seq rejection, off at boot
+  (controller.h/.cpp); new `accessory_config.h` (buzzer GPIO8/A3 active
+  high; NeoPixel Jewel 7 RGBW on GPIO16/RX) and `accessory_outputs.h/.cpp`
+  (ARDUINO-guarded, writes only on change); main.cpp silences the buzzer
+  first in setup() and applies accessories after every processed line;
+  platformio.ini adds Adafruit NeoPixel for the board build only.
+- Tests and results: `pio test -e native` 59/59 (5 new shared vector cases,
+  3 new codec tests); `pio run -e esp32-s2` SUCCESS, 0 warnings.
+- Mock or physical coverage: native host and board compile only. Not
+  flashed.
+- Known limitations: buzzer polarity (active high assumed), Jewel color
+  order, and 5V current budget are unverified on hardware. Firmware without
+  this change rejects `accessories` as malformed and disarms, so the Pi and
+  firmware must be updated together.
+- Next action: flash with the matching Pi code and bench-check both toggles
+  with the chassis raised.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <short task>

@@ -303,6 +303,17 @@ function updateChain(data) {
   setText("t-dropped", bridge ? String(motor.dropped_commands) : "—");
 }
 
+// Buttons show the state the firmware (or mock) confirmed, not the request.
+function updateAccessories(motor) {
+  const accessories = motor.accessories || { buzzer: false, light: false, available: false };
+  for (const button of document.querySelectorAll(".accessory")) {
+    const on = Boolean(accessories[button.dataset.accessory]);
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+    button.querySelector(".accessory-state").textContent = on ? "On" : "Off";
+    button.disabled = !connected || !canControl || !accessories.available;
+  }
+}
+
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
@@ -347,6 +358,7 @@ function updateDashboard(data) {
   element("enable-button").textContent = !canControl ? "Read-only"
     : drive === "armed" ? "Driving enabled" : drive === "arming" ? "Arming…" : "Enable driving";
   element("stop-button").disabled = !connected;
+  updateAccessories(motor);
 }
 
 async function refreshState() {
@@ -436,6 +448,13 @@ document.addEventListener("visibilitychange", () => {
 
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
 element("stop-button").addEventListener("click", clearAndStop);
+for (const button of document.querySelectorAll(".accessory")) {
+  button.addEventListener("click", () => send({
+    type: "accessory",
+    name: button.dataset.accessory,
+    on: button.getAttribute("aria-pressed") !== "true",
+  }));
+}
 
 window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();

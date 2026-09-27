@@ -17,6 +17,8 @@
 
 #include <cstring>
 
+#include "accessory_config.h"
+#include "accessory_outputs.h"
 #include "chassis_config.h"
 #include "controller.h"
 #include "imu_bno055.h"
@@ -54,6 +56,7 @@ rescuebot::ChassisConfig g_chassis;  // TODO: set validated wheel mapping/ceilin
 Controller g_controller(kWatchdogTimeoutMs, g_chassis.hardware_pwm_ceiling);
 MotorShield g_motors;
 ImuSensor g_imu;
+rescuebot::AccessoryOutputs g_accessories;
 // False after a watchdog reset, so a stuck BNO055 cannot reset the robot in a
 // loop; the IMU then reports unavailable until the next power-on or RESET.
 bool g_imu_enabled = true;
@@ -123,6 +126,8 @@ void applyControllerOutputs() {
 }  // namespace
 
 void setup() {
+    // Silence the buzzer and blank the light before anything slower runs.
+    g_accessories.begin(rescuebot::AccessoryConfig{});
     esp_task_wdt_init(kLoopWatchdogTimeoutS, true);
     enableLoopWDT();
     g_imu_enabled = esp_reset_reason() != ESP_RST_TASK_WDT;
@@ -161,6 +166,7 @@ void loop() {
                                                 sizeof(g_out_buf));
             sendLine(g_out_buf, n);
             applyControllerOutputs();
+            g_accessories.apply(g_controller.accessories());
             if (n > 0 && (std::strstr(g_out_buf, "\"malformed_packet\"") != nullptr ||
                           std::strstr(g_out_buf, "\"oversized_packet\"") != nullptr)) {
                 size_t m = rescuebot::buildRxReject(g_diag_buf, sizeof(g_diag_buf),

@@ -79,7 +79,13 @@ class BridgeMotorBackend:
 
     # -- commands ------------------------------------------------------------
 
-    def _send(self, kind: str, now: float, snapshot: ControlSnapshot | None = None) -> bool:
+    def _send(
+        self,
+        kind: str,
+        now: float,
+        snapshot: ControlSnapshot | None = None,
+        accessories: dict[str, bool] | None = None,
+    ) -> bool:
         self._seq += 1
         forward = sideways = turn = 0.0
         speed_limit = 0
@@ -98,13 +104,26 @@ class BridgeMotorBackend:
             sideways=sideways,
             turn=turn,
             speed_limit=speed_limit,
+            buzzer=bool(accessories and accessories["buzzer"]),
+            light=bool(accessories and accessories["light"]),
         )
-        self.last_kind = kind
+        if kind != "accessories":
+            self.last_kind = kind
         return self._sender.send(command.encode())
 
     def request_arm(self, now: float) -> bool:
         self.arming = True
         return self._send("arm", now)
+
+    def request_accessories(self, buzzer: bool, light: bool, now: float) -> bool:
+        """One-shot: the dashboard shows the state the firmware confirms, not this request."""
+        return self._send("accessories", now, accessories={"buzzer": buzzer, "light": light})
+
+    @property
+    def accessories(self) -> dict[str, bool]:
+        if self.status is None:
+            return {"buzzer": False, "light": False}
+        return dict(self.status.accessories)
 
     def send(self, snapshot: ControlSnapshot, now: float) -> bool:
         if not snapshot.armed:
@@ -141,4 +160,5 @@ class BridgeMotorBackend:
             "transport_connected": bool(self.status and self.status.transport_connected),
             "imu": None if self.status is None else self.status.imu,
             "dropped_commands": self._sender.dropped_count,
+            "accessories": {**self.accessories, "available": self.healthy(now)},
         }

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .serial_protocol import (
+    AccessoryAck,
+    AccessoryCommand,
     ControlAck,
     ControlCommand,
     DriveAck,
@@ -46,6 +48,7 @@ class LinkSnapshot:
     rejected_lines: int
     stale_acks: int
     imu_messages: int
+    accessories: dict[str, bool]
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -73,6 +76,8 @@ class MotorLink:
         self._ack_deadline_from: float | None = None
         self.wheels = {"fl": 0, "fr": 0, "rl": 0, "rr": 0}
         self.latest_imu: ImuTelemetry | None = None
+        # Buzzer/light as last confirmed by the firmware; off until it says otherwise.
+        self.accessories = {"buzzer": False, "light": False}
         self.rejected_lines = 0
         self.stale_acks = 0
         self.imu_messages = 0
@@ -90,6 +95,7 @@ class MotorLink:
         self.connected = False
         self._disarm_locally("link_lost")
         self.session = None
+        self.accessories = {"buzzer": False, "light": False}
 
     def _reset_session(self, session: str) -> None:
         self.session = session
@@ -161,6 +167,16 @@ class MotorLink:
             self.session, self._take_seq(), forward, sideways, turn, speed_limit
         ).encode()
 
+    def set_accessories(self, buzzer: bool, light: bool) -> bytes | None:
+        """Request the buzzer/light state; accessories_ack confirms it.
+
+        Independent of arming: it never arms, disarms, or counts as a motor ACK.
+        """
+        if not self.connected:
+            return None
+        assert self.session is not None
+        return AccessoryCommand(self.session, self._take_seq(), buzzer, light).encode()
+
     def check(self, now: float) -> bytes | None:
         """Disarm if armed without an advancing ACK inside the deadline."""
         if self.armed and self._ack_deadline_from is not None:
@@ -187,6 +203,9 @@ class MotorLink:
                 reply = None
             elif isinstance(message, ControlAck):
                 reply = self._on_control_ack(message, now)
+            elif isinstance(message, AccessoryAck):
+                self._on_accessory_ack(message)
+                reply = None
             elif isinstance(message, FirmwareFault):
                 reply = self._on_fault(message)
             else:
@@ -233,8 +252,18 @@ class MotorLink:
         # An arm_ack we did not request must not arm the Pi side.
         return self.disarm("unexpected_arm")
 
+    def _on_accessory_ack(self, ack: AccessoryAck) -> None:
+        if not self.connected or ack.session != self.session:
+            self.stale_acks += 1
+            return
+        if self._fresh_seq(ack.seq):
+            self.accessories = {"buzzer": ack.buzzer, "light": ack.light}
+
     def _on_fault(self, fault: FirmwareFault) -> bytes | None:
         # Faults carry no session and always mean the firmware disarmed.
+        if fault.reason == "boot":
+            # A reboot starts with the buzzer and light off.
+            self.accessories = {"buzzer": False, "light": False}
         if self.connected and (self.armed or self._arm_seq is not None):
             self._disarm_locally(fault.reason)
         return None
@@ -245,6 +274,7 @@ class MotorLink:
         self.imu_messages += 1
         if previous is not None and imu.timestamp_ms < previous.timestamp_ms:
             # millis() restarted: the firmware rebooted and lost its session.
+            self.accessories = {"buzzer": False, "light": False}
             if self.connected and (self.armed or self._arm_seq is not None):
                 self._disarm_locally("firmware_reset")
         return None
@@ -266,4 +296,5 @@ class MotorLink:
             rejected_lines=self.rejected_lines,
             stale_acks=self.stale_acks,
             imu_messages=self.imu_messages,
+            accessories=dict(self.accessories),
         )

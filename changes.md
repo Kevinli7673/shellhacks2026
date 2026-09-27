@@ -161,6 +161,54 @@ Validation:
 - Next action: confirm the ESP32-S2 board and hardware facts, then Stage G
   from integrated main with the chassis raised.
 
+### 2026-09-26 EDT - Dashboard buzzer and light toggles
+
+- Workstream: full stack (dashboard, bridge, and firmware together).
+- Stage: user-authorized exception; buzzer/LED was deferred polish.
+- Branch/worktree: test/full-stack/feature-light-buzzer, based on
+  test/full-stack d701c3b.
+- Status: implemented and tested off-robot; not committed at time of writing.
+- Hardware facts (from the user): NeoPixel Jewel 7 RGBW (SK6812), data in
+  on QT Py RX = GPIO16; active buzzer on QT Py A3 = GPIO8, active high
+  (assumed; verify). "On" for the light is all four channels at 255 on all
+  seven pixels, up to ~0.5 A: power the Jewel from 5V.
+- Interface decision (shared protocol extension, both sides updated on this
+  branch): Pi -> ESP32 `{"type":"accessories","session","seq","buzzer",
+  "light"}`, answered by `accessories_ack` with the same fields. Accepted
+  armed or disarmed; a repeated or older seq in the same session is ignored;
+  never refreshes the drive watchdog, arms, disarms, or counts as a motor
+  ACK. Bridge IPC gains kind "accessories" and BridgeStatus.accessories.
+  Browser message: `{"type":"accessory","name":"buzzer"|"light","on":bool}`.
+- Behavior decision (user-chosen): only the owning browser can toggle; Stop
+  does not change them; off at firmware boot, on a new serial session or
+  control-service restart, at bridge or dashboard shutdown, and when the
+  owning browser disconnects.
+- Old firmware treats `accessories` as a malformed packet and disarms, so
+  flash this firmware together with the matching Pi code.
+- Shared vectors: 5 cases appended to fixtures/serial_protocol_vectors.json
+  (and the byte-identical firmware copy), with an optional per-step
+  `accessories` expectation checked by both harnesses. Existing cases are
+  unchanged.
+- Tests (Windows 11):
+  - Firmware `pio test -e native` (GCC 15.2.0): 59/59 pass (56 before).
+    A mutation that removed the stale-seq rule failed 4 vector checks.
+  - `pio run -e esp32-s2`: SUCCESS, 0 warnings, RAM 8.6%, flash 21.8%,
+    Adafruit NeoPixel 1.15.5. Not flashed.
+  - `PYTHONPATH=app python -m unittest discover -s tests`: 156 run. The
+    13 new tests pass except the Unix-socket bridge-backend test, which
+    cannot run on Windows; it passed with in-memory datagrams in a scratch
+    runner. No new failures beyond the Windows-only baseline (SIGINT and
+    AF_UNIX), which also fails on unmodified HEAD.
+  - Browser (mock backend, built-in browser): toggles confirmed by server
+    state; toggling works armed; Space with a toggle focused still stops
+    and does not toggle; a read-only second browser sees disabled buttons
+    and its forged request is refused; closing the owner's tab turns both
+    off; phone width has no horizontal overflow.
+- Physical evidence: not performed. The buzzer polarity, Jewel color order,
+  and current draw still need a bench check with the robot.
+- Next action: flash the firmware and Pi code together, then bench-check
+  both toggles on the robot with the chassis raised.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

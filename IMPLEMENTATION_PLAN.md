@@ -29,6 +29,9 @@ Deferred until this milestone passes physical acceptance:
   A*, ESP32-C6 features, environmental sensors, Logitech integration,
   and unrelated polish.
 
+User-authorized exception (2026-09-26): dashboard buttons for the robot's
+buzzer and light (sections 3 and 6). They never affect driving.
+
 Passing acceptance does not automatically authorize the deferred roadmap.
 
 ## 2. Architecture
@@ -107,6 +110,12 @@ Speed keys alone cannot cause movement.
 Prevent control keys from scrolling the page.
 
 These settings represent motor commands, not measured ground speed.
+
+Buzzer and Light toggle buttons switch the active buzzer and the NeoPixel
+Jewel (all RGBW channels at 255: maximum-brightness white). Only the browser
+that owns driving can toggle them, armed or disarmed; they show the state the
+firmware confirmed. Stop does not change them. They switch off at firmware
+boot, on a new serial session, and when the owning browser disconnects.
 
 ## 4. Mecanum mixing
 
@@ -218,6 +227,15 @@ Send freshly computed current commands instead.
 The firmware emits separate timestamped BNO055 heading/calibration/status
 telemetry at approximately 20 Hz. IMU messages cannot refresh the motor
 watchdog or count as motor-command acknowledgments.
+
+Buzzer and light use their own message, accepted armed or disarmed:
+
+    {"type": "accessories", "session": "...", "seq": 7, "buzzer": true, "light": false}
+
+The firmware answers with `accessories_ack` echoing session, seq, buzzer, and
+light. A repeated or older seq in the same session is ignored. Accessories
+messages never refresh the motion watchdog, arm, disarm, or count as motor
+acknowledgments; a malformed one is still a malformed packet.
 
 ## 7. Safety and firmware
 

@@ -25,7 +25,7 @@ from .live_camera import (
 from .motor_bridge import default_run_dir
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .sensors import OffSensors, Sensors, create_sensors
-from .service import RobotControlService
+from .service import ACCESSORY_NAMES, RobotControlService
 from .voice import STARTUP_PHRASE, CameraVoice, Speaker, alert_text
 
 
@@ -212,6 +212,15 @@ def create_app(
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}
+                elif message_type == "accessory":
+                    name = message.get("name")
+                    on = message.get("on")
+                    if name not in ACCESSORY_NAMES or not isinstance(on, bool):
+                        control_service.stop("invalid_browser_message")
+                        response = {"type": "accessory", "accepted": False}
+                    else:
+                        accepted = control_service.set_accessory(session, name, on)
+                        response = {"type": "accessory", "accepted": accepted}
                 else:
                     control_service.stop("invalid_browser_message")
                     response = {"type": "error", "message": "Unsupported control message."}

@@ -6,6 +6,9 @@ arbiter command or an advancing ACK, handles stop immediately, and never
 arms on its own: arming needs an explicit "arm" command and the firmware's
 arm_ack. A change of arbiter (control-service restart) disarms.
 
+Buzzer and light requests pass straight through. A new serial session, a
+change of arbiter, and bridge shutdown all switch them off.
+
 Transports are pluggable. The simulator is the default; passing an explicit
 stable serial-by-id path selects the real ESP32-S2 transport.
 """
@@ -138,8 +141,10 @@ class MotorBridge:
         except OSError:
             opened = False
         if opened:
-            # A fresh session, disarmed; reconnecting never re-arms.
+            # A fresh session, disarmed; reconnecting never re-arms and never
+            # keeps a previous session's buzzer or light on.
             self._write(self.link.connect())
+            self._write(self.link.set_accessories(False, False))
         else:
             # A port that cannot open is a visible, disarmed safety state.
             # Keep the transport's detailed OS error local; bridge status uses
@@ -176,8 +181,10 @@ class MotorBridge:
     def _accept(self, command: ArbiterCommand) -> bool:
         if command.arbiter != self.arbiter:
             if self.arbiter is not None:
-                # The control service restarted: never carry arming across.
+                # The control service restarted: never carry arming, or the
+                # previous operator's buzzer and light, across.
                 self._write(self.link.disarm("arbiter_changed"))
+                self._write(self.link.set_accessories(False, False))
                 self._drive = None
             self.arbiter = command.arbiter
             self._arbiter_seq = 0
@@ -197,6 +204,10 @@ class MotorBridge:
             return
         if not command.is_fresh(now):
             self.rejected_commands += 1
+            return
+        if command.kind == "accessories":
+            # Not a driving intent, so it must not refresh arbiter freshness.
+            self._write(self.link.set_accessories(command.buzzer, command.light))
             return
         self._last_arbiter_at = now
         if command.kind == "arm":
@@ -267,10 +278,12 @@ class MotorBridge:
                 "heading": imu.heading,
                 "calibration": imu.calibration,
             },
+            accessories=snapshot.accessories,
         )
 
     def shutdown(self) -> None:
         self._write(self.link.disarm("bridge_shutdown"))
+        self._write(self.link.set_accessories(False, False))
         self.transport.close()
 
 

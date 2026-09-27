@@ -10,6 +10,7 @@ from .mock import MockMotorBackend
 
 
 ARM_CONFIRM_TIMEOUT_S = 1.0
+ACCESSORY_NAMES = ("buzzer", "light")
 
 
 class RobotControlService:
@@ -116,13 +117,40 @@ class RobotControlService:
         self.control.stop(reason)
         self.tick(now)
 
+    def set_accessory(self, session: str, name: str, on: bool, now: float | None = None) -> bool:
+        """Owner-only buzzer/light switch. Works armed or disarmed; never moves the robot."""
+        now = time.monotonic() if now is None else now
+        if name not in ACCESSORY_NAMES or session != self.control.owner_session:
+            return False
+        bridge = self._bridge
+        if bridge is None:
+            wanted = {**self.backend.accessories, name: on}
+            self.backend.set_accessories(wanted["buzzer"], wanted["light"])
+            return True
+        bridge.poll(now)
+        if not bridge.healthy(now):
+            return False
+        wanted = {**bridge.accessories, name: on}
+        return bridge.request_accessories(wanted["buzzer"], wanted["light"], now)
+
+    def _accessories_off(self, now: float) -> None:
+        bridge = self._bridge
+        if bridge is None:
+            self.backend.set_accessories(False, False)
+        else:
+            bridge.request_accessories(False, False, now)
+
     def disconnect(self, session: str, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        if session == self.control.owner_session:
+            self._accessories_off(now)
         self.control.disconnect(session)
         self.tick(now)
 
     def close(self) -> None:
         bridge = self._bridge
         if bridge is not None:
+            bridge.request_accessories(False, False, time.monotonic())
             bridge.close()
 
     def state(self, now: float | None = None) -> dict[str, object]:

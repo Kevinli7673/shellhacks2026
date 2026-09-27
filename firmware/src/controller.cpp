@@ -1,5 +1,7 @@
 #include "controller.h"
 
+#include <cstring>
+
 namespace rescuebot {
 
 Controller::Controller(uint32_t watchdog_timeout_ms, int hardware_pwm_ceiling)
@@ -8,7 +10,25 @@ Controller::Controller(uint32_t watchdog_timeout_ms, int hardware_pwm_ceiling)
 size_t Controller::boot(char* out, size_t out_size) {
     guard_.reset();
     outputs_ = WheelOutputs{};
+    accessories_ = Accessories{};
+    accessory_session_[0] = '\0';
+    accessory_seq_ = 0;
     return buildFault(out, out_size, "boot");
+}
+
+size_t Controller::handleAccessories(const InboundAccessories& command, char* out,
+                                      size_t out_size) {
+    if (std::strncmp(command.session, accessory_session_, kMaxSessionLength) == 0 &&
+        command.seq <= accessory_seq_) {
+        return 0;  // stale or replayed within the same session: no ack, no change
+    }
+    std::strncpy(accessory_session_, command.session, kMaxSessionLength - 1);
+    accessory_session_[kMaxSessionLength - 1] = '\0';
+    accessory_seq_ = command.seq;
+    accessories_.buzzer = command.buzzer;
+    accessories_.light = command.light;
+    return buildAccessoriesAck(out, out_size, command.session, command.seq, accessories_.buzzer,
+                                accessories_.light);
 }
 
 size_t Controller::handleDrive(const InboundDrive& drive, uint32_t now_ms, char* out,
@@ -66,6 +86,9 @@ size_t Controller::handleLine(const char* line, size_t length, bool overflowed, 
             guard_.disarm();
             outputs_ = WheelOutputs{};
             return buildDisarmAck(out, out_size, msg.arm_disarm.session, msg.arm_disarm.seq);
+
+        case InboundType::ACCESSORIES:
+            return handleAccessories(msg.accessories, out, out_size);
 
         case InboundType::UNKNOWN:
             // parseInbound flags genuinely unrecognized "type" values as

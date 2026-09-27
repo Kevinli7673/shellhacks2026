@@ -34,6 +34,9 @@ them. Report discrepancies between documentation and code.
 - Stop overrides everything; reconnects never automatically rearm.
 - An accepted arm zeroes motor outputs; a stale arm (same session, seq not
   higher than the last seen) is ignored.
+- Buzzer and light never affect driving, arming, or watchdogs. They switch
+  off at firmware boot, on a new serial session, and when the owning browser
+  disconnects.
 - ESP32 watchdog defaults to 500 ms.
 - Mock and firmware calculations must pass the same behavioral fixtures.
 - Firmware native tests replay the shared serial protocol vectors, vendored

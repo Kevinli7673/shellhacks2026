@@ -51,6 +51,17 @@ class Arbiter:
             speed_limit=speed_limit,
         ).encode()
 
+    def accessories(self, buzzer: bool, light: bool, ttl: float = 0.25) -> bytes:
+        self.seq += 1
+        return ArbiterCommand(
+            kind="accessories",
+            arbiter=self.arbiter,
+            seq=self.seq,
+            expires_at=self.clock.now + ttl,
+            buzzer=buzzer,
+            light=light,
+        ).encode()
+
 
 def short_tmpdir() -> str:
     # macOS limits AF_UNIX paths to 104 bytes; the default TMPDIR is long.
@@ -121,6 +132,20 @@ class IpcTests(unittest.TestCase):
         self.assertIn(False, results)
         self.assertEqual(sender.dropped_count, results.count(False))
         self.assertEqual(len(receiver.drain()), 8)  # drain is bounded per call
+
+    def test_accessory_command_and_status_round_trip_and_validation(self) -> None:
+        command = ArbiterCommand("accessories", "svc", 1, 1.0, buzzer=True, light=False)
+        self.assertEqual(ArbiterCommand.decode(command.encode()), command)
+        with self.assertRaises(IpcError):
+            ArbiterCommand.decode(b'{"kind":"accessories","arbiter":"svc","seq":1,"expires_at":1,"buzzer":1}')
+        status = BridgeStatus(1.5, True, False, False, None, None, accessories={"buzzer": True, "light": False})
+        self.assertEqual(BridgeStatus.decode(status.encode()), status)
+        for bad in (b'"yes"', b'{"buzzer":true}', b'{"buzzer":1,"light":false}'):
+            with self.subTest(accessories=bad), self.assertRaises(IpcError):
+                BridgeStatus.decode(
+                    b'{"sent_at":1,"transport_connected":true,"armed":false,"arm_pending":false,'
+                    b'"fault":null,"ack_age_ms":null,"accessories":' + bad + b"}"
+                )
 
     def test_status_round_trip(self) -> None:
         status = BridgeStatus(1.5, True, True, False, None, 20, {"fl": 1, "fr": 2, "rl": 3, "rr": 4}, "svc")
@@ -275,6 +300,50 @@ class MotorBridgeTests(unittest.TestCase):
         h.arm()
         h.drive_for(0.1)
         self.assertEqual(h.status.wheels, {"fl": 40, "fr": 40, "rl": 40, "rr": 40})
+
+    def test_accessories_pass_through_while_disarmed(self) -> None:
+        self.h.step(self.h.arbiter.accessories(True, False))
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, {"buzzer": True, "light": False})
+        self.assertEqual(self.h.status.accessories, {"buzzer": True, "light": False})
+        self.assertFalse(self.h.firmware.armed)
+        self.assertFalse(self.h.status.armed)
+
+    def test_accessory_requests_do_not_keep_an_armed_bridge_alive(self) -> None:
+        self.h.arm()
+        self.h.drive_for(0.1)
+        for _ in range(6):  # 0.3 s of accessory requests and no drive intent
+            self.h.clock.now += 0.05
+            self.h.step(self.h.arbiter.accessories(True, True), advance=0.0)
+        self.assertFalse(self.h.status.armed)
+        self.assertEqual(self.h.status.fault, "arbiter_timeout")
+        self.assertEqual(self.h.firmware.accessories, {"buzzer": True, "light": True})
+
+    def test_new_session_arbiter_change_and_shutdown_switch_accessories_off(self) -> None:
+        on = {"buzzer": True, "light": True}
+        off = {"buzzer": False, "light": False}
+
+        self.h.step(self.h.arbiter.accessories(True, True))
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, on)
+        self.h.transport.close()
+        self.h.step(advance=1.1)  # past the reconnect period: a fresh session
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, off)
+
+        self.h.step(self.h.arbiter.accessories(True, True))
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, on)
+        restarted = Arbiter(self.h.clock, "svc-b")  # control service restarted
+        self.h.step(restarted.command("stop"))
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, off)
+
+        self.h.step(restarted.accessories(True, True))
+        self.h.step()
+        self.assertEqual(self.h.firmware.accessories, on)
+        self.h.bridge.shutdown()
+        self.assertEqual(self.h.firmware.accessories, off)
 
 
 class BridgeProcessTests(unittest.TestCase):
