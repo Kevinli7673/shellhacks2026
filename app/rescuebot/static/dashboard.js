@@ -278,9 +278,9 @@ function recolorMap(image) {
     if (r === 205 && g === 205 && b === 205) {
       d[i + 3] = 0;                                           // unknown
     } else if ((r === g && g === b && r >= 250) || r !== g || g !== b) {
-      d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = 34;  // free (and baked-in markers)
+      d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = 34;  // free (and baked-in markers): --map-free
     } else {
-      const occupied = 1 - r / 254;                            // 0 free .. 1 wall
+      const occupied = 1 - r / 254;                            // 0 free .. 1 wall: --map-wall
       d[i] = 240; d[i + 1] = 236; d[i + 2] = 226; d[i + 3] = Math.round(90 + 165 * occupied);
     }
   }
@@ -312,7 +312,7 @@ function drawMap() {
   const css = getComputedStyle(document.documentElement);
   const ink = css.getPropertyValue("--ink").trim();
   const red = css.getPropertyValue("--tally-red").trim();
-  const blue = "oklch(0.7 0.14 250)";
+  const blue = css.getPropertyValue("--map-person").trim();
 
   // World frame: x right, y up, centered on the robot; heading-up rotates
   // the world so the robot's front points to the top of the screen.

@@ -18,6 +18,10 @@
   --desk-line: oklch(0.36 0.01 68);
   --bezel: oklch(0.135 0.005 68);
   --screen: oklch(0.175 0.012 245);
+  /* Live map; dashboard.js draws with these too. */
+  --map-free: rgb(255 255 255 / 0.13);
+  --map-wall: rgb(240 236 226);
+  --map-person: oklch(0.7 0.14 250);
   --umd: oklch(0.1 0.003 68);
 
   /* Ink, tinted warm so secondary text never reads as dead gray */
@@ -778,3 +782,18 @@ body:not([data-sensors="off"]) .chain-node:nth-child(3)::after { display: none; 
   /* Keep the zoom buttons clear of the position readout. */
   .map-controls { bottom: auto; top: 2.4rem; }
 }
+
+.map-legend {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin: 0.5rem 0.25rem 0.1rem;
+  font-size: var(--t-xs); color: var(--ink-3);
+}
+.map-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.map-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; border: 1px solid var(--desk-line); flex: none; }
+.map-legend .unexplored { background: var(--screen); }
+.map-legend .free { background: var(--map-free); }
+.map-legend .wall { background: var(--map-wall); }
+.map-legend .robot { background: var(--tally-red); border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 50% 75%, 0 100%); border: 0; }
+.map-legend .person { background: var(--map-person); border-radius: 50%; border: 0; }
+.map-legend .counted { background: var(--map-person); border-radius: 50%; border: 0; width: 1rem; height: 1rem;
+  font: 600 0.6rem/1rem var(--sans); font-style: normal; color: var(--ink); text-align: center; }
+.map-legend-note { margin: 0.1rem 0.25rem 0; font-size: var(--t-xs); color: var(--ink-3); }
