@@ -17,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .accessory_auto import AccessoryAutomation
 from .bridge_backend import BridgeMotorBackend
+from .autonomy_ipc import AutonomyHostEndpoint
+from .gazebo_backend import GazeboMotorBackend, default_sim_command_socket
 from .live_camera import (
     DEFAULT_DETECTOR,
     DEFAULT_VIDEO_PORT,
@@ -24,9 +26,11 @@ from .live_camera import (
     detector_args_from_env,
 )
 from .motor_bridge import default_run_dir
+from .navigation_ipc import NavigationHostEndpoint
 from .replay_camera import MockCameraBackend, ReplayCameraBackend
 from .sensors import OffSensors, Sensors, create_sensors
 from .service import ACCESSORY_NAMES, RobotControlService
+from .simulation_playback import SimulationPlayback
 from .voice import STARTUP_PHRASE, CameraVoice, Speaker, alert_text
 
 
@@ -45,8 +49,11 @@ def _dashboard_state(
     session: str | None,
     camera: MockCameraBackend | ReplayCameraBackend | LiveCameraBackend | _LockedCamera,
     sensors: Sensors | None = None,
+    playback: SimulationPlayback | None = None,
 ) -> dict[str, object]:
     state = service.state()
+    if playback is not None:
+        state["simulation_playback"] = playback.state()
     state["camera"] = camera.status()
     state["sensors"] = (sensors or OffSensors()).status()
     control = state["control"]
@@ -98,6 +105,9 @@ def create_app(
     voice: bool = False,
     camera_voice: CameraVoice | None = None,
     auto_accessories: bool = False,
+    sim_command_socket: str | Path | None = None,
+    autonomy_command_socket: str | Path | None = None,
+    autonomy_status_socket: str | Path | None = None,
 ) -> FastAPI:
     """Create the dashboard app with an injectable service for integration tests."""
 
@@ -114,8 +124,23 @@ def create_app(
                 bridge_status_socket or run_dir / "bridge-status.sock",
             )
         )
+    elif motor_backend == "gazebo":
+        run_dir = default_sim_command_socket().parent
+        run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        control_service = RobotControlService(
+            backend=GazeboMotorBackend(sim_command_socket),
+            allow_autonomy=True,
+            autonomy_endpoint=AutonomyHostEndpoint(
+                autonomy_command_socket or run_dir / "autonomy-command.sock",
+                autonomy_status_socket or run_dir / "autonomy-status.sock",
+            ),
+            navigation_endpoint=NavigationHostEndpoint(
+                run_dir / "navigation-goal.sock", run_dir / "navigation-status.sock",
+            ),
+        )
     else:
-        raise ValueError("motor_backend must be mock or bridge")
+        raise ValueError("motor_backend must be mock, bridge, or gazebo")
+    playback = SimulationPlayback() if isinstance(control_service.backend, GazeboMotorBackend) else None
     if camera is not None:
         camera_service = camera
     elif camera_backend == "mock":
@@ -149,6 +174,8 @@ def create_app(
         if automation is not None:
             automation.start()
         app.state.control_loop = asyncio.create_task(_control_loop(control_service))
+        if playback is not None:
+            playback.start()
         try:
             yield
         finally:
@@ -156,6 +183,8 @@ def create_app(
             with suppress(asyncio.CancelledError):
                 await app.state.control_loop
             control_service.stop("dashboard_shutdown")
+            if playback is not None:
+                await playback.close()
             control_service.close()
             if camera_voice is not None:
                 camera_voice.close()
@@ -177,7 +206,7 @@ def create_app(
 
     @app.get("/api/state")
     async def state() -> dict[str, object]:
-        return _dashboard_state(control_service, None, camera_status_source, sensor_service)
+        return _dashboard_state(control_service, None, camera_status_source, sensor_service, playback)
 
     @app.get("/api/lidar")
     async def lidar() -> dict[str, object]:
@@ -188,7 +217,7 @@ def create_app(
         await websocket.accept()
         session = secrets.token_urlsafe(16)
         await websocket.send_json(
-            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service)}
+            {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback)}
         )
 
         try:
@@ -204,8 +233,17 @@ def create_app(
                     accepted = control_service.claim(session)
                     response: dict[str, Any] = {"type": "claim", "accepted": accepted}
                 elif message_type == "enable":
-                    accepted = control_service.enable(session)
+                    accepted = not (playback is not None and playback.pending) and control_service.enable(session)
                     response = {"type": "enable", "accepted": accepted}
+                elif message_type == "simulation_playback" and playback is not None:
+                    accepted = (
+                        session == control_service.control.owner_session
+                        and not control_service.control.armed
+                        and not control_service.autonomy.active
+                        and not control_service.control.has_movement
+                        and playback.request(message.get("rate"))
+                    )
+                    response = {"type": "simulation_playback", "accepted": accepted}
                 elif message_type == "keys":
                     keys = message.get("keys")
                     if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
@@ -218,6 +256,15 @@ def create_app(
                     delta = message.get("delta")
                     accepted = control_service.adjust_speed(session, delta)
                     response = {"type": "speed", "accepted": accepted}
+                elif message_type == "start_autonomy":
+                    mission = control_service.start_autonomy(session)
+                    response = {"type": "start_autonomy", "accepted": mission is not None}
+                elif message_type == "navigation_goal" and isinstance(control_service.backend, GazeboMotorBackend):
+                    accepted = control_service.navigation_goal(session, message.get("forward"), message.get("right"))
+                    response = {"type": "navigation_goal", "accepted": accepted}
+                elif message_type == "start_search" and isinstance(control_service.backend, GazeboMotorBackend):
+                    accepted = control_service.start_search(session)
+                    response = {"type": "start_search", "accepted": accepted}
                 elif message_type == "stop":
                     control_service.stop("operator_stop")
                     response = {"type": "stop", "accepted": True}
@@ -236,7 +283,7 @@ def create_app(
 
                 await websocket.send_json(response)
                 await websocket.send_json(
-                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service)}
+                    {"type": "state", "data": _dashboard_state(control_service, session, camera_status_source, sensor_service, playback)}
                 )
         except WebSocketDisconnect:
             control_service.disconnect(session)
@@ -258,6 +305,16 @@ def main() -> None:
         help="live: run ai_camera_detect.py on the AI Camera in a separate process.",
     )
     parser.add_argument(
+        "--autonomy-command-socket",
+        default=os.environ.get("RESCUEBOT_AUTONOMY_COMMAND_SOCKET"),
+        help="Simulation ROS adapter command socket (gazebo backend only).",
+    )
+    parser.add_argument(
+        "--autonomy-status-socket",
+        default=os.environ.get("RESCUEBOT_AUTONOMY_STATUS_SOCKET"),
+        help="Simulation ROS adapter status socket (gazebo backend only).",
+    )
+    parser.add_argument(
         "--camera-args",
         default=detector_args_from_env(),
         help='Extra ai_camera_detect.py options for --camera-backend live (default: "%(default)s").',
@@ -275,9 +332,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--motor-backend",
-        choices=("mock", "bridge"),
+        choices=("mock", "bridge", "gazebo"),
         default=os.environ.get("RESCUEBOT_MOTOR_BACKEND", "mock"),
-        help="bridge: send commands to a separately started rescuebot.motor_bridge process.",
+        help="bridge: physical bridge; gazebo: simulation-only Unix-datagram backend.",
+    )
+    parser.add_argument(
+        "--sim-command-socket",
+        default=os.environ.get("RESCUEBOT_SIM_COMMAND_SOCKET"),
+        help="Unix socket read by rescuebot_sim_bridge when --motor-backend gazebo is selected.",
     )
     parser.add_argument(
         "--sensors",
@@ -311,6 +373,9 @@ def main() -> None:
             sensors_mode=args.sensors,
             voice=args.voice,
             auto_accessories=args.auto_accessories,
+            sim_command_socket=args.sim_command_socket,
+            autonomy_command_socket=args.autonomy_command_socket,
+            autonomy_status_socket=args.autonomy_status_socket,
         ),
         host="0.0.0.0",
         port=8000,

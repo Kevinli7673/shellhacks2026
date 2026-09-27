@@ -1,0 +1,12 @@
+# Replace every value with measurements from the assembled chassis before
+# navigation tuning.  These estimates only make the first Gazebo model usable.
+body_length_m: 0.300
+body_width_m: 0.250
+body_height_m: 0.100
+wheel_radius_m: 0.050
+wheel_width_m: 0.030
+wheelbase_m: 0.220
+track_width_m: 0.200
+lidar_height_m: 0.160
+ai_camera_height_m: 0.180
+logitech_camera_height_m: 0.190

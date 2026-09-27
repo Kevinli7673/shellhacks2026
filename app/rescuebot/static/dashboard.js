@@ -28,6 +28,9 @@ const reasons = {
   invalid_browser_message: "Stopped: the browser sent an invalid message.",
   dashboard_shutdown: "Stopped: the dashboard is shutting down.",
   motor_disarmed: "Stopped: the motors disarmed.",
+  autonomy_timeout: "Stopped: the simulation navigation source timed out. Wait for readiness, then enable again.",
+  search_complete: "Search mission finished. Returned to start and disarmed.",
+  search_failed: "Search mission stopped. Check the mission status before trying again.",
 };
 
 function send(message) {
@@ -272,6 +275,7 @@ function reasonText(control, drive) {
 
 function updateChain(data) {
   const { control, motor } = data;
+  const autonomy = data.autonomy || { available: false, active: false };
   const bridge = motor.backend === "bridge";
 
   setLamp(document.querySelector('[data-node="browser"] .lamp'), connected ? "ok" : "fault");
@@ -281,7 +285,7 @@ function updateChain(data) {
     control.armed ? (control.arming ? "warn" : "ok") : control.owner_session ? "off" : "off");
   setText("node-control", !control.owner_session ? "No owner" : canControl ? "You · " + (control.armed ? "armed" : "disarmed") : "Other browser");
 
-  setText("node-motor-name", bridge ? "Motor bridge" : "Motor backend");
+  setText("node-motor-name", bridge ? "Motor bridge" : motor.backend === "gazebo" ? "Gazebo bridge" : "Motor backend");
   if (bridge) {
     setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
     setText("node-motor", motor.healthy ? "Connected · " + formatAge(motor.status_age_ms) : "Unavailable");
@@ -290,9 +294,9 @@ function updateChain(data) {
     setText("node-firmware", !motor.transport_connected ? "No link" : motor.firmware_armed ? "Armed" : "Disarmed");
   } else {
     setLamp(document.querySelector('[data-node="motor"] .lamp'), motor.healthy ? "ok" : "fault");
-    setText("node-motor", "Mock · in-process");
+    setText("node-motor", motor.backend === "gazebo" ? "Simulation · local IPC" : "Mock · in-process");
     setLamp(document.querySelector('[data-node="firmware"] .lamp'), "off");
-    setText("node-firmware", "Not connected (mock)");
+    setText("node-firmware", motor.backend === "gazebo" ? "Not used (simulation)" : "Not connected (mock)");
   }
 
   setText("t-ack", bridge ? formatAge(motor.ack_age_ms) : "—");
@@ -317,6 +321,7 @@ function updateAccessories(motor) {
 function updateDashboard(data) {
   currentState = data;
   const { control, motor, camera } = data;
+  const autonomy = data.autonomy || { available: false, active: false };
   canControl = data.can_control;
   const drive = driveState(control);
 
@@ -328,6 +333,9 @@ function updateDashboard(data) {
   setText("driving-status", drive === "arming" ? "Arming…" : drive === "armed" ? "Armed · driving" : "Disabled");
 
   const reason = reasonText(control, drive);
+  if (autonomy.active && connected && canControl && drive === "armed") {
+    reason.text = "Autonomy enabled. Send a goal below. W/A/S/D take over; Space stops.";
+  }
   const message = element("fault-message");
   message.textContent = reason.text;
   if (reason.code) {
@@ -359,6 +367,85 @@ function updateDashboard(data) {
     : drive === "armed" ? "Driving enabled" : drive === "arming" ? "Arming…" : "Enable driving";
   element("stop-button").disabled = !connected;
   updateAccessories(motor);
+  const autonomyButton = element("autonomy-button");
+  autonomyButton.hidden = !autonomy.available;
+  autonomyButton.disabled = !connected || !canControl || drive !== "armed" || heldKeys.size > 0 || autonomy.active;
+  autonomyButton.textContent = autonomy.active ? "Autonomy active" : "Start autonomy";
+  updateNavigation(autonomy, drive);
+  const playback = data.simulation_playback;
+  element("simulation-playback").hidden = !playback;
+  if (playback) {
+    if (playback.pending) element("enable-button").disabled = true;
+    for (const button of document.querySelectorAll("[data-playback-rate]")) {
+      button.disabled = !connected || !canControl || drive !== "disabled" || playback.pending || heldKeys.size > 0;
+      button.setAttribute("aria-pressed", String(Number(button.dataset.playbackRate) === playback.target));
+    }
+    const actual = playback.actual === null ? "Clock unavailable" : `Actual ${playback.actual.toFixed(2)}×${playback.paused ? " (paused)" : ""}`;
+    const target = playback.target === null ? "Choose a playback rate" : `Requested ${playback.target}×`;
+    setText("playback-status", playback.pending ? "Applying playback rate…" : `${target} · ${actual}`);
+    if (playback.error) setText("playback-feedback", playback.error);
+  }
+}
+
+function navigationGoalInput() {
+  const inputs = [element("goal-forward"), element("goal-right")];
+  const [forward, right] = inputs.map((input) => input.valueAsNumber);
+  const distance = Math.hypot(forward, right);
+  let error = "";
+  if (!Number.isFinite(distance)) error = "Enter both Forward and Right distances.";
+  else if (distance > 2) error = `Combined distance is ${distance.toFixed(2)} m — maximum is 2 m. Reduce Forward or Right.`;
+  else if (distance < 0.1) error = `Combined distance is ${distance.toFixed(2)} m — minimum is 0.1 m.`;
+  else if (inputs.some((input) => input.validity.stepMismatch)) error = "Enter distances in steps of 0.1 m.";
+  return { forward, right, distance, error };
+}
+
+function updateNavigation(autonomy, drive) {
+  element("simulation-navigation").hidden = !autonomy.available;
+  if (!autonomy.available) return;
+  const nav = autonomy.navigation || { ready: false, reason: "Waiting for navigation" };
+  const currentMission = autonomy.active && nav.active && nav.mission === autonomy.mission;
+  const search = nav.search;
+  const searching = search && ["exploring", "notifying", "return_pending", "returning"].includes(search.phase);
+  const busy = currentMission && (searching || nav.pending || ["pending", "executing"].includes(nav.goal_state));
+  const labels = {
+    idle: "Ready for a goal", pending: "Sending goal…", executing: "Navigating to goal",
+    succeeded: "Goal reached — choose another", canceled: "Goal canceled",
+    aborted: "Goal could not be reached — choose another", failed: "Navigation failed — choose another",
+    rejected: "Goal rejected — choose another",
+  };
+  const status = !connected ? "Dashboard disconnected" : !nav.ready ? nav.reason
+    : currentMission ? (searching ? "Search mission active — progress below" : nav.pending ? labels.pending : labels[nav.goal_state])
+    : autonomy.active ? "Starting mission…"
+    : drive === "armed" ? "Driving enabled — click Start autonomy, then Send goal"
+    : "Ready — enable driving, then Start autonomy again";
+  setText("navigation-status", status);
+  const goal = navigationGoalInput();
+  setText("goal-distance", goal.error || `Combined distance: ${goal.distance.toFixed(2)} m (allowed: 0.1–2 m).`);
+  element("goal-distance").dataset.invalid = String(Boolean(goal.error));
+  element("autonomy-button").disabled ||= !nav.ready;
+  element("send-goal-button").disabled = !connected || !canControl || drive !== "armed"
+    || heldKeys.size > 0 || !nav.ready || !currentMission || busy || Boolean(goal.error);
+  for (const id of ["goal-forward", "goal-right"]) element(id).disabled = busy || !canControl;
+  const pose = nav.pose;
+  setText("navigation-pose", pose
+    ? `SLAM position: x ${pose.x.toFixed(2)} m · y ${pose.y.toFixed(2)} m`
+    : "Map position unavailable");
+  if (nav.request_error && currentMission) setText("navigation-feedback", nav.request_error);
+  element("search-mission").hidden = !search || (!search.available && search.phase === "idle");
+  element("search-button").disabled = !connected || !canControl || drive !== "armed"
+    || heldKeys.size > 0 || !nav.ready || !currentMission || busy || !search?.available;
+  const phases = {
+    idle: "Enable driving → Start autonomy → Search for person & return",
+    exploring: "Searching for a person marker…", notifying: "Simulated person found — stopping to report",
+    return_pending: "Search ended — preparing to return", returning: "Returning to the saved starting position…",
+    complete: search?.reason, failed: search?.reason, canceled: "Search canceled. Start a new mission to try again.",
+  };
+  setText("search-status", phases[search?.phase] || "Search world unavailable");
+  element("search-notification").hidden = !search?.found;
+  if (search?.found && search.target) {
+    const notice = `SIMULATION: person marker found at x ${search.target.x.toFixed(2)} m, y ${search.target.y.toFixed(2)} m. ${search.phase === "complete" ? "Returned to start." : ""}`;
+    if (element("search-notification").textContent !== notice) setText("search-notification", notice);
+  }
 }
 
 async function refreshState() {
@@ -401,10 +488,27 @@ function connect() {
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") updateDashboard(message.data);
+    if (message.type === "simulation_playback") {
+      setText("playback-feedback", message.accepted ? "" : "Playback change not accepted. Stop driving and wait for any pending change.");
+    }
+    if (message.type === "navigation_goal") {
+      setText("navigation-feedback", message.accepted ? "" : "Goal not accepted. Check readiness and wait for the current goal to finish.");
+    }
+    if (message.type === "start_search") {
+      setText("navigation-feedback", message.accepted ? "" : "Search not accepted. Start autonomy and wait for the current goal to finish.");
+    }
+    if (message.type === "start_autonomy" && currentState?.autonomy.available) {
+      setText("navigation-feedback", message.accepted ? "" : "Start was not accepted. Release keys, enable driving, and wait for navigation readiness.");
+    }
   });
 }
 
 window.addEventListener("keydown", (event) => {
+  // Simulation fields keep number editing and Select All browser shortcuts.
+  // W/A/S/D still take over immediately, and Space always reaches Stop.
+  if (currentState?.autonomy.available && event.target.closest?.("#navigation-form input")
+      && (event.code.startsWith("Arrow")
+        || (event.code === "KeyA" && (event.metaKey || event.ctrlKey)))) return;
   if (displayKeys.has(event.code)) {
     litKeys.add(event.code);
     renderKeys();
@@ -447,6 +551,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 element("enable-button").addEventListener("click", () => send({ type: "enable" }));
+element("autonomy-button").addEventListener("click", () => send({ type: "start_autonomy" }));
+element("search-button").addEventListener("click", () => send({ type: "start_search" }));
 element("stop-button").addEventListener("click", clearAndStop);
 for (const button of document.querySelectorAll(".accessory")) {
   button.addEventListener("click", () => send({
@@ -455,6 +561,26 @@ for (const button of document.querySelectorAll(".accessory")) {
     on: button.getAttribute("aria-pressed") !== "true",
   }));
 }
+for (const button of document.querySelectorAll("[data-playback-rate]")) {
+  button.addEventListener("click", () => send({ type: "simulation_playback", rate: Number(button.dataset.playbackRate) }));
+}
+element("navigation-form").addEventListener("input", () => {
+  if (!currentState?.autonomy.available) return;
+  setText("navigation-feedback", "");
+  updateNavigation(currentState.autonomy, driveState(currentState.control));
+});
+element("navigation-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (element("send-goal-button").disabled) return;
+  const { forward, right, error } = navigationGoalInput();
+  if (error) {
+    setText("navigation-feedback", error);
+    return;
+  }
+  setText("navigation-feedback", "Sending goal…");
+  element("send-goal-button").disabled = true;
+  send({ type: "navigation_goal", forward, right });
+});
 
 window.setInterval(() => {
   if (connected && currentState?.control.armed) sendKeys();

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rescuebot_gazebo</name>
+  <version>0.1.0</version>
+  <description>Gazebo Harmonic world and bridges for Rescuebot simulation.</description>
+  <maintainer email="rescuebot@example.invalid">Rescuebot</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>rescuebot_description</exec_depend>
+  <exec_depend>rescuebot_sim_bridge</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

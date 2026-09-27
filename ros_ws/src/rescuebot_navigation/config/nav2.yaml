@@ -1,0 +1,198 @@
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom
+    transform_tolerance: 0.2
+    navigators: [navigate_to_pose]
+    navigate_to_pose:
+      plugin: nav2_bt_navigator::NavigateToPoseNavigator
+
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    controller_frequency: 20.0
+    cmd_vel_topic: /cmd_vel_nav
+    min_x_velocity_threshold: 0.01
+    min_y_velocity_threshold: 0.01
+    min_theta_velocity_threshold: 0.01
+    failure_tolerance: 0.0
+    progress_checker_plugins: [progress_checker]
+    goal_checker_plugins: [goal_checker]
+    controller_plugins: [FollowPath]
+    progress_checker:
+      plugin: nav2_controller::PoseProgressChecker
+      required_movement_radius: 0.03
+      required_movement_angle: 0.15
+      movement_time_allowance: 15.0
+    goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.15
+      stateful: true
+    FollowPath:
+      plugin: nav2_rotation_shim_controller::RotationShimController
+      primary_controller: dwb_core::DWBLocalPlanner
+      # Let DWB combine x/y translation with yaw through ordinary turns.
+      # Reserve the rotation shim for sharp reversals, handing back while
+      # still 37 degrees off-heading so alignment can finish in motion.
+      angular_dist_threshold: 1.75
+      angular_disengage_threshold: 0.65
+      forward_sampling_distance: 0.30
+      rotate_to_heading_angular_vel: 0.24
+      max_angular_accel: 0.60
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: true
+      rotate_to_heading_once: false
+      # Follow a nearby segment around bends. A distant local goal across a
+      # wall makes DWB's goal-distance critics oppose the required detour.
+      prune_distance: 0.30
+      forward_prune_distance: 0.60
+      shorten_transformed_plan: true
+      debug_trajectory_details: false
+      min_vel_x: -0.06
+      max_vel_x: 0.08
+      min_vel_y: -0.06
+      max_vel_y: 0.08
+      max_vel_theta: 0.24
+      min_speed_xy: 0.0
+      max_speed_xy: 0.08
+      acc_lim_x: 0.50
+      acc_lim_y: 0.50
+      acc_lim_theta: 1.50
+      decel_lim_x: -0.50
+      decel_lim_y: -0.50
+      decel_lim_theta: -1.50
+      vx_samples: 15
+      vy_samples: 15
+      vtheta_samples: 21
+      sim_time: 1.5
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.10
+      trans_stopped_velocity: 0.01
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+      critics: [RotateToGoal, Oscillation, BaseObstacle, GoalAlign, PathAlign, PathDist, GoalDist, PreferForward]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 16.0
+      PathAlign.forward_point_distance: 0.20
+      GoalAlign.scale: 8.0
+      GoalAlign.forward_point_distance: 0.20
+      PathDist.scale: 18.0
+      GoalDist.scale: 14.0
+      RotateToGoal.slowing_factor: 1.0
+      PreferForward.scale: 2.0
+      PreferForward.penalty: 1.0
+      PreferForward.strafe_x: 0.02
+      PreferForward.strafe_theta: 0.05
+      PreferForward.theta_scale: 0.2
+
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    expected_planner_frequency: 5.0
+    planner_plugins: [GridBased]
+    GridBased:
+      plugin: nav2_navfn_planner::NavfnPlanner
+      tolerance: 0.30
+      # A* potential extraction failed repeatedly on the mapped northern
+      # return route; Dijkstra finds that same route on the same costmap.
+      use_astar: false
+      allow_unknown: true
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_tolerance: 0.2
+    simulate_ahead_time: 1.0
+    max_rotational_vel: 0.24
+    min_rotational_vel: 0.05
+    rotational_acc_lim: 1.5
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: true
+      global_frame: odom
+      robot_base_frame: base_link
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      rolling_window: true
+      width: 4
+      height: 4
+      resolution: 0.05
+      robot_radius: 0.19
+      transform_tolerance: 0.2
+      plugins: [obstacle_layer, inflation_layer]
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: LaserScan
+          marking: true
+          clearing: true
+          obstacle_max_range: 3.0
+          raytrace_max_range: 4.0
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      global_frame: map
+      robot_base_frame: base_link
+      update_frequency: 4.0
+      publish_frequency: 2.0
+      resolution: 0.05
+      track_unknown_space: true
+      robot_radius: 0.19
+      transform_tolerance: 0.2
+      plugins: [static_layer, obstacle_layer, inflation_layer]
+      static_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: LaserScan
+          marking: true
+          clearing: true
+          obstacle_max_range: 5.0
+          raytrace_max_range: 6.0
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    loop_rate: 20
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    smoothing_frequency: 20.0
+    feedback: OPEN_LOOP
+    max_velocity: [0.08, 0.08, 0.24]
+    min_velocity: [-0.06, -0.06, -0.24]
+    max_accel: [0.50, 0.50, 1.50]
+    max_decel: [-0.50, -0.50, -1.50]
+    odom_topic: /odom
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]

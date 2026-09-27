@@ -1,0 +1,31 @@
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    enable_stamped_cmd_vel: false
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel_smoothed
+    cmd_vel_out_topic: /cmd_vel_safe
+    state_topic: /rescuebot/collision_state
+    transform_tolerance: 0.2
+    source_timeout: 0.5
+    base_shift_correction: true
+    # Preserve zero-output heartbeats during operator goal selection. After an
+    # hour stationary, host source expiry disarms; command TTL stays 250 ms.
+    stop_pub_timeout: 3600.0
+    polygons: [FootprintStop]
+    FootprintStop:
+      type: polygon
+      action_type: stop
+      min_points: 4
+      visualize: true
+      # Include sensor/IPC stopping distance outside the estimated chassis.
+      # The previous 0.19 x 0.16 half-extents allowed contact in runtime tests.
+      points: "[[0.30, 0.26], [0.30, -0.26], [-0.30, -0.26], [-0.30, 0.26]]"
+    observation_sources: [scan]
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true
+      min_height: 0.0
+      max_height: 1.0

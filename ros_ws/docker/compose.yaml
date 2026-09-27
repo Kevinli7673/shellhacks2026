@@ -1,0 +1,25 @@
+name: rescuebot-autonomy-sim
+
+services:
+  sim:
+    build:
+      context: ../..
+      dockerfile: ros_ws/docker/Dockerfile
+    image: rescuebot-autonomy-sim:jazzy
+    init: true
+    environment:
+      RESCUEBOT_WORLD: ${RESCUEBOT_WORLD:-indoor_maze.sdf}
+      RESCUEBOT_SYNTHETIC_TARGET_X: ${RESCUEBOT_SYNTHETIC_TARGET_X:-1.8}
+      RESCUEBOT_SYNTHETIC_TARGET_Y: ${RESCUEBOT_SYNTHETIC_TARGET_Y:-0.6}
+      RESCUEBOT_SYNTHETIC_TARGET_ENABLED: ${RESCUEBOT_SYNTHETIC_TARGET_ENABLED:-true}
+    shm_size: 1gb
+    stop_grace_period: 15s
+    ports:
+      - "127.0.0.1:18000:8000"
+      - "127.0.0.1:16080:6080"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/state', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
