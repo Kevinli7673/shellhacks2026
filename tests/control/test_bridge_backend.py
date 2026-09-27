@@ -280,6 +280,32 @@ class PhysicalAutonomyTests(unittest.TestCase):
         self.assertEqual(max(map(abs, wheels.values())), 45)
         self.assertTrue(all(value > 0 for value in wheels.values()))
 
+    def test_blended_autonomy_command_drives_one_axis_on_the_real_robot(self) -> None:
+        rig = self.armed_rig(allow_physical_autonomy=True)
+        rig.service.autonomy_min_pwm = 45
+        rig.service.autonomy_speed_percent = 54  # speed limit 54 of this rig's 100 ceiling
+        mission = rig.service.start_autonomy(rig.session)
+        assert mission is not None
+        # Nav2's blended command from the floor test: it mixed to
+        # 54/-17/7/30, and the two weak wheels stalled.
+        rig.service.autonomy.receive(AutonomyIntent(mission, 1, rig.clock.now + 0.2, 0.5, 0.75, 0.32))
+        rig.pump(10)
+        wheels = rig.service._last_snapshot.wheels.as_dict()
+        self.assertEqual(wheels, {"fl": 45, "fr": -45, "rl": -45, "rr": 45})  # pure right strafe, at the floor
+        self.assertEqual(rig.firmware.outputs, wheels)
+
+        # A slightly stronger forward doesn't flip the axis back and forth...
+        rig.service.autonomy.receive(AutonomyIntent(mission, 2, rig.clock.now + 0.2, 0.8, 0.7, 0.0))
+        rig.pump(10)
+        self.assertGreater(rig.service._last_snapshot.intent.sideways, 0.0)
+        self.assertEqual(rig.service._last_snapshot.intent.forward, 0.0)
+        # ...but a clearly stronger one takes over.
+        rig.service.autonomy.receive(AutonomyIntent(mission, 3, rig.clock.now + 0.2, 0.9, 0.3, 0.1))
+        rig.pump(10)
+        wheels = rig.service._last_snapshot.wheels.as_dict()
+        self.assertEqual(len(set(wheels.values())), 1)
+        self.assertGreaterEqual(wheels["fl"], 45)
+
     def test_silent_ros_source_disarms_the_real_robot(self) -> None:
         rig = self.armed_rig(allow_physical_autonomy=True)
         mission = rig.service.start_autonomy(rig.session)

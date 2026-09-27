@@ -18,6 +18,9 @@ from .navigation_ipc import NavigationHostEndpoint
 
 ARM_CONFIRM_TIMEOUT_S = 1.0
 ACCESSORY_NAMES = ("buzzer", "light")
+# The physical robot drives one autonomy axis at a time. The current axis is
+# kept until another one asks for this much more, so it doesn't chatter.
+AXIS_SWITCH_RATIO = 1.5
 # With nothing sent for this long and no alert playing, a firmware state that
 # differs from ours (reboot, new serial session, lost command) is adopted.
 ACCESSORY_ADOPT_S = 1.0
@@ -66,6 +69,7 @@ class RobotControlService:
         self.autonomy_speed_percent = max(10, min(100, int(autonomy_speed_percent)))
         self.autonomy_min_pwm = max(0, min(255, int(autonomy_min_pwm)))
         self._arming_since: float | None = None
+        self._autonomy_axis: str | None = None
         self._last_snapshot: ControlSnapshot | None = None
         self._base = {"buzzer": False, "light": False}
         self._sent = {"buzzer": False, "light": False}
@@ -153,6 +157,8 @@ class RobotControlService:
             self.control.stop("autonomy_timeout")
             return self.control.snapshot(now)
         speed_limit = round(self.control.pwm_ceiling * self.autonomy_speed_percent / 100)
+        if self._bridge is not None:
+            motion = self._single_axis(motion)
         wheels = mix_mecanum(motion.forward, motion.sideways, motion.turn, speed_limit)
         floor = min(self.autonomy_min_pwm, speed_limit)
         if 0 < max(abs(value) for value in wheels.as_dict().values()) < floor:
@@ -175,6 +181,25 @@ class RobotControlService:
             wheels=wheels,
             source="autonomy",
         )
+
+    def _single_axis(self, motion: DriveIntent) -> DriveIntent:
+        """Keep only the axis Nav2 wants most: forward, sideways, or turn.
+
+        Real wheels stall below autonomy_min_pwm, and a blended x/y/yaw
+        command leaves some wheels far below the strongest one. So one wheel
+        spins while the others stall. A single axis gives every wheel the same
+        magnitude, so all four turn. Nav2's 20 Hz loop corrects the rest.
+        """
+        axes = {"forward": motion.forward, "sideways": motion.sideways, "turn": motion.turn}
+        strongest = max(axes, key=lambda name: abs(axes[name]))
+        if axes[strongest] == 0.0:
+            self._autonomy_axis = None
+            return motion
+        current = self._autonomy_axis
+        if current is None or abs(axes[strongest]) > AXIS_SWITCH_RATIO * abs(axes[current]):
+            current = strongest
+        self._autonomy_axis = current
+        return DriveIntent(**{name: axes[name] if name == current else 0.0 for name in axes})
 
     def _reconcile_bridge(
         self, bridge: BridgeMotorBackend, snapshot: ControlSnapshot, now: float
