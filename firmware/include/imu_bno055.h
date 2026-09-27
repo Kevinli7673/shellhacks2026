@@ -10,15 +10,17 @@ struct ImuReading {
     uint8_t calibration = 0;  // 0-3, BNO055 system calibration status
 };
 
-// Adapter over the Adafruit BNO055 (I2C). A single bounded init attempt;
-// never blocks driving on sensor availability (IMPLEMENTATION_PLAN.md
-// section 7: "Missing IMU data reports unavailable and does not block
-// manual driving."). Only compiled for real firmware builds (guarded by
-// ARDUINO in imu_bno055.cpp); native/test builds get a no-op stand-in.
+// Adapter over the Adafruit BNO055 (I2C). Must never block driving on sensor
+// availability (IMPLEMENTATION_PLAN.md section 7: "Missing IMU data reports
+// unavailable and does not block manual driving."). Only compiled for real
+// firmware builds (guarded by ARDUINO in imu_bno055.cpp); native/test builds
+// get a no-op stand-in.
 class ImuSensor {
 public:
-    // One bounded attempt. False on failure; the caller should retry later
-    // at a low, timer-gated rate rather than looping here.
+    // One init attempt. Returns immediately if nothing answers at 0x28, but
+    // once the sensor answers, Adafruit_BNO055::begin() takes ~1 s and waits
+    // with no timeout for the chip to come back after its reset. Call it only
+    // while disarmed; main.cpp's loop watchdog recovers from that wait.
     bool begin();
 
     ImuReading read();

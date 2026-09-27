@@ -12,6 +12,8 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <esp_system.h>
+#include <esp_task_wdt.h>
 
 #include "chassis_config.h"
 #include "controller.h"
@@ -32,12 +34,20 @@ constexpr uint32_t kWatchdogTimeoutMs = 500;    // IMPLEMENTATION_PLAN.md sectio
 constexpr uint32_t kImuIntervalMs = 50;         // ~20 Hz telemetry cadence
 constexpr uint32_t kImuRetryIntervalMs = 1000;  // bounded, non-blocking re-init cadence
 constexpr uint32_t kMotorRetryIntervalMs = 1000;  // bounded, non-blocking shield re-init
+// Resets the chip if setup() or one loop() pass blocks this long. The longest
+// legitimate pass is a BNO055 begin() (~1.3 s). Adafruit_BNO055::begin() waits
+// forever if the chip does not answer after its reset, which once left the
+// robot silent (no IMU stream, no ACKs) until a manual RESET.
+constexpr uint32_t kLoopWatchdogTimeoutS = 3;
 
 LineReader g_line_reader;
 rescuebot::ChassisConfig g_chassis;  // TODO: set validated wheel mapping/ceiling before Stage G
 Controller g_controller(kWatchdogTimeoutMs, g_chassis.hardware_pwm_ceiling);
 MotorShield g_motors;
 ImuSensor g_imu;
+// False after a watchdog reset, so a stuck BNO055 cannot reset the robot in a
+// loop; the IMU then reports unavailable until the next power-on or RESET.
+bool g_imu_enabled = true;
 
 char g_out_buf[256];
 bool g_imu_ready = false;
@@ -85,6 +95,10 @@ void applyControllerOutputs() {
 }  // namespace
 
 void setup() {
+    esp_task_wdt_init(kLoopWatchdogTimeoutS, true);
+    enableLoopWDT();
+    g_imu_enabled = esp_reset_reason() != ESP_RST_TASK_WDT;
+
     Serial.begin(115200);
     // Initialize the shield first; begin() leaves every output off (section 7).
     g_motors_ready = g_motors.begin();
@@ -97,8 +111,10 @@ void setup() {
     size_t n = g_controller.boot(g_out_buf, sizeof(g_out_buf));
     sendLine(g_out_buf, n);
 
-    g_imu_ready = g_imu.begin();
-    configureI2cBus();
+    if (g_imu_enabled) {
+        g_imu_ready = g_imu.begin();
+        configureI2cBus();
+    }
     g_last_imu_attempt_ms = millis();
 }
 
@@ -131,7 +147,10 @@ void loop() {
         g_last_motor_attempt_ms = now_ms;
     }
 
-    if (!g_imu_ready && now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {
+    // Only while disarmed: a begin() that finds the sensor blocks ~1 s, longer
+    // than the 500 ms drive watchdog.
+    if (g_imu_enabled && !g_imu_ready && !g_controller.armed() &&
+        now_ms - g_last_imu_attempt_ms >= kImuRetryIntervalMs) {
         g_imu_ready = g_imu.begin();
         configureI2cBus();
         g_last_imu_attempt_ms = now_ms;

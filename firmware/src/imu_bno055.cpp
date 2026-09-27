@@ -7,15 +7,24 @@
 #ifdef ARDUINO
 
 #include <Adafruit_BNO055.h>
+#include <Wire.h>
 #include <utility/imumaths.h>
 
 namespace rescuebot {
 
 namespace {
-Adafruit_BNO055 g_bno(55, 0x28);
+constexpr uint8_t kBnoAddress = 0x28;
+Adafruit_BNO055 g_bno(55, kBnoAddress);
 }  // namespace
 
 bool ImuSensor::begin() {
+    // Adafruit_BNO055::begin() retries for ~850 ms when nothing answers, so a
+    // single-transaction probe keeps a missing sensor from stalling loop().
+    Wire.beginTransmission(kBnoAddress);
+    if (Wire.endTransmission() != 0) {
+        ready_ = false;
+        return false;
+    }
     ready_ = g_bno.begin();
     return ready_;
 }
