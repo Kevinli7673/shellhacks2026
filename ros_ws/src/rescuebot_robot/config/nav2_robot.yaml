@@ -1,0 +1,30 @@
+# Physical-robot overrides, loaded after rescuebot_navigation's nav2.yaml and
+# collision_monitor.yaml by autonomy.launch.py (the simulation keeps those).
+#
+# Robot space: an 8 in (0.203 m) radius around the LiDAR, which sits at
+# base_link. dashboard_bridge drops LiDAR returns inside it (range_min in
+# mapping.launch.py), so the robot's own parts never count as obstacles.
+collision_monitor:
+  ros__parameters:
+    polygons: [RobotApproach]
+    # Direction-aware: slow down, then stop, only when the current motion
+    # would reach an obstacle within time_before_collision. A pillar behind or
+    # beside the robot no longer blocks a move away from it.
+    RobotApproach:
+      type: circle
+      radius: 0.203
+      action_type: approach
+      time_before_collision: 1.2
+      simulation_time_step: 0.05
+      min_points: 4
+      visualize: true
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      robot_radius: 0.203
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      robot_radius: 0.203

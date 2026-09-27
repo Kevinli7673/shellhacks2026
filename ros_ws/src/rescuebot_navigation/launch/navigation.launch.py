@@ -1,7 +1,8 @@
 """Launch mapping and goal-navigation lifecycle nodes (simulation by default).
 
 The physical robot (rescuebot_robot autonomy.launch.py) passes use_sim_time:=false,
-slam:=false (it runs its own slam_toolbox) and person_topic:=/rescuebot/people.
+slam:=false (it runs its own slam_toolbox), person_topic:=/rescuebot/people and
+robot_params (its footprint and collision overrides).
 """
 
 from copy import deepcopy
@@ -24,6 +25,8 @@ def generate_launch_description():
     share = FindPackageShare("rescuebot_navigation")
     params = PathJoinSubstitution([share, "config", "nav2.yaml"])
     collision = PathJoinSubstitution([share, "config", "collision_monitor.yaml"])
+    # Loaded last; the physical robot passes rescuebot_robot's nav2_robot.yaml.
+    robot_params = LaunchConfiguration("robot_params")
     # Derive the search controller from the accepted controller configuration:
     # all speed, acceleration, obstacle, and path-tracking settings stay shared.
     package_share = Path(get_package_share_directory("rescuebot_navigation"))
@@ -59,6 +62,8 @@ def generate_launch_description():
         DeclareLaunchArgument("search_enabled", default_value="false", choices=["true", "false"]),
         DeclareLaunchArgument("use_sim_time", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("slam", default_value="true", choices=["true", "false"]),
+        DeclareLaunchArgument("robot_params", default_value=params,
+                              description="Parameter overrides loaded after nav2.yaml and collision_monitor.yaml."),
         DeclareLaunchArgument("person_topic", default_value="",
                               description="PoseArray of camera person sightings that ends a search."),
         DeclareLaunchArgument("synthetic_target_x", default_value="1.8"),
@@ -76,7 +81,7 @@ def generate_launch_description():
         ),
         *[Node(
             package=package, executable=name, name=name, output="screen",
-            parameters=[params, collision] + (
+            parameters=[params, collision, robot_params] + (
                 [search_parameters] if name == "controller_server" else
                 [{"default_nav_to_pose_bt_xml": normal_tree}] if name == "bt_navigator" else []
             ) + [{"use_sim_time": use_sim_time}], remappings=remappings,

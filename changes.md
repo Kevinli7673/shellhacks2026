@@ -299,6 +299,27 @@ Validation:
 - Next action: dashboard with the flag, run_autonomy.sh, wheels-off-ground
   navigation_goal test, then floor test.
 
+### 2026-09-27 EDT - Real-robot collision zone: 8 in robot space
+
+- Workstream: autonomy (test/full-product)
+- Status: in progress (bench test pending)
+- Changes and affected files/interfaces: set-distance goals showed "Navigating
+  to goal" but the wheels never turned: the simulation Collision Monitor box
+  (0.60 x 0.52 m, stop) held about 30 real LiDAR returns (robot parts at
+  8-16 cm, a nearby obstacle at 21-25 cm), so /cmd_vel_safe stayed zero.
+  Operator set the robot space to an 8 in (0.203 m) radius around the LiDAR:
+  dashboard_bridge range_min 0.203 (mapping.launch.py); new
+  rescuebot_robot/config/nav2_robot.yaml (Collision Monitor circle 0.203 m,
+  action approach, 1.2 s; costmap robot_radius 0.203), loaded last through the
+  new navigation.launch.py robot_params argument by autonomy.launch.py. The
+  simulation keeps its original values.
+- Tests: ROS parameters checked in the running container (polygons
+  [RobotApproach], approach, robot_radius 0.203, range_min 0.203); navigation
+  ready; no collision stop logged after start.
+- Known failures or limitations: obstacles closer than 8 in are invisible to
+  ROS. IMU unavailable, so heading is frozen.
+- Next action: wheels-off-ground set-distance goal.
+
 ## Entry template
 
 ### <ISO date/time with timezone> - <task ID and title>

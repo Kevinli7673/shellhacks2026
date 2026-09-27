@@ -38,6 +38,8 @@ def generate_launch_description() -> LaunchDescription:
             parameters=[{
                 "dashboard_url": dashboard_url,
                 "use_imu": ParameterValue(use_imu, value_type=bool),
+                # Robot space: returns within 8 in of the LiDAR are the robot itself.
+                "range_min": 0.203,
             }],
         ),
         IncludeLaunchDescription(

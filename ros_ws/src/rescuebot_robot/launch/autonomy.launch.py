@@ -35,6 +35,7 @@ def generate_launch_description() -> LaunchDescription:
                 "search_enabled": "true",
                 "synthetic_target_enabled": "false",
                 "person_topic": "/rescuebot/people",
+                "robot_params": str(robot_share / "config" / "nav2_robot.yaml"),
             }.items(),
         ),
         Node(
